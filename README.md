@@ -390,10 +390,8 @@ MIT License - see the [LICENSE](LICENSE) file for details
    # Check container health
    curl http://localhost:2000/health
    
-   # Verify services
-   curl http://localhost:6800/jsonrpc    # aria2
-   curl http://localhost:8080            # qBittorrent
-   curl http://localhost:3000            # JDownloader
+   # Check logs for service status
+   docker-compose logs -f aiogames
    ```
 
 3. **Common Operations**
@@ -474,13 +472,16 @@ The following volumes are used:
 - `/app/logs`: Log files
 - `mongodb_data`: MongoDB data
 
-### Port Mappings
+### Port Configuration
 
-- 2000: Frontend/Backend API
-- 6800: aria2 RPC
-- 8080: qBittorrent WebUI
-- 3000: JDownloader API
-- 27017: MongoDB (optional expose)
+- Exposed Port: 2000 (Frontend/Backend API)
+- Internal Services (not exposed):
+  - aria2 RPC: localhost:6800
+  - qBittorrent WebUI: localhost:8080
+  - JDownloader API: localhost:3000
+  - MongoDB: mongodb:27017
+
+All download services run in the same container and are accessed internally by the backend using localhost/127.0.0.1, improving security by minimizing exposed ports.
 
 ### Production Deployment
 

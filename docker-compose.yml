@@ -5,10 +5,7 @@ services:
     build: .
     container_name: aiogames
     ports:
-      - "${PORT:-2000}:2000"  # Frontend/Backend API
-      - "6800:6800"    # aria2 RPC
-      - "8080:8080"    # qBittorrent WebUI
-      - "3000:3000"    # JDownloader API
+      - "${PORT:-2000}:2000"  # Frontend/Backend API only
     volumes:
       - ./data:/app/data              # Application data
       - ./downloads:/app/downloads     # Download directory
