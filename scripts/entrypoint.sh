@@ -6,35 +6,50 @@ set -e
 
 echo "🚀 Starting AIOgames in production mode..."
 
-# Create directories first (as root if needed)
-mkdir -p /app/logs
-mkdir -p /app/downloads/temp
-mkdir -p /app/downloads/completed
-mkdir -p /app/downloads/incomplete
-mkdir -p /app/config
-mkdir -p /app/data
+# Ensure we're running as root for initial setup
+if [ "$(id -u)" != "0" ]; then
+    echo "❌ This script must run as root for initial setup"
+    exit 1
+fi
 
-# Create log files as root first
+echo "📁 Creating directory structure as root..."
+
+# Handle existing volumes by setting permissions first
+if [ -d "/app/logs" ]; then
+    chmod 755 /app/logs 2>/dev/null || true
+fi
+if [ -d "/app/downloads" ]; then  
+    chmod 755 /app/downloads 2>/dev/null || true
+fi
+if [ -d "/app/config" ]; then
+    chmod 755 /app/config 2>/dev/null || true  
+fi
+if [ -d "/app/data" ]; then
+    chmod 755 /app/data 2>/dev/null || true
+fi
+
+# Force create all directories as root with proper permissions
+mkdir -p /app/logs /app/data /app/config
+mkdir -p /app/downloads/{temp,completed,incomplete}
+
+# Create log files as root
 touch /app/logs/supervisord.log
 touch /app/logs/aria2.log
 touch /app/logs/qbittorrent.log
 touch /app/logs/jdownloader.log
 touch /app/logs/backend.log
 
-# Set ownership for all app directories and files
-echo "📁 Setting ownership and permissions..."
-chown -R aiogames:aiogames /app/logs
-chown -R aiogames:aiogames /app/config
-chown -R aiogames:aiogames /app/downloads
-chown -R aiogames:aiogames /app/data
+echo "� Setting ownership and permissions..."
+
+# Set ownership recursively for all app directories
+chown -R aiogames:aiogames /app/logs /app/data /app/config /app/downloads
 
 # Set proper permissions
+chmod 755 /app/logs /app/data /app/config /app/downloads
+chmod 755 /app/downloads/temp /app/downloads/completed /app/downloads/incomplete
 chmod 644 /app/logs/*.log
-chmod 755 /app/logs
-chmod 755 /app/downloads
-chmod 755 /app/downloads/temp
-chmod 755 /app/downloads/completed
-chmod 755 /app/downloads/incomplete
+
+echo "✅ Directory setup completed"
 mkdir -p /app/downloads/completed
 mkdir -p /app/downloads/incomplete
 
