@@ -1,0 +1,11 @@
+version: "3.9"
+
+services:
+  aiogames:
+    build: .
+    container_name: aiogames
+    ports:
+      - "2000:2000"
+    environment:
+      - NODE_ENV=production
+      - JWT_SECRET=supersecret
