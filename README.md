@@ -14,6 +14,20 @@ An all-in-one container for managing game downloads with multiple download servi
 - 📊 Real-time download progress monitoring
 - 🎯 User-friendly interface
 
+### Optional Features
+
+- 🎮 Steam Integration
+  - Game metadata and updates from Steam Web API
+  - Real-time update notifications
+  - Build version tracking
+  - Requires Steam Web API key
+
+- 🔍 SteamDB Integration
+  - Detailed build information
+  - Version history tracking
+  - Update changelogs
+  - Optional and can be enabled separately
+
 ## Prerequisites
 
 - Node.js (v16 or higher)
