@@ -6,28 +6,35 @@ set -e
 
 echo "🚀 Starting AIOgames in production mode..."
 
-# Set ownership if running as root (fallback)
-if [ "$(id -u)" = "0" ]; then
-    echo "📁 Setting ownership as root..."
-    chown -R aiogames:aiogames /app/logs
-    chown -R aiogames:aiogames /app/config
-    chown -R aiogames:aiogames /app/downloads
-    chown -R aiogames:aiogames /app/data
-fi
-
-# Create log files with proper ownership
+# Create directories first (as root if needed)
 mkdir -p /app/logs
-touch /app/logs/supervisord.log || echo "Warning: Could not create supervisord.log"
-touch /app/logs/aria2.log || echo "Warning: Could not create aria2.log"
-touch /app/logs/qbittorrent.log || echo "Warning: Could not create qbittorrent.log"
-touch /app/logs/jdownloader.log || echo "Warning: Could not create jdownloader.log"
-touch /app/logs/backend.log || echo "Warning: Could not create backend.log"
+mkdir -p /app/downloads/temp
+mkdir -p /app/downloads/completed
+mkdir -p /app/downloads/incomplete
+mkdir -p /app/config
+mkdir -p /app/data
+
+# Create log files as root first
+touch /app/logs/supervisord.log
+touch /app/logs/aria2.log
+touch /app/logs/qbittorrent.log
+touch /app/logs/jdownloader.log
+touch /app/logs/backend.log
+
+# Set ownership for all app directories and files
+echo "📁 Setting ownership and permissions..."
+chown -R aiogames:aiogames /app/logs
+chown -R aiogames:aiogames /app/config
+chown -R aiogames:aiogames /app/downloads
+chown -R aiogames:aiogames /app/data
 
 # Set proper permissions
-chmod 644 /app/logs/*.log 2>/dev/null || true
-
-# Ensure download directories exist
-mkdir -p /app/downloads/temp
+chmod 644 /app/logs/*.log
+chmod 755 /app/logs
+chmod 755 /app/downloads
+chmod 755 /app/downloads/temp
+chmod 755 /app/downloads/completed
+chmod 755 /app/downloads/incomplete
 mkdir -p /app/downloads/completed
 mkdir -p /app/downloads/incomplete
 
@@ -77,5 +84,5 @@ fi
 
 echo "🎯 All services initialized, starting supervisor..."
 
-# Start supervisord
-exec /usr/bin/supervisord -c /etc/supervisord.conf
+# Start supervisord as the aiogames user using gosu
+exec gosu aiogames /usr/bin/supervisord -c /etc/supervisord.conf
