@@ -1,6 +1,18 @@
 #!/bin/sh
 
-# AIOgames Production Entrypoint Script
+# AIOgame# Create log files
+touch /app/logs/supervisord.log
+touch /app/logs/aria2.log
+touch /app/logs/qbittorrent.log
+touch /app/logs/jdownloader.log
+touch /app/logs/backend.log
+
+echo "🔧 Setting permissions..."
+
+# Set proper permissions (running as root, so no ownership changes needed)
+chmod 755 /app/logs /app/data /app/config /app/downloads
+chmod 755 /app/downloads/temp /app/downloads/completed /app/downloads/incomplete  
+chmod 644 /app/logs/*.logrypoint Script
 
 set -e
 
@@ -12,23 +24,9 @@ if [ "$(id -u)" != "0" ]; then
     exit 1
 fi
 
-echo "📁 Creating directory structure as root..."
+echo "📁 Creating directory structure..."
 
-# Handle existing volumes by setting permissions first
-if [ -d "/app/logs" ]; then
-    chmod 755 /app/logs 2>/dev/null || true
-fi
-if [ -d "/app/downloads" ]; then  
-    chmod 755 /app/downloads 2>/dev/null || true
-fi
-if [ -d "/app/config" ]; then
-    chmod 755 /app/config 2>/dev/null || true  
-fi
-if [ -d "/app/data" ]; then
-    chmod 755 /app/data 2>/dev/null || true
-fi
-
-# Force create all directories as root with proper permissions
+# Create all required directories first
 mkdir -p /app/logs /app/data /app/config
 mkdir -p /app/downloads/{temp,completed,incomplete}
 
@@ -50,8 +48,6 @@ chmod 755 /app/downloads/temp /app/downloads/completed /app/downloads/incomplete
 chmod 644 /app/logs/*.log
 
 echo "✅ Directory setup completed"
-mkdir -p /app/downloads/completed
-mkdir -p /app/downloads/incomplete
 
 # Initialize services configuration
 echo "🔧 Initializing service configurations..."
@@ -99,5 +95,5 @@ fi
 
 echo "🎯 All services initialized, starting supervisor..."
 
-# Start supervisord as the aiogames user using gosu
-exec gosu aiogames /usr/bin/supervisord -c /etc/supervisord.conf
+# Start supervisord as root
+exec /usr/bin/supervisord -c /etc/supervisord.conf

@@ -6,12 +6,8 @@ services:
       context: .
       dockerfile: Dockerfile.prod
     container_name: aiogames-app
-    user: "0:0"  # Run as root to handle permissions
     ports:
-      - "${PORT:-3001}:3000"
-      - "6801:6800"   # Aria2 RPC
-      - "8081:8080"   # qBittorrent WebUI
-      - "3129:3128"   # JDownloader API
+      - "${PORT:-3001}:3000"  # Web interface only
     volumes:
       - aiogames_data:/app/data
       - downloads_data:/app/downloads

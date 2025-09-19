@@ -50,21 +50,18 @@ RUN apk update && \
     python3 \
     openjdk11-jre-headless \
     dumb-init \
-    gosu \
     && apk upgrade \
-    && rm -rf /var/cache/apk/* \
-    && addgroup -g 2000 aiogames && adduser -u 2000 -G aiogames -S aiogames
+    && rm -rf /var/cache/apk/*
 
 # Set working directory
 WORKDIR /app
 
-# Create required directories with proper permissions
+# Create required directories
 RUN mkdir -p /app/{data,downloads,config,logs,temp} \
-    /config/{aria2,qbittorrent,jd2} \
-    && chown -R aiogames:aiogames /app /config
+    /config/{aria2,qbittorrent,jd2}
 
 # Setup Aria2 configuration
-COPY --chown=aiogames:aiogames scripts/aria2.conf /config/aria2/aria2.conf
+COPY scripts/aria2.conf /config/aria2/aria2.conf
 
 # Setup qBittorrent configuration
 RUN mkdir -p /config/qbittorrent/config && \
@@ -78,31 +75,26 @@ WebUI\\ClickjackingProtection=false\n\
 WebUI\\LocalHostAuth=false\n\
 Downloads\\SavePath=/app/downloads\n\
 Downloads\\TempPath=/app/downloads/temp\n\
-' > /config/qbittorrent/config/qBittorrent.conf && \
-    chown -R aiogames:aiogames /config/qbittorrent
+' > /config/qbittorrent/config/qBittorrent.conf
 
 # Download and setup JDownloader
 RUN wget -O /app/JDownloader.jar https://installer.jdownloader.org/JDownloader.jar && \
-    chown aiogames:aiogames /app/JDownloader.jar && \
     chmod +x /app/JDownloader.jar
 
 # Copy backend files and dependencies
-COPY --from=backend-deps --chown=aiogames:aiogames /app/backend/node_modules /app/node_modules
-COPY --chown=aiogames:aiogames backend/ /app/
+COPY --from=backend-deps /app/backend/node_modules /app/node_modules
+COPY backend/ /app/
 
 # Copy frontend build
-COPY --from=frontend-builder --chown=aiogames:aiogames /app/frontend/dist /app/public
+COPY --from=frontend-builder /app/frontend/dist /app/public
 
 # Copy supervisor and service configuration
-COPY --chown=aiogames:aiogames scripts/supervisord.conf /etc/supervisord.conf
-COPY --chown=aiogames:aiogames scripts/entrypoint.sh /app/entrypoint.sh
+COPY scripts/supervisord.conf /etc/supervisord.conf
+COPY scripts/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 # Create volume mount points
 VOLUME ["/app/data", "/app/downloads", "/app/config", "/app/logs"]
-
-# Switch to non-root user
-USER aiogames
 
 # Set environment variables
 ENV NODE_ENV=production \
