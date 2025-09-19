@@ -337,6 +337,88 @@ MIT License - see the [LICENSE](LICENSE) file for details
 
 ## Docker Deployment
 
+### Pre-Deployment Checklist
+
+1. **Environment Setup**
+   Create `.env` file with required credentials:
+   ```bash
+   # Required Settings
+   PORT=2000                                    # App port
+   JWT_SECRET=generate-a-secure-random-string   # JWT token secret
+   MONGODB_URI=mongodb://mongodb:27017/aiogames # Leave as is for docker-compose
+   
+   # Download Service Credentials
+   ARIA2_SECRET=generate-a-secure-secret        # aria2 RPC secret
+   QB_USERNAME=admin                            # qBittorrent username
+   QB_PASSWORD=generate-a-strong-password       # qBittorrent password
+   JD_EMAIL=your-jd-account@email.com          # JDownloader email
+   JD_PASSWORD=your-jd-password                # JDownloader password
+   
+   # Optional: Steam Integration
+   STEAM_API_KEY=your-steam-api-key            # Optional for Steam features
+   ```
+
+2. **Directory Structure**
+   Create required directories:
+   ```bash
+   mkdir -p data downloads config logs
+   chmod 777 data downloads config logs  # Ensure container can write
+   ```
+
+### Deployment Commands
+
+1. **First-time Setup**
+   ```bash
+   # Clone repository
+   git clone https://github.com/darkmaster420/AIOgames.git
+   cd AIOgames
+   
+   # Create .env file (see above)
+   cp .env.example .env
+   nano .env  # Edit with your settings
+   
+   # Start services
+   docker-compose up -d
+   
+   # Check status
+   docker-compose ps
+   docker-compose logs -f
+   ```
+
+2. **Post-Deployment Verification**
+   ```bash
+   # Check container health
+   curl http://localhost:2000/health
+   
+   # Verify services
+   curl http://localhost:6800/jsonrpc    # aria2
+   curl http://localhost:8080            # qBittorrent
+   curl http://localhost:3000            # JDownloader
+   ```
+
+3. **Common Operations**
+   ```bash
+   # Stop services
+   docker-compose down
+   
+   # View logs
+   docker-compose logs -f aiogames    # Main container
+   docker-compose logs -f mongodb     # Database
+   
+   # Restart service
+   docker-compose restart aiogames
+   
+   # Rebuild after changes
+   docker-compose build --no-cache
+   docker-compose up -d
+   ```
+
+4. **Configuration Files Location**
+   - Main app config: `./config/`
+   - Downloads: `./downloads/`
+   - MongoDB data: `./data/`
+   - Logs: `./logs/`
+
 ### Quick Start
 
 1. Clone the repository:
