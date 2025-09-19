@@ -14,8 +14,8 @@ WORKDIR /app/frontend
 # Copy package files
 COPY frontend/package*.json ./
 
-# Install dependencies with clean npm cache
-RUN npm ci --only=production && npm cache clean --force
+# Install all dependencies (including devDependencies for build tools like Vite)
+RUN npm ci && npm cache clean --force
 
 # Copy source code and build
 COPY frontend/ ./
