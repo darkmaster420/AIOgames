@@ -1,7 +1,24 @@
 #!/bin/sh
 
-# AIOgame# Create log files
-touch /app/logs/supervisord.log
+# AIOgame# Create log# Create log filesecho "🔧 Setting permissions..."
+
+# Set proper permissions (running as root, no ownership changes needed)
+chmod 755 /app/logs /app/data /app/config /app/downloads
+chmod 755 /app/downloads/temp /app/downloads/completed /app/downloads/incomplete
+chmod 644 /app/logs/*.log
+
+echo "✅ Directory setup completed"/logs/supervisord.log
+touch /app/logs/aria2.log
+touch /app/logs/qbittorrent.log
+touch /app/logs/jdownloader.log
+touch /app/logs/backend.log
+
+echo "🔧 Setting permissions..."
+
+# Set proper permissions (running as root, no ownership changes needed)
+chmod 755 /app/logs /app/data /app/config /app/downloads
+chmod 755 /app/downloads/temp /app/downloads/completed /app/downloads/incomplete
+chmod 644 /app/logs/*.logp/logs/supervisord.log
 touch /app/logs/aria2.log
 touch /app/logs/qbittorrent.log
 touch /app/logs/jdownloader.log
