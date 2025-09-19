@@ -9,6 +9,60 @@ const getAuthHeaders = () => {
     };
 };
 
+// Game API functions
+export const searchGames = async (query, site = 'all') => {
+    try {
+        const response = await fetch(`${BASE_URL}/api/games/search?query=${encodeURIComponent(query)}&site=${site}`, {
+            headers: getAuthHeaders()
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to search games');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error searching games:', error);
+        throw error;
+    }
+};
+
+export const getRecentGames = async () => {
+    try {
+        const response = await fetch(`${BASE_URL}/api/games/recent`, {
+            headers: getAuthHeaders()
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to get recent games');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error getting recent games:', error);
+        throw error;
+    }
+};
+
+export const processGameDownload = async (gameId, downloadInfo) => {
+    try {
+        const response = await fetch(`${BASE_URL}/api/games/${gameId}/download`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(downloadInfo)
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to process game download');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error processing game download:', error);
+        throw error;
+    }
+};
+
 // Fetch games from the API
 export const fetchGames = async () => {
     try {

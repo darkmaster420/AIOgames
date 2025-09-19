@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { fetchGames, checkSupportedDownloaders, addDownload } from '../api';
+import { fetchGames, checkSupportedDownloaders, addDownload, searchGames, getRecentGames, processGameDownload } from '../api';
 
 const Dashboard = () => {
     const [games, setGames] = useState([]);
@@ -12,10 +12,15 @@ const Dashboard = () => {
         loadGames();
     }, []);
 
+    const [searchQuery, setSearchQuery] = useState('');
+    const [selectedSite, setSelectedSite] = useState('all');
+
     const loadGames = async () => {
         try {
-            const data = await fetchGames();
-            setGames(data);
+            const data = searchQuery 
+                ? await searchGames(searchQuery, selectedSite)
+                : await getRecentGames();
+            setGames(data.results || []);
         } catch (err) {
             setError('Failed to load games');
         } finally {
@@ -52,7 +57,39 @@ const Dashboard = () => {
 
     return (
         <div className="container mx-auto p-4">
-            <h1 className="text-2xl font-bold mb-4">Game Updates</h1>
+            <div className="mb-6">
+                <div className="flex flex-col md:flex-row gap-4 items-center">
+                    <div className="flex-1 w-full">
+                        <input
+                            type="text"
+                            placeholder="Search games..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && loadGames()}
+                            className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                    </div>
+                    <select
+                        value={selectedSite}
+                        onChange={(e) => setSelectedSite(e.target.value)}
+                        className="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                        <option value="all">All Sites</option>
+                        <option value="skidrow">Skidrow</option>
+                        <option value="freegog">FreeGOG</option>
+                        <option value="gamedrive">GameDrive</option>
+                        <option value="steamrip">SteamRip</option>
+                    </select>
+                    <button
+                        onClick={loadGames}
+                        className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                        Search
+                    </button>
+                </div>
+            </div>
+
+            <h1 className="text-2xl font-bold mb-4">{searchQuery ? 'Search Results' : 'Recent Updates'}</h1>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {games.map((game) => (
                     <div key={game.id} className="border rounded-lg p-4 shadow-sm">
