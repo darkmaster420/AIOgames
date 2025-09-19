@@ -66,27 +66,14 @@ COPY --from=frontend-build --chown=appuser:appgroup /app/frontend/dist /app/fron
 # Copy supervisord config
 COPY --chown=appuser:appgroup supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
+# Create volume mount points
+VOLUME ["/app/data", "/app/downloads", "/app/config", "/app/logs"]
+
 # Switch to appuser
 USER appuser
 
 # Start supervisord
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
-
-# Create necessary directories
-RUN mkdir -p /app/data /app/downloads /app/config /app/logs && \
-    chown -R appuser:appgroup /app
-
-# Copy supervisor configuration
-COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-
-# Copy built frontend from frontend-build
-COPY --from=frontend-build --chown=appuser:appgroup /app/frontend/dist ./public
-
-# Copy backend from backend-build
-COPY --from=backend-build --chown=appuser:appgroup /app/backend ./
-
-# Create volume mount points
-VOLUME ["/app/data", "/app/downloads", "/app/config", "/app/logs"]
 
 # Expose ports
 EXPOSE 2000 6800 8080 3000
