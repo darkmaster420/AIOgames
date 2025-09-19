@@ -49,6 +49,29 @@ RUN apk add --no-cache \
 WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
+# Create required directories with proper permissions
+RUN mkdir -p /app/logs /app/downloads && \
+    chown -R appuser:appgroup /app
+
+# Download JDownloader
+RUN wget -O JDownloader.jar https://installer.jdownloader.org/JDownloader.jar && \
+    mv JDownloader.jar /app/JDownloader.jar && \
+    chown appuser:appgroup /app/JDownloader.jar && \
+    chmod +x /app/JDownloader.jar
+
+# Copy backend and frontend from their build stages
+COPY --from=backend-build --chown=appuser:appgroup /app/backend /app/
+COPY --from=frontend-build --chown=appuser:appgroup /app/frontend/dist /app/frontend/dist
+
+# Copy supervisord config
+COPY --chown=appuser:appgroup supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Switch to appuser
+USER appuser
+
+# Start supervisord
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+
 # Create necessary directories
 RUN mkdir -p /app/data /app/downloads /app/config /app/logs && \
     chown -R appuser:appgroup /app
