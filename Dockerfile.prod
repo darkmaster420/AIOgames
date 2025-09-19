@@ -53,7 +53,7 @@ RUN apk update && \
     gosu \
     && apk upgrade \
     && rm -rf /var/cache/apk/* \
-    && addgroup -g 1000 aiogames && adduser -u 1000 -G aiogames -S aiogames
+    && addgroup -g 2000 aiogames && adduser -u 2000 -G aiogames -S aiogames
 
 # Set working directory
 WORKDIR /app
