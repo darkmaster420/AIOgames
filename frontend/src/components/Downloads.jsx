@@ -46,23 +46,23 @@ const Downloads = () => {
         }
     };
 
-    if (loading) return <div className="p-4">Loading...</div>;
+    if (loading) return <div className="p-4 text-gray-900 dark:text-gray-100">Loading...</div>;
     if (error) return <div className="p-4 text-red-500">{error}</div>;
 
     return (
-        <div className="container mx-auto p-4">
-            <h1 className="text-2xl font-bold mb-4">Downloads</h1>
-            <div className="space-y-4">
+        <div className="container mx-auto p-2 sm:p-4">
+            <h1 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4 text-gray-900 dark:text-gray-100">Downloads</h1>
+            <div className="space-y-3 sm:space-y-4">
                 {downloads.map((download) => (
-                    <div key={download.id} className="border rounded-lg p-4 shadow-sm">
-                        <div className="flex justify-between items-start mb-2">
-                            <div>
-                                <h3 className="font-semibold">{download.title}</h3>
-                                <p className="text-sm text-gray-600">
+                    <div key={download.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 sm:p-4 shadow-sm bg-white dark:bg-gray-800">
+                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 sm:gap-4 mb-2">
+                            <div className="flex-1 min-w-0">
+                                <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate">{download.title}</h3>
+                                <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
                                     Downloading with {download.downloader}
                                 </p>
                             </div>
-                            <span className={`px-2 py-1 rounded text-sm ${
+                            <span className={`px-2 py-1 rounded text-xs sm:text-sm whitespace-nowrap ${
                                 download.status === 'completed' ? 'bg-green-100 text-green-800' :
                                 download.status === 'error' ? 'bg-red-100 text-red-800' :
                                 'bg-blue-100 text-blue-800'
@@ -79,7 +79,7 @@ const Downloads = () => {
                                         style={{ width: `${download.progress}%` }}
                                     />
                                 </div>
-                                <div className="flex justify-between text-sm text-gray-600 mt-1">
+                                <div className="flex justify-between text-sm text-gray-600 dark:text-gray-300 mt-1">
                                     <span>{download.progress.toFixed(1)}%</span>
                                     {download.downloadSpeed && (
                                         <span>{formatSpeed(download.downloadSpeed)}</span>

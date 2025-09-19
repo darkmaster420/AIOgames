@@ -1,199 +1,295 @@
 import React, { useState, useEffect } from 'react';
 import { useSocket } from '../socket';
+import { ProxiedImage } from '../utils/imageProxy.jsx';
+import { useTheme } from '../contexts/ThemeContext';
 
 const Updates = () => {
-    const [games, setGames] = useState([]);
+    const [updates, setUpdates] = useState([]);
     const [notifications, setNotifications] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [steamEnabled, setSteamEnabled] = useState(false);
+    const [lastCheck, setLastCheck] = useState(null);
     const socket = useSocket();
+    const { isDarkMode } = useTheme();
 
     useEffect(() => {
-        loadGames();
+        loadUpdates();
         loadNotifications();
-        checkSteamStatus();
 
         // Listen for real-time updates
         if (socket) {
             socket.on('gameUpdate', handleGameUpdate);
-            return () => socket.off('gameUpdate', handleGameUpdate);
+            socket.on('gameUpdateNotification', handleUpdateNotification);
+            return () => {
+                socket.off('gameUpdate', handleGameUpdate);
+                socket.off('gameUpdateNotification', handleUpdateNotification);
+            };
         }
     }, [socket]);
 
-    const checkSteamStatus = async () => {
+    const loadUpdates = async () => {
         try {
-            const response = await fetch('/api/config/steam', {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                }
-            });
-            const data = await response.json();
-            setSteamEnabled(!!data.enabled);
-        } catch (err) {
-            console.error('Failed to check Steam status:', err);
-            setSteamEnabled(false);
-        }
-    };
-
-    const loadGames = async () => {
-        try {
+            console.log('Fetching updates...');
             const response = await fetch('/api/games/updates', {
                 headers: {
                     'Authorization': `Bearer ${localStorage.getItem('token')}`
                 }
             });
+            console.log('Response status:', response.status);
             const data = await response.json();
-            if (Array.isArray(data.updates)) {
-                setGames(data.updates);
+            console.log('Response data:', data);
+            
+            if (data.updates) {
+                setUpdates(data.updates);
+                setLastCheck(data.lastCheck);
             } else {
-                setGames([]);
+                setUpdates([]);
             }
         } catch (err) {
-            setError('Failed to load game updates');
-            console.error(err);
+            console.error('Error fetching updates:', err);
+            setError('Failed to fetch updates: ' + err.message);
+            setUpdates([]);
         } finally {
             setLoading(false);
         }
     };
 
     const loadNotifications = async () => {
-        // For now, notifications are the same as updates
-        try {
-            const response = await fetch('/api/games/updates', {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                }
-            });
-            const data = await response.json();
-            if (Array.isArray(data.updates)) {
-                setNotifications(data.updates);
-            } else {
-                setNotifications([]);
-            }
-        } catch (err) {
-            console.error('Failed to load notifications:', err);
+        // Load recent update notifications from localStorage or API
+        const saved = localStorage.getItem('gameNotifications');
+        if (saved) {
+            setNotifications(JSON.parse(saved));
         }
     };
 
     const handleGameUpdate = (updateData) => {
+        console.log('Received game update:', updateData);
         // Add new notification
-        setNotifications(prev => [updateData, ...prev]);
+        const newNotification = {
+            id: Date.now(),
+            gameId: updateData.gameId,
+            title: updateData.title,
+            version: updateData.version,
+            timestamp: updateData.timestamp,
+            message: `New version ${updateData.version} available for ${updateData.title}`
+        };
         
-        // Update game in list
-        setGames(prev => prev.map(game => {
-            if (game.appId === updateData.appId) {
-                return {
-                    ...game,
-                    monitoring: {
-                        ...game.monitoring,
-                        updateAvailable: true
-                    }
-                };
-            }
-            return game;
-        }));
+        setNotifications(prev => {
+            const updated = [newNotification, ...prev.slice(0, 9)]; // Keep only 10 most recent
+            localStorage.setItem('gameNotifications', JSON.stringify(updated));
+            return updated;
+        });
+        
+        // Refresh updates list
+        loadUpdates();
     };
 
-    const handleSearchUpdate = async (game) => {
+    const handleUpdateNotification = (notificationData) => {
+        console.log('Received update notification:', notificationData);
+        const newNotification = {
+            id: Date.now(),
+            title: notificationData.title,
+            version: notificationData.version,
+            timestamp: notificationData.timestamp,
+            message: `${notificationData.title} has been updated to version ${notificationData.version}`
+        };
+        
+        setNotifications(prev => {
+            const updated = [newNotification, ...prev.slice(0, 9)];
+            localStorage.setItem('gameNotifications', JSON.stringify(updated));
+            return updated;
+        });
+    };
+
+    const handleCheckForUpdates = async () => {
+        setLoading(true);
         try {
-            await fetch(`/api/games/${game.appId}/search-update`, {
+            const response = await fetch('/api/games/check-updates', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${localStorage.getItem('token')}`,
                     'Content-Type': 'application/json'
                 }
             });
-            // Refresh game data
-            loadGames();
+            const data = await response.json();
+            console.log('Update check results:', data);
+            
+            if (data.results) {
+                const updatesFound = data.updatesFound;
+                if (updatesFound > 0) {
+                    setNotifications(prev => [{
+                        id: Date.now(),
+                        message: `Found ${updatesFound} updates for tracked games`,
+                        timestamp: new Date(),
+                        type: 'check-result'
+                    }, ...prev.slice(0, 9)]);
+                }
+                // Refresh the updates list
+                loadUpdates();
+            }
         } catch (err) {
-            setError('Failed to search for updates');
+            setError('Failed to check for updates: ' + err.message);
+        } finally {
+            setLoading(false);
         }
     };
 
-    if (loading) return <div className="p-4">Loading...</div>;
-    if (error) return <div className="p-4 text-red-500">{error}</div>;
+    const clearNotifications = () => {
+        setNotifications([]);
+        localStorage.removeItem('gameNotifications');
+    };
+
+    const formatTimeAgo = (date) => {
+        if (!date) return '';
+        const now = new Date();
+        const diff = now - new Date(date);
+        const minutes = Math.floor(diff / 60000);
+        const hours = Math.floor(minutes / 60);
+        const days = Math.floor(hours / 24);
+
+        if (days > 0) return `${days}d ago`;
+        if (hours > 0) return `${hours}h ago`;
+        if (minutes > 0) return `${minutes}m ago`;
+        return 'Just now';
+    };
+
+    if (loading) return <div className="p-4 text-gray-900 dark:text-gray-100">Loading updates...</div>;
+    if (error) return <div className="p-4 text-red-500 dark:text-red-400">{error}</div>;
 
     return (
         <div className="container mx-auto p-4">
-            <div className="flex justify-between items-center mb-4">
-                <h1 className="text-2xl font-bold">Game Updates</h1>
-                <div className="text-sm text-gray-500">
-                    Steam Integration: {steamEnabled ? (
-                        <span className="text-green-500">Enabled</span>
-                    ) : (
-                        <span className="text-gray-500">Disabled</span>
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Game Updates</h1>
+                <div className="flex items-center gap-4">
+                    <button
+                        onClick={handleCheckForUpdates}
+                        disabled={loading}
+                        className="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 text-white px-4 py-2 rounded-md transition-colors"
+                    >
+                        {loading ? 'Checking...' : 'Check for Updates'}
+                    </button>
+                    {lastCheck && (
+                        <div className="text-sm text-gray-500 dark:text-gray-400">
+                            Last check: {formatTimeAgo(lastCheck)}
+                        </div>
                     )}
                 </div>
             </div>
-
-            {!steamEnabled && (
-                <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-8">
-                    <h3 className="font-medium">Steam Integration Disabled</h3>
-                    <p className="text-gray-600">
-                        Steam features are currently disabled. To enable Steam integration:
-                        <ol className="list-decimal ml-5 mt-2">
-                            <li>Get a Steam Web API key from the Steam Developer portal</li>
-                            <li>Add the API key to your environment configuration</li>
-                            <li>Restart the application</li>
-                        </ol>
-                    </p>
-                </div>
-            )}
             
             {/* Notifications Section */}
             <div className="mb-8">
-                <h2 className="text-xl font-semibold mb-4">Recent Updates</h2>
-                <div className="space-y-4">
-                    {notifications.map((notification, index) => (
-                        <div key={index} className="bg-blue-50 border-l-4 border-blue-500 p-4">
-                            <div className="flex justify-between">
-                                <h3 className="font-medium">{notification.name}</h3>
-                                <span className="text-sm text-gray-500">
-                                    {new Date(notification.timestamp).toLocaleString()}
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Recent Notifications</h2>
+                    {notifications.length > 0 && (
+                        <button
+                            onClick={clearNotifications}
+                            className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                        >
+                            Clear All
+                        </button>
+                    )}
+                </div>
+                <div className="space-y-3">
+                    {notifications.map((notification) => (
+                        <div key={notification.id} className="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 p-4 rounded-r-md">
+                            <div className="flex justify-between items-start">
+                                <div>
+                                    <h3 className="font-medium text-gray-900 dark:text-gray-100">
+                                        {notification.title || 'Update Notification'}
+                                    </h3>
+                                    <p className="text-gray-600 dark:text-gray-300 mt-1">{notification.message}</p>
+                                </div>
+                                <span className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap ml-4">
+                                    {formatTimeAgo(notification.timestamp)}
                                 </span>
                             </div>
-                            <p className="text-gray-600">{notification.message}</p>
                         </div>
                     ))}
                     {notifications.length === 0 && (
-                        <p className="text-gray-500">No recent updates</p>
+                        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                            <p>No recent notifications</p>
+                            <p className="text-sm mt-1">Updates will appear here when available</p>
+                        </div>
                     )}
                 </div>
             </div>
 
-            {/* Monitored Games Section */}
+            {/* Updates Section */}
             <div>
-                <h2 className="text-xl font-semibold mb-4">Monitored Games</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {games.map(game => (
-                        <div key={game.appId} className={`border rounded-lg p-4 ${
-                            game.monitoring.updateAvailable ? 'bg-green-50 border-green-500' : ''
-                        }`}>
-                            {game.metadata.headerImage && (
-                                <img
-                                    src={game.metadata.headerImage}
-                                    alt={game.name}
-                                    className="w-full h-32 object-cover rounded-lg mb-4"
-                                />
-                            )}
-                            <h3 className="font-semibold mb-2">{game.name}</h3>
-                            <div className="text-sm text-gray-600 mb-4">
-                                <p>Current Build: {game.steamData.currentBuildId}</p>
-                                <p>Last Update: {new Date(game.steamData.lastUpdate).toLocaleDateString()}</p>
+                <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-gray-100">
+                    Available Updates ({updates.length})
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {updates.map(update => (
+                        <div key={update.id} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow">
+                            <div className="flex items-start justify-between mb-3">
+                                <h3 className="font-semibold text-gray-900 dark:text-gray-100 line-clamp-2">
+                                    {update.title}
+                                </h3>
+                                <span className="ml-2 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 text-xs px-2 py-1 rounded-full whitespace-nowrap">
+                                    Update Available
+                                </span>
                             </div>
-                            {game.monitoring.updateAvailable && (
-                                <button
-                                    onClick={() => handleSearchUpdate(game)}
-                                    className="w-full bg-green-500 text-white py-2 px-4 rounded hover:bg-green-600"
-                                >
-                                    Search for Update
-                                </button>
+                            
+                            <div className="space-y-2 text-sm text-gray-600 dark:text-gray-300">
+                                <div className="flex justify-between">
+                                    <span>Current Version:</span>
+                                    <span className="font-mono bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-xs">
+                                        {update.lastKnownVersion || 'Unknown'}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span>New Version:</span>
+                                    <span className="font-mono bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 px-2 py-1 rounded text-xs">
+                                        {update.currentVersion}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span>Status:</span>
+                                    <span className={`px-2 py-1 rounded text-xs ${
+                                        update.status === 'update-available' 
+                                            ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'
+                                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                                    }`}>
+                                        {update.status.replace('-', ' ').toUpperCase()}
+                                    </span>
+                                </div>
+                                {update.lastChecked && (
+                                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                                        Last checked: {formatTimeAgo(update.lastChecked)}
+                                    </div>
+                                )}
+                            </div>
+
+                            {update.updateHistory && update.updateHistory.length > 0 && (
+                                <div className="mt-4 pt-3 border-t border-gray-200 dark:border-gray-600">
+                                    <div className="text-sm text-gray-600 dark:text-gray-300">
+                                        <div className="font-medium mb-1">Recent Changes:</div>
+                                        <div className="text-xs bg-gray-50 dark:bg-gray-700/50 p-2 rounded">
+                                            {update.updateHistory[0].changes || 'No changelog available'}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {update.metadata && (
+                                <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+                                    <div className="flex justify-between items-center text-xs text-gray-500 dark:text-gray-400">
+                                        <span>Source: {update.metadata.source || 'Unknown'}</span>
+                                        {update.updateCount > 0 && (
+                                            <span>{update.updateCount} updates tracked</span>
+                                        )}
+                                    </div>
+                                </div>
                             )}
                         </div>
                     ))}
-                    {games.length === 0 && (
-                        <p className="text-gray-500">No games being monitored</p>
+                    {updates.length === 0 && (
+                        <div className="col-span-full text-center py-12 text-gray-500 dark:text-gray-400">
+                            <div className="text-6xl mb-4">🎮</div>
+                            <p className="text-lg font-medium">No updates available</p>
+                            <p className="text-sm mt-1">All your tracked games are up to date!</p>
+                        </div>
                     )}
                 </div>
             </div>

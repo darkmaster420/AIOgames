@@ -2,52 +2,102 @@
 
 An all-in-one container for managing game downloads with multiple download service support. The application provides a secure dashboard that displays game updates and allows users to manage downloads through various services like aria2, JDownloader, and qBittorrent. It integrates with a game search API to provide up-to-date game information and download options.
 
+## 🚀 Quick Start
+
+### One-Command Deployment
+```bash
+chmod +x ./deploy.sh && ./deploy.sh
+```
+The deployment script automatically detects your MongoDB configuration and sets up the appropriate environment.
+
+### Manual Production Deployment
+```bash
+# Using external MongoDB (MongoDB.com, Atlas, etc.)
+docker compose -f docker-compose.prod.yml up --build -d
+
+# Using local MongoDB container
+docker compose up --build -d
+```
+
+### Development Mode
+```bash
+# Start backend
+cd backend && npm install && npm run dev
+
+# Start frontend (in new terminal)
+cd frontend && npm install && npm run dev
+```
+
+## 📱 Access Your Application
+
+- **Web Interface**: http://localhost:3000
+- **Health Check**: http://localhost:3000/health
+- **Aria2 RPC**: http://localhost:6801
+- **qBittorrent Web UI**: http://localhost:8081
+- **JDownloader API**: http://localhost:3129
+
+Default login: `admin` / `admin`
+
 ## Overview
 
 AIOgames is designed to be a comprehensive game management and download solution. It combines:
 - A powerful game search and information system
-- Multiple download service integrations
-- Secure user authentication
-- Real-time progress monitoring
-- Optional Steam integration for game updates
-
-The system is built to be modular, allowing you to enable or disable features based on your needs.
+- Multiple download service integrations (aria2, qBittorrent, JDownloader)
+- Secure user authentication with JWT
+- Real-time progress monitoring via WebSocket
+- Mobile-responsive interface with dark mode
+- Automated MongoDB deployment selection
+- Production-ready Docker containerization
+- Game tracking and update detection system
 
 ## Architecture
 
 ### Frontend
-- React-based dashboard
+- React-based dashboard with mobile-first design
 - Real-time updates using Socket.IO
-- Responsive design with Tailwind CSS
+- Responsive design with Tailwind CSS and dark mode
 - Secure authentication handling
 - Download progress visualization
+- Mobile hamburger navigation
 
 ### Backend
-- Node.js Express server
-- MongoDB for data persistence
+- Node.js Express server with production static file serving
+- MongoDB for data persistence (cloud or container)
 - JWT-based authentication
 - WebSocket support for real-time updates
-- Multiple download service integrations
+- Multiple download service integrations with container networking
+- Comprehensive error handling and connection retry logic
 
-### Download Services
-- aria2: For HTTP/HTTPS/FTP downloads
-- JDownloader: For premium hosting sites
-- qBittorrent: For torrent downloads
-- Automatic service selection based on link type
+### Download Services (Dockerized)
+- **aria2**: For HTTP/HTTPS/FTP downloads with RPC API
+- **JDownloader**: For premium hosting sites and link decryption
+- **qBittorrent**: For torrent downloads with web interface
+- **Automatic service selection** based on link type and availability
+- **Container networking** for reliable inter-service communication
 
 ### Game API Integration
-- Search across multiple game sources
-- Recent games feed
-- Automatic download link processing
-- Support for encrypted links
+- Search across multiple game sources (SkidrowReloaded, FreeGOGPCGames, GameDrive, SteamRip)
+- Recent games feed with update detection
+- Automatic download link processing and validation
+- Support for encrypted links and premium hosters
 - Image proxying to avoid CORS issues
+- Game tracking system with version monitoring
 
 ## Features
 
-- 🔒 Secure authentication system
-- 🎮 Game updates dashboard
-- 📥 Multiple downloader support:
-  - aria2 (HTTP/HTTPS/FTP)
+- 🔒 **Secure Authentication**: JWT-based login system with admin user management
+- 🎮 **Game Management**: Search, track, and monitor game updates across multiple sources
+- 📥 **Multi-Downloader Support**:
+  - **aria2** (HTTP/HTTPS/FTP downloads)
+  - **qBittorrent** (Torrent downloads with web UI)
+  - **JDownloader** (Premium hoster support)
+- 📱 **Mobile-Responsive**: Optimized interface for phones, tablets, and desktops
+- 🌙 **Dark Mode**: Full dark theme support with system preference detection
+- 🔄 **Real-time Updates**: Live download progress and game update notifications
+- 🐳 **Production Ready**: Multi-stage Docker builds with automated deployment
+- 📊 **Storage Management**: Monitor disk usage and manage download locations
+- 🔍 **Advanced Search**: Filter by source, date, and game type
+- 📚 **Game Tracking**: Monitor favorite games for updates automatically
   - JDownloader (Premium hosting sites)
   - qBittorrent (Torrent files)
 - 🔄 Automatic service detection
@@ -68,86 +118,136 @@ The system is built to be modular, allowing you to enable or disable features ba
   - Update changelogs
   - Optional and can be enabled separately
 
-## Prerequisites
+## 📋 Prerequisites
 
-- Node.js (v16 or higher)
-- Docker and Docker Compose
-- aria2 daemon
-- JDownloader
-- qBittorrent with WebUI enabled
+- **Docker & Docker Compose** (recommended for production)
+- **Node.js v20+** (for development)
+- **MongoDB** (cloud service like MongoDB.com/Atlas or local container)
 
-## Installation
+## 🛠️ Installation & Deployment
 
-1. Clone the repository:
+### Method 1: Automated Production Deployment (Recommended)
+
+1. **Clone the repository:**
 ```bash
 git clone https://github.com/darkmaster420/AIOgames.git
 cd AIOgames
 ```
 
-2. Install dependencies for both frontend and backend:
-```bash
-# Install frontend dependencies
-cd frontend
-npm install
-
-# Install backend dependencies
-cd ../backend
-npm install
-```
-
-3. Create environment files:
-
-`.env` for backend:
+2. **Configure environment variables:**
+Create `.env` file in the project root:
 ```env
-JWT_SECRET=your-secret-key
-PORT=3000
+# Database Configuration
+MONGODB_URI=mongodb://localhost:27017/aiogames  # or your MongoDB.com URI
 
-# aria2 Configuration
-ARIA2_HOST=localhost
-ARIA2_PORT=6800
-ARIA2_SECRET=your-aria2-secret
+# Security
+JWT_SECRET=your-super-secure-jwt-secret-key
 
-# JDownloader Configuration
+# Downloader Services
+ARIA2_SECRET=your-aria2-rpc-secret
+QB_USERNAME=admin
+QB_PASSWORD=your-qbittorrent-password
 JD_EMAIL=your-myjdownloader-email
 JD_PASSWORD=your-myjdownloader-password
-JD_DEVICE_ID=your-device-id
 
-# qBittorrent Configuration
-QB_URL=http://localhost:8080
-QB_USERNAME=admin
-QB_PASSWORD=adminadmin
+# Optional: Steam Integration
+STEAM_API_KEY=your-steam-web-api-key
 ```
 
-`.env` for frontend:
-```env
-REACT_APP_API_URL=http://localhost:3000
-```
-
-## Running with Docker
-
-1. Start the containers using Docker Compose:
+3. **Deploy with automated script:**
 ```bash
-docker-compose up -d
+chmod +x ./deploy.sh
+./deploy.sh
 ```
 
-This will start:
-- Frontend application
-- Backend API
-- aria2 daemon
-- JDownloader
-- qBittorrent
+The script will:
+- ✅ Detect your MongoDB configuration (cloud vs container)
+- ✅ Select appropriate Docker Compose configuration
+- ✅ Build and start all services
+- ✅ Set up networking and volumes
+- ✅ Initialize default admin user
 
-## Manual Setup
+### Method 2: Manual Production Deployment
 
-1. Start the backend server:
+**For External MongoDB (MongoDB.com, Atlas, etc.):**
 ```bash
-cd backend
-npm start
+# Build and start with production configuration
+docker compose -f docker-compose.prod.yml up --build -d
+
+# View logs
+docker compose -f docker-compose.prod.yml logs -f
+
+# Stop services
+docker compose -f docker-compose.prod.yml down
 ```
 
-2. Start the frontend development server:
+**For Local MongoDB Container:**
 ```bash
-cd frontend
+# Build and start with local MongoDB
+docker compose up --build -d
+
+# View logs  
+docker compose logs -f
+
+# Stop services
+docker compose down
+```
+
+### Method 3: Development Setup
+
+1. **Install dependencies:**
+```bash
+# Backend dependencies
+cd backend && npm install
+
+# Frontend dependencies  
+cd ../frontend && npm install
+```
+
+2. **Start development servers:**
+```bash
+# Terminal 1: Start backend
+cd backend && npm run dev
+
+# Terminal 2: Start frontend
+cd frontend && npm run dev
+
+# Terminal 3: Start required services (aria2, qbittorrent, etc.)
+docker compose up aria2 qbittorrent -d
+```
+
+## 🔧 Service Management
+
+### Production Container Management
+```bash
+# View running services
+docker compose -f docker-compose.prod.yml ps
+
+# View service logs
+docker compose -f docker-compose.prod.yml logs [service-name]
+
+# Restart specific service
+docker compose -f docker-compose.prod.yml restart [service-name]
+
+# Update and rebuild
+docker compose -f docker-compose.prod.yml down
+docker compose -f docker-compose.prod.yml up --build -d
+
+# Clean rebuild (removes images)
+docker compose -f docker-compose.prod.yml down --rmi all
+docker compose -f docker-compose.prod.yml up --build -d
+```
+
+### Service Health Checks
+```bash
+# Check application health
+curl http://localhost:3000/health
+
+# Check individual services
+curl http://localhost:6801  # Aria2 RPC
+curl http://localhost:8081  # qBittorrent Web UI
+curl http://localhost:3129  # JDownloader API
+```
 npm start
 ```
 
@@ -218,36 +318,109 @@ mkdir -p ~/.aria2
 touch ~/.aria2/aria2.conf
 ```
 
-3. Add basic configuration to `~/.aria2/aria2.conf`:
-```conf
-enable-rpc=true
-rpc-secret=your-aria2-secret
-rpc-listen-port=6800
+## ⚙️ Configuration
+
+### Environment Variables Reference
+
+Create a `.env` file in the project root with the following variables:
+
+#### **Core Application Settings**
+```env
+# Application Environment
+NODE_ENV=production              # Set to 'production' for deployment
+DOCKER_ENV=true                 # Enable container networking mode
+PORT=3000                       # Application port (auto-detected in production)
+
+# Security
+JWT_SECRET=your-super-secure-jwt-secret-key-here
+
+# Database
+MONGODB_URI=mongodb://localhost:27017/aiogames
+# For MongoDB.com/Atlas: mongodb+srv://user:pass@cluster.mongodb.net/aiogames
 ```
 
-### JDownloader
+#### **Download Service Configuration**
+```env
+# Aria2 (HTTP/HTTPS/FTP Downloads)
+ARIA2_URL=http://localhost:6800/jsonrpc    # Auto-configured for containers
+ARIA2_SECRET=your-strong-aria2-secret
 
-1. Create an account at [my.jdownloader.org](https://my.jdownloader.org/)
-2. Install JDownloader and connect it to your account
-3. Update the `.env` file with your MyJDownloader credentials
+# qBittorrent (Torrent Downloads)
+QBITTORRENT_URL=http://localhost:8080      # Auto-configured for containers  
+QB_USERNAME=admin
+QB_PASSWORD=your-secure-qbittorrent-password
 
-### qBittorrent
-
-1. Install qBittorrent:
-```bash
-sudo apt-get install qbittorrent-nox
+# JDownloader (Premium Hoster Support)
+JD_API_URL=http://localhost:3128/jd        # Auto-configured for containers
+JD_EMAIL=your-myjdownloader-email
+JD_PASSWORD=your-myjdownloader-password
+JD_DEVICE_ID=your-jdownloader-device-id
 ```
 
-2. Start qBittorrent and enable WebUI:
-```bash
-qbittorrent-nox --webui-port=8080
+#### **Optional: Steam Integration**
+```env
+# Steam Web API (for game metadata and updates)
+STEAM_API_KEY=your-steam-web-api-key       # Get from https://steamcommunity.com/dev/apikey
 ```
 
-3. Access the WebUI at http://localhost:8080 (default credentials: admin/adminadmin)
+### MongoDB Configuration Options
 
-## Detailed Usage Guide
+#### **Option 1: MongoDB.com / Atlas (Recommended for Production)**
+```env
+MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/aiogames?retryWrites=true&w=majority
+```
 
-### Authentication
+#### **Option 2: Local MongoDB Container (Development)**
+```env  
+MONGODB_URI=mongodb://localhost:27017/aiogames
+```
+
+#### **Option 3: Self-Hosted MongoDB**
+```env
+MONGODB_URI=mongodb://your-mongo-host:27017/aiogames
+```
+
+### Service URLs (Auto-Configured)
+
+The application automatically configures service URLs based on environment:
+
+| Environment | Aria2 | qBittorrent | JDownloader |
+|-------------|-------|-------------|-------------|
+| **Development** | `http://localhost:6800` | `http://localhost:8080` | `http://localhost:3128` |
+| **Production/Docker** | `http://localhost:6800` (internal) | `http://localhost:8080` (internal) | `http://localhost:3128` (internal) |
+| **External Access** | `http://localhost:6801` | `http://localhost:8081` | `http://localhost:3129` |
+
+### Port Configuration
+
+| Service | Internal Port | External Port | Description |
+|---------|---------------|---------------|-------------|
+| **AIOgames Web** | 3000 | 3000 | Main application interface |
+| **Aria2 RPC** | 6800 | 6801 | Aria2 JSON-RPC interface |
+| **qBittorrent Web** | 8080 | 8081 | qBittorrent web interface |
+| **JDownloader API** | 3128 | 3129 | JDownloader API endpoint |
+
+### Volume Mounts (Production)
+
+```yaml
+volumes:
+  - aiogames_data:/app/data          # Application data
+  - downloads_data:/app/downloads    # Downloaded files
+  - config_data:/app/config         # Service configurations  
+  - logs_data:/app/logs             # Application logs
+```
+
+## 📖 Detailed Usage Guide
+
+### First Time Setup
+
+1. **Access the application**: http://localhost:3000
+2. **Login with default credentials**: 
+   - Username: `admin`
+   - Password: `admin`
+3. **Change default password** in the settings
+4. **Configure download services** if needed
+
+### Game Management
 1. Access the application through your web browser
 2. Create an account or log in with existing credentials
 3. JWT tokens are used for secure session management
@@ -615,63 +788,308 @@ The application integrates with a Cloudflare Worker-based game search API that p
 3. Add any required API authentication
 4. Set up error handling and monitoring
 
-## Troubleshooting
+## 🔧 Troubleshooting
 
-### Common Issues
+### Production Deployment Issues
 
-1. **Download Services**
-   - Check service connectivity
-   - Verify credentials
-   - Ensure proper port configuration
-   - Check logs for errors
+#### **Container Won't Start**
+```bash
+# Check container status
+docker compose -f docker-compose.prod.yml ps
 
-2. **Game API**
-   - Verify API endpoint accessibility
-   - Check rate limiting
-   - Monitor cache performance
-   - Review error responses
+# View detailed logs
+docker compose -f docker-compose.prod.yml logs
 
-3. **Steam Integration**
-   - Validate API key
-   - Check update intervals
-   - Verify game monitoring
-   - Review SteamDB access
+# Check resource usage
+docker stats aiogames-app
+```
 
-### Logging
+#### **Port Conflicts**
+```bash
+# Check what's using the ports
+netstat -tlnp | grep -E '(3000|6801|8081|3129)'
 
-The application uses a comprehensive logging system:
-- Access logs
-- Error logs
-- Download service logs
-- API integration logs
-- Security event logs
+# Kill conflicting processes
+sudo pkill -f aria2c
+sudo pkill -f qbittorrent
 
-### Monitoring
+# Or use different ports in docker-compose.prod.yml
+```
 
-Monitor system health through:
-- Download service status
-- API response times
-- Cache hit rates
-- Error rates
-- System resource usage
+#### **Permission Issues**
+```bash
+# Fix volume permissions
+docker compose -f docker-compose.prod.yml down
+docker volume rm aiogames_logs_data aiogames_config_data
+docker compose -f docker-compose.prod.yml up --build -d
+```
 
-## Support
+### Download Service Issues
+
+#### **Aria2 Connection Failed**
+```bash
+# Check Aria2 is running
+docker exec aiogames-app ps aux | grep aria2
+
+# Test Aria2 RPC
+curl -X POST http://localhost:6801/jsonrpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"test","method":"aria2.getVersion","params":["token:your-secret"]}'
+
+# Check logs
+docker exec aiogames-app tail -f /app/logs/backend.log | grep -i aria2
+```
+
+#### **qBittorrent WebUI Not Accessible**
+```bash
+# Access qBittorrent directly
+curl -I http://localhost:8081
+
+# Check qBittorrent process
+docker exec aiogames-app ps aux | grep qbittorrent
+
+# Reset qBittorrent config
+docker exec aiogames-app rm -rf /config/qbittorrent/config
+docker compose -f docker-compose.prod.yml restart
+```
+
+#### **JDownloader Not Connecting**
+```bash
+# Check JDownloader process
+docker exec aiogames-app ps aux | grep java
+
+# View JDownloader logs
+docker exec aiogames-app tail -f /app/logs/jdownloader.log
+
+# Verify MyJDownloader credentials
+# Login to https://my.jdownloader.org/ and check device status
+```
+
+### Database Connection Issues
+
+#### **MongoDB Connection Failed**
+```bash
+# Test MongoDB connection
+docker exec aiogames-app node -e "
+const mongoose = require('mongoose');
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => console.log('✅ MongoDB Connected'))
+  .catch(err => console.log('❌ MongoDB Error:', err.message));
+"
+
+# For MongoDB.com/Atlas issues:
+# 1. Check IP whitelist (add 0.0.0.0/0 for testing)
+# 2. Verify username/password
+# 3. Check network access in MongoDB Atlas
+```
+
+### Application Issues
+
+#### **Web Interface Won't Load**
+```bash
+# Check if backend is running
+curl http://localhost:3000/health
+
+# Check backend logs
+docker exec aiogames-app tail -f /app/logs/backend.log
+
+# Verify static files are served
+docker exec aiogames-app ls -la /app/public/
+
+# Test API endpoints
+curl http://localhost:3000/api/games
+```
+
+#### **Login Issues**
+```bash
+# Reset admin password
+docker exec aiogames-app node -e "
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+
+mongoose.connect(process.env.MONGODB_URI).then(async () => {
+  const { User } = await import('./src/models/user.js');
+  const hashedPassword = await bcrypt.hash('admin', 10);
+  await User.findOneAndUpdate({username: 'admin'}, {password: hashedPassword});
+  console.log('✅ Admin password reset to: admin');
+  process.exit(0);
+});
+"
+```
+
+### Performance Issues
+
+#### **Slow Download Speeds**
+```bash
+# Check aria2 configuration
+docker exec aiogames-app cat /config/aria2/aria2.conf
+
+# Monitor download progress
+docker exec aiogames-app aria2-rpc getGlobalStat
+
+# Check system resources
+docker stats aiogames-app
+```
+
+#### **High CPU/Memory Usage**
+```bash
+# Monitor container resources
+docker stats
+
+# Check service processes
+docker exec aiogames-app top
+
+# Restart specific services
+docker exec aiogames-app supervisorctl restart aria2
+docker exec aiogames-app supervisorctl restart qbittorrent
+```
+
+### Logs and Debugging
+
+#### **Access Application Logs**
+```bash
+# View all logs
+docker compose -f docker-compose.prod.yml logs -f
+
+# View specific service logs
+docker exec aiogames-app tail -f /app/logs/backend.log
+docker exec aiogames-app tail -f /app/logs/aria2.log
+docker exec aiogames-app tail -f /app/logs/qbittorrent.log
+docker exec aiogames-app tail -f /app/logs/jdownloader.log
+
+# View supervisor logs
+docker exec aiogames-app supervisorctl status
+```
+
+#### **Enable Debug Mode**
+```bash
+# Add to .env file
+DEBUG=true
+NODE_ENV=development
+
+# Rebuild and restart
+docker compose -f docker-compose.prod.yml down
+docker compose -f docker-compose.prod.yml up --build -d
+```
 
 ### Getting Help
-- GitHub Issues: Open an issue for bug reports or feature requests
-- Documentation: Refer to inline code documentation
-- Logs: Check application logs for detailed error information
-- Configuration: Verify all environment variables and settings
+
+If you encounter issues not covered here:
+
+1. **Check GitHub Issues**: [AIOgames Issues](https://github.com/darkmaster420/AIOgames/issues)
+2. **Enable debug logging** and share relevant log output
+3. **Include system information**:
+   - Docker version: `docker --version`
+   - Docker Compose version: `docker compose version`
+   - Operating system and version
+   - Available system resources
+
+## 🆕 Latest Features (v2.0)
+
+### 🚀 Production-Ready Deployment
+- **Automated deployment script** (`deploy.sh`) with MongoDB detection
+- **Multi-stage Docker builds** with optimized production images  
+- **Container networking** with reliable service communication
+- **Volume persistence** for data, downloads, configs, and logs
+- **Health checks** and proper service supervision
+
+### 📱 Mobile-First Interface
+- **Responsive design** that works on phones, tablets, and desktops
+- **Mobile navigation** with hamburger menu
+- **Touch-friendly controls** and optimized button layouts
+- **Dark mode support** with system preference detection
+- **Mobile-optimized notifications** and progress indicators
+
+### 🔧 Enhanced Service Integration  
+- **Smart URL detection** for development vs production environments
+- **Improved connection reliability** with extended timeouts and retry logic
+- **Container-aware networking** for Docker deployments
+- **Better error handling** with detailed connection status and cooldown timers
+- **Service health monitoring** with automatic restart capabilities
+
+### 📊 Advanced Game Management
+- **Game tracking system** with automatic update detection
+- **Multi-source search** across SkidrowReloaded, FreeGOGPCGames, GameDrive, SteamRip
+- **Version monitoring** with changelog tracking
+- **Storage management** with disk usage monitoring
+- **Real-time updates** via WebSocket connections
+
+## 🤝 Support & Contributing
+
+### Getting Help
+
+1. **Documentation**: Check this README and inline code comments
+2. **GitHub Issues**: [Report bugs or request features](https://github.com/darkmaster420/AIOgames/issues)
+3. **Troubleshooting**: Follow the comprehensive troubleshooting guide above
+4. **Logs**: Enable debug mode for detailed error information
 
 ### Contributing
-1. Fork the repository
-2. Create a feature branch
-3. Follow coding standards
-4. Add tests where applicable
-5. Submit a pull request
 
-### Community
-- GitHub Discussions: Engage with other users
-- Feature Requests: Submit ideas for improvements
-- Bug Reports: Help improve stability
-- Documentation: Contribute to documentation
+We welcome contributions! Here's how to get started:
+
+1. **Fork the repository** on GitHub
+2. **Create a feature branch**: `git checkout -b feature/amazing-feature`
+3. **Make your changes** following the coding standards
+4. **Test thoroughly** in both development and production environments
+5. **Submit a pull request** with a clear description of changes
+
+### Development Setup for Contributors
+
+```bash
+# Clone your fork
+git clone https://github.com/YOUR-USERNAME/AIOgames.git
+cd AIOgames
+
+# Install dependencies
+cd backend && npm install
+cd ../frontend && npm install
+
+# Start development environment
+docker compose up -d aria2 qbittorrent  # Start services
+cd backend && npm run dev                # Start backend
+cd frontend && npm run dev               # Start frontend
+```
+
+### Project Structure
+```
+AIOgames/
+├── backend/                 # Node.js Express API
+│   ├── src/
+│   │   ├── api/            # API routes
+│   │   ├── models/         # Database models  
+│   │   ├── services/       # Download services
+│   │   └── middleware/     # Authentication & validation
+├── frontend/               # React application
+│   ├── src/
+│   │   ├── components/     # React components
+│   │   ├── contexts/       # React contexts
+│   │   └── styles/         # Tailwind CSS
+├── scripts/                # Production configuration
+│   ├── aria2.conf         # Aria2 configuration
+│   ├── supervisord.conf   # Service supervision
+│   └── entrypoint.sh      # Container startup
+├── deploy.sh              # Automated deployment
+├── Dockerfile.prod        # Production Docker image
+├── docker-compose.prod.yml # Production compose
+└── docker-compose.yml     # Development compose
+```
+
+## 📜 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- **aria2** - High-speed download utility
+- **qBittorrent** - Feature-rich torrent client  
+- **JDownloader** - Premium hoster support
+- **React** - Frontend framework
+- **Express.js** - Backend framework
+- **MongoDB** - Database solution
+- **Docker** - Containerization platform
+
+---
+
+**Made with ❤️ for the gaming community**
+
+*AIOgames v2.0 - Production-Ready Game Download Manager*

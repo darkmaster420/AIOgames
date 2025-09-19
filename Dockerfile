@@ -49,6 +49,37 @@ RUN apk add --no-cache \
 WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
+# Create required directories
+RUN mkdir -p /downloads /config/aria2 /config/qbittorrent /config/jd2 && \
+    chown -R appuser:appgroup /downloads /config
+
+# Download and setup JDownloader
+RUN cd /config/jd2 && \
+    wget -O JDownloader.jar http://installer.jdownloader.org/JDownloader.jar && \
+    chown -R appuser:appgroup /config/jd2
+
+# Setup aria2 config
+COPY backend/config/aria2.conf /config/aria2/
+RUN sed -i 's|/downloads|/downloads|g' /config/aria2/aria2.conf && \
+    sed -i 's|rpc-secret=.*|rpc-secret=aiogames123|g' /config/aria2/aria2.conf
+
+# Setup qBittorrent config
+RUN mkdir -p /config/qbittorrent/config && \
+    echo '[Preferences]\n\
+WebUI\\Username=admin\n\
+WebUI\\Password=adminadmin\n\
+WebUI\\Port=8080\n\
+WebUI\\Address=*\n\
+WebUI\\CSRFProtection=false\n\
+WebUI\\ClickjackingProtection=false\n\
+WebUI\\LocalHostAuth=false\n\
+Downloads\\SavePath=/downloads\n\
+Downloads\\TempPath=/downloads/temp\n\
+' > /config/qbittorrent/config/qBittorrent.conf
+
+# Set permissions
+RUN chown -R appuser:appgroup /config
+
 # Create required directories and files with proper permissions
 RUN mkdir -p /app/logs /app/downloads /app/config && \
     touch /app/data.db && \

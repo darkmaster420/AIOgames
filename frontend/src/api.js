@@ -1,18 +1,24 @@
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+// Use relative paths since we have Vite proxy configured
+const BASE_URL = '';
 
 // Helper function to handle authentication
 const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
-    return {
-        'Authorization': `Bearer ${token}`,
+    const headers = {
         'Content-Type': 'application/json'
     };
+    
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    return headers;
 };
 
 // Game API functions
 export const searchGames = async (query, site = 'all') => {
     try {
-        const response = await fetch(`${BASE_URL}/api/games/search?query=${encodeURIComponent(query)}&site=${site}`, {
+        const response = await fetch(`${BASE_URL}/api/games/search?search=${encodeURIComponent(query)}&site=${site}`, {
             headers: getAuthHeaders()
         });
 
@@ -124,21 +130,72 @@ export const getDownloadStatus = async (downloadId) => {
 
 // Check supported downloaders for a specific game
 export const checkSupportedDownloaders = async (gameId) => {
-  const response = await api.get(`/api/downloads/supported/${gameId}`);
-  return response.data;
+    try {
+        const response = await fetch(`${BASE_URL}/api/downloads/supported/${gameId}`, {
+            headers: getAuthHeaders()
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to check supported downloaders');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error checking supported downloaders:', error);
+        throw error;
+    }
 };
 
 export const trackGame = async (gameId, title) => {
-  const response = await api.post('/api/games/track', { gameId, title });
-  return response.data;
+    try {
+        const response = await fetch(`${BASE_URL}/api/games/track`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ gameId, title })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to track game');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error tracking game:', error);
+        throw error;
+    }
 };
 
 export const untrackGame = async (gameId) => {
-  const response = await api.delete(`/api/games/track/${gameId}`);
-  return response.data;
+    try {
+        const response = await fetch(`${BASE_URL}/api/games/track/${gameId}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders()
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to untrack game');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error untracking game:', error);
+        throw error;
+    }
 };
 
 export const getTrackedGames = async () => {
-  const response = await api.get('/api/games/tracked');
-  return response.data;
+    try {
+        const response = await fetch(`${BASE_URL}/api/games/tracked`, {
+            headers: getAuthHeaders()
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to get tracked games');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error getting tracked games:', error);
+        throw error;
+    }
 };

@@ -4,15 +4,18 @@ import downloadsRouter from "./api/downloads.js";
 import authRouter from "./api/auth.js";
 import gamesRouter from "./api/games.js";
 import configRouter from "./api/config.js";
+import storageRouter from "./api/storage.js";
+import imageProxyRouter from "./api/imageProxy.js";
+import UpdateDetectionService from "./services/updateDetection.js";
 import { startSync } from "./sync.js";
 import { getAllDownloads } from "./services/downloadManager.js";
 import http from "http";
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
-import path from "path";
-import { fileURLToPath } from "url";
 import { config } from "dotenv";
 import mongoose from "mongoose";
+import path from "path";
+import { fileURLToPath } from "url";
 
 // Load .env from root directory
 const rootDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -24,6 +27,9 @@ const missingEnvVars = requiredEnvVars.filter(v => !process.env[v]);
 if (missingEnvVars.length > 0) {
   throw new Error(`Missing required environment variables: ${missingEnvVars.join(", ")}`);
 }
+
+// Initialize update detection service
+const updateDetectionService = new UpdateDetectionService();
 
 // Connect to MongoDB
 try {
@@ -43,43 +49,53 @@ try {
     });
     console.log('Created default admin user: admin/admin');
   }
+  
+  // Start background services
+  startSync();
+  console.log('Download sync service started');
+  
+  updateDetectionService.start();
+  console.log('Update detection service started');
+  
 } catch (error) {
   console.error("Failed to connect to MongoDB:", error.message);
   process.exit(1);
 }
 
-startSync();
-
 const app = express();
 app.use(bodyParser.json());
+
+// Serve static files in production
+if (process.env.NODE_ENV === 'production') {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const publicPath = path.join(__dirname, '..', 'public');
+  
+  app.use(express.static(publicPath));
+  
+  // Serve index.html for all non-API routes (SPA routing)
+  app.get('*', (req, res, next) => {
+    // Skip API routes
+    if (req.path.startsWith('/api/') || req.path.startsWith('/health')) {
+      return next();
+    }
+    res.sendFile(path.join(publicPath, 'index.html'));
+  });
+}
 
 // API routes
 app.use("/api/auth", authRouter);
 app.use("/api/games", gamesRouter);
 app.use("/api/downloads", downloadsRouter);
 app.use("/api/config", configRouter);
+app.use("/api/storage", storageRouter);
+app.use("/api/proxy-image", imageProxyRouter);
 
 // Healthcheck endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'healthy' });
 });
 
-// Resolve __dirname in ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Serve frontend build
-const frontendPath = path.join(__dirname, "../../frontend/dist");
-app.use(express.static(frontendPath));
-
-// Catch-all → send index.html
-app.get("*", (req, res) => {
-  const indexPath = path.join(frontendPath, "index.html");
-  console.log("Serving index.html from:", indexPath);
-  res.sendFile(indexPath);
-});
-
-const PORT = 4000;
+const PORT = process.env.PORT || 3000;
 
 // Create HTTP server + attach socket.io
 const server = http.createServer(app);
@@ -123,11 +139,52 @@ io.on("connection", (socket) => {
   });
 });
 
+// Update detection service event handlers
+updateDetectionService.on('gameUpdate', (updateData) => {
+  console.log(`🎮 Game update detected: ${updateData.game.title} - ${updateData.version}`);
+  
+  // Emit to the specific user who has this game tracked
+  io.to(`user_${updateData.game.userId}`).emit('gameUpdate', {
+    gameId: updateData.game.gameId,
+    title: updateData.game.title,
+    version: updateData.version,
+    updateInfo: updateData.updateInfo,
+    timestamp: new Date()
+  });
+  
+  // Also emit to all connected users (for global notifications)
+  io.emit('gameUpdateNotification', {
+    title: updateData.game.title,
+    version: updateData.version,
+    timestamp: new Date()
+  });
+});
+
 // Export io for use in other modules
 export { io };
 
 // Start server
 server.listen(PORT, () => {
-  console.log(`🚀 AIOgames Backend + WebSocket running on http://localhost:${PORT}`);
-  console.log(`📊 Dashboard available at http://localhost:${PORT}`);
+  console.log(`🚀 AIOgames Backend API running on http://localhost:${PORT}`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  updateDetectionService.stop();
+  server.close(() => {
+    console.log('Server closed');
+    mongoose.connection.close();
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully');
+  updateDetectionService.stop();
+  server.close(() => {
+    console.log('Server closed');
+    mongoose.connection.close();
+    process.exit(0);
+  });
 });

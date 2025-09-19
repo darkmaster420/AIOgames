@@ -1,6 +1,6 @@
 import * as aria2 from "./aria2.js";
 import * as qbit from "./qbittorrent.js";
-import * as jd from "./jdownloader.js";
+import jdService from "./jdownloader.js";
 import { addJob, updateJob } from "../models/jobs.js";
 
 export async function addDownload(url, source = "aria2") {
@@ -16,41 +16,72 @@ export async function addDownload(url, source = "aria2") {
     return url;
   }
   if (source === "jdownloader") {
-    const res = await jd.addLink(url);
-    addJob({ downloader: "jdownloader", external_id: url, name: url, url, status: "pending", progress: 0 });
-    return res;
+    await jdService.connect();
+    const res = await jdService.addDownload(url);
+    addJob({ downloader: "jdownloader", external_id: res.id, name: url, url, status: "pending", progress: 0 });
+    return res.id;
   }
 }
 
 export async function getAllDownloads() {
-  const [ariaJobs, qbitJobs, jdJobs] = await Promise.all([
-    aria2.listDownloads(),
-    qbit.listTorrents(),
-    jd.listDownloads()
+  const results = await Promise.allSettled([
+    aria2.listDownloads().catch(err => {
+      console.error('Error listing Aria2 downloads:', err.message);
+      return [];
+    }),
+    qbit.listTorrents().catch(err => {
+      console.error('Error listing qBittorrent torrents:', err.message);
+      return [];
+    })
   ]);
+  
+  const ariaJobs = results[0].status === 'fulfilled' ? results[0].value : [];
+  const qbitJobs = results[1].status === 'fulfilled' ? results[1].value : [];
+  
+  // Get JDownloader jobs with proper error handling
+  let jdJobs = [];
+  try {
+    await jdService.connect();
+    jdJobs = await jdService.getDownloads();
+  } catch (err) {
+    console.error('Error getting downloads from JDownloader:', err.message);
+  }
 
-  // normalize
-  return [
-    ...ariaJobs.map(j => ({
-      id: j.gid,
-      name: j.files?.[0]?.path || "Unknown",
-      progress: (j.completedLength / j.totalLength) * 100,
-      status: j.status,
-      source: "aria2"
-    })),
-    ...qbitJobs.map(t => ({
-      id: t.hash,
-      name: t.name,
-      progress: t.progress * 100,
-      status: t.state,
-      source: "qbittorrent"
-    })),
-    ...jdJobs.map(l => ({
-      id: l.uuid,
-      name: l.name,
-      progress: (l.bytesLoaded / l.bytesTotal) * 100,
-      status: l.status,
-      source: "jdownloader"
-    }))
-  ];
+  // Update job statuses in the database
+  [...ariaJobs, ...qbitJobs, ...jdJobs].forEach((job) => {
+    updateJob(job.external_id || job.hash || job.id, {
+      status: job.status,
+      progress: job.progress || 0,
+      name: job.name
+    });
+  });
+
+  return [...ariaJobs, ...qbitJobs, ...jdJobs];
+}
+
+export async function pauseDownload(id, source) {
+  if (source === "aria2") return aria2.pauseDownload(id);
+  if (source === "qbittorrent") return qbit.pauseTorrent(id);
+  if (source === "jdownloader") {
+    await jdService.connect();
+    return jdService.pauseDownload(id);
+  }
+}
+
+export async function resumeDownload(id, source) {
+  if (source === "aria2") return aria2.resumeDownload(id);
+  if (source === "qbittorrent") return qbit.resumeTorrent(id);
+  if (source === "jdownloader") {
+    await jdService.connect();
+    return jdService.resumeDownload(id);
+  }
+}
+
+export async function removeDownload(id, source) {
+  if (source === "aria2") return aria2.removeDownload(id);
+  if (source === "qbittorrent") return qbit.removeTorrent(id);
+  if (source === "jdownloader") {
+    await jdService.connect();
+    return jdService.removeDownload(id);
+  }
 }

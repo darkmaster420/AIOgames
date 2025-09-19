@@ -1,0 +1,125 @@
+# =========================
+# Production Dockerfile for AIOgames
+# Multi-stage build optimized for size and security
+# =========================
+
+# =========================
+# Stage 1: Frontend Build
+# =========================
+FROM node:20-alpine AS frontend-builder
+
+# Set working directory
+WORKDIR /app/frontend
+
+# Copy package files
+COPY frontend/package*.json ./
+
+# Install dependencies with clean npm cache
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy source code and build
+COPY frontend/ ./
+RUN npm run build
+
+# =========================
+# Stage 2: Backend Dependencies
+# =========================
+FROM node:20-alpine AS backend-deps
+
+WORKDIR /app/backend
+
+# Copy package files
+COPY backend/package*.json ./
+
+# Install only production dependencies
+RUN npm ci --only=production && npm cache clean --force
+
+# =========================
+# Stage 3: Final Production Image
+# =========================
+FROM node:20-alpine
+
+# Install system dependencies and security updates
+RUN apk update && \
+    apk add --no-cache \
+    aria2 \
+    qbittorrent-nox \
+    supervisor \
+    wget \
+    curl \
+    python3 \
+    openjdk11-jre-headless \
+    dumb-init \
+    && apk upgrade \
+    && rm -rf /var/cache/apk/* \
+    && addgroup -S aiogames && adduser -S aiogames -G aiogames
+
+# Set working directory
+WORKDIR /app
+
+# Create required directories with proper permissions
+RUN mkdir -p /app/{data,downloads,config,logs,temp} \
+    /config/{aria2,qbittorrent,jd2} \
+    && chown -R aiogames:aiogames /app /config
+
+# Setup Aria2 configuration
+COPY --chown=aiogames:aiogames scripts/aria2.conf /config/aria2/aria2.conf
+
+# Setup qBittorrent configuration
+RUN mkdir -p /config/qbittorrent/config && \
+    echo '[Preferences]\n\
+WebUI\\Username=admin\n\
+WebUI\\Password_PBKDF2="@ByteArray(ARQ77eY1NUZaQsuDHbIMCA==:0WMRkYTUWVT9wVvdDtHAjU9b3b7uB8NR1Gur2hmQCvCDpm39Q+PsJRJPaCU51dEiz+dTzh5BvaAcETNT6Bb+tQ==)"\n\
+WebUI\\Port=8080\n\
+WebUI\\Address=*\n\
+WebUI\\CSRFProtection=false\n\
+WebUI\\ClickjackingProtection=false\n\
+WebUI\\LocalHostAuth=false\n\
+Downloads\\SavePath=/app/downloads\n\
+Downloads\\TempPath=/app/downloads/temp\n\
+' > /config/qbittorrent/config/qBittorrent.conf && \
+    chown -R aiogames:aiogames /config/qbittorrent
+
+# Download and setup JDownloader
+RUN wget -O /app/JDownloader.jar https://installer.jdownloader.org/JDownloader.jar && \
+    chown aiogames:aiogames /app/JDownloader.jar && \
+    chmod +x /app/JDownloader.jar
+
+# Copy backend files and dependencies
+COPY --from=backend-deps --chown=aiogames:aiogames /app/backend/node_modules /app/node_modules
+COPY --chown=aiogames:aiogames backend/ /app/
+
+# Copy frontend build
+COPY --from=frontend-builder --chown=aiogames:aiogames /app/frontend/dist /app/public
+
+# Copy supervisor and service configuration
+COPY --chown=aiogames:aiogames scripts/supervisord.conf /etc/supervisord.conf
+COPY --chown=aiogames:aiogames scripts/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# Create volume mount points
+VOLUME ["/app/data", "/app/downloads", "/app/config", "/app/logs"]
+
+# Switch to non-root user
+USER aiogames
+
+# Set environment variables
+ENV NODE_ENV=production \
+    NODE_OPTIONS="--max-old-space-size=1024" \
+    ARIA2_RPC_HOST=localhost \
+    ARIA2_RPC_PORT=6800 \
+    QB_HOST=localhost \
+    QB_PORT=8080 \
+    JD_HOST=localhost \
+    JD_PORT=3128
+
+# Expose ports
+EXPOSE 3000 6800 8080 3128
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD wget --spider -q http://localhost:3000/health || exit 1
+
+# Use dumb-init to handle signals properly
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+CMD ["/app/entrypoint.sh"]

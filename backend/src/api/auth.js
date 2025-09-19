@@ -5,6 +5,48 @@ import bcryptjs from "bcryptjs";
 import { User } from "../models/user.js";
 
 const router = express.Router();
+
+// Register endpoint
+router.post("/register", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ error: "Username and password required" });
+    }
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ username });
+    if (existingUser) {
+      return res.status(400).json({ error: "Username already taken" });
+    }
+
+    // Hash password and create user
+    const hashedPassword = await bcryptjs.hash(password, 10);
+    const user = new User({
+      username,
+      password: hashedPassword
+    });
+    await user.save();
+
+    // Generate token for immediate login
+    const token = jwt.sign(
+      { id: user._id, username: user.username },
+      process.env.JWT_SECRET || "supersecret",
+      { expiresIn: "24h" }
+    );
+
+    res.json({
+      success: true,
+      token,
+      user: { id: user._id, username: user.username }
+    });
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Login endpoint
 router.post("/login", async (req, res) => {
   try {
