@@ -6,12 +6,15 @@ FROM node:20-alpine AS frontend-build
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 
-# Install dependencies
-RUN npm install && npm ci --omit=dev
+# Install all dependencies including dev dependencies for building
+RUN npm install
 
 # Copy source and build
 COPY frontend/ ./
 RUN npm run build
+
+# Clean up dev dependencies
+RUN npm ci --omit=dev
 
 # =========================
 # 2. Backend Build
