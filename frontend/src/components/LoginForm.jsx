@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const LoginForm = () => {
+const LoginForm = ({ setIsAuthenticated }) => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -12,6 +12,7 @@ const LoginForm = () => {
         setError('');
 
         try {
+            console.log('Attempting login with:', { username });
             const response = await fetch('/api/auth/login', {
                 method: 'POST',
                 headers: {
@@ -21,12 +22,16 @@ const LoginForm = () => {
             });
 
             const data = await response.json();
+            console.log('Login response:', data);
 
             if (response.ok) {
                 // Store token in localStorage
                 localStorage.setItem('token', data.token);
+                // Update authentication state
+                setIsAuthenticated(true);
+                console.log('Login successful, token stored');
                 // Redirect to dashboard
-                navigate('/dashboard');
+                navigate('/');
             } else {
                 setError(data.message);
             }

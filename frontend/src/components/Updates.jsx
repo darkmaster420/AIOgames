@@ -6,11 +6,13 @@ const Updates = () => {
     const [notifications, setNotifications] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [steamEnabled, setSteamEnabled] = useState(false);
     const socket = useSocket();
 
     useEffect(() => {
         loadGames();
         loadNotifications();
+        checkSteamStatus();
 
         // Listen for real-time updates
         if (socket) {
@@ -19,31 +21,56 @@ const Updates = () => {
         }
     }, [socket]);
 
-    const loadGames = async () => {
+    const checkSteamStatus = async () => {
         try {
-            const response = await fetch('/api/games/monitored', {
+            const response = await fetch('/api/config/steam', {
                 headers: {
                     'Authorization': `Bearer ${localStorage.getItem('token')}`
                 }
             });
             const data = await response.json();
-            setGames(data);
+            setSteamEnabled(!!data.enabled);
         } catch (err) {
-            setError('Failed to load games');
+            console.error('Failed to check Steam status:', err);
+            setSteamEnabled(false);
+        }
+    };
+
+    const loadGames = async () => {
+        try {
+            const response = await fetch('/api/games/updates', {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+            const data = await response.json();
+            if (Array.isArray(data.updates)) {
+                setGames(data.updates);
+            } else {
+                setGames([]);
+            }
+        } catch (err) {
+            setError('Failed to load game updates');
+            console.error(err);
         } finally {
             setLoading(false);
         }
     };
 
     const loadNotifications = async () => {
+        // For now, notifications are the same as updates
         try {
-            const response = await fetch('/api/notifications', {
+            const response = await fetch('/api/games/updates', {
                 headers: {
                     'Authorization': `Bearer ${localStorage.getItem('token')}`
                 }
             });
             const data = await response.json();
-            setNotifications(data);
+            if (Array.isArray(data.updates)) {
+                setNotifications(data.updates);
+            } else {
+                setNotifications([]);
+            }
         } catch (err) {
             console.error('Failed to load notifications:', err);
         }

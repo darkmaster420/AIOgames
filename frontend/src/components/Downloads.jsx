@@ -20,8 +20,11 @@ const Downloads = () => {
                     'Authorization': `Bearer ${localStorage.getItem('token')}`
                 }
             });
+            if (!response.ok) {
+                throw new Error('Failed to load downloads');
+            }
             const data = await response.json();
-            setDownloads(data);
+            setDownloads(Array.isArray(data) ? data : []);
         } catch (err) {
             setError('Failed to load downloads');
         } finally {

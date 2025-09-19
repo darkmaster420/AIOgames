@@ -5,7 +5,7 @@ services:
     build: .
     container_name: aiogames
     ports:
-      - "${PORT:-2000}:2000"  # Frontend/Backend API only
+      - "4000:4000"  # Frontend/Backend API only
     volumes:
       - ./data:/app/data              # Application data
       - ./downloads:/app/downloads     # Download directory
@@ -15,10 +15,10 @@ services:
       - NODE_ENV=production
       - JWT_SECRET=${JWT_SECRET:-changeme}
       - MONGODB_URI=mongodb://mongodb:27017/aiogames
-      - ARIA2_HOST=localhost
+      - ARIA2_HOST=aria2
       - ARIA2_PORT=6800
       - ARIA2_SECRET=${ARIA2_SECRET:-changeme}
-      - QBITTORRENT_URL=http://localhost:8080
+      - QBITTORRENT_URL=http://qbittorrent:8080
       - QBITTORRENT_USERNAME=${QB_USERNAME:-admin}
       - QBITTORRENT_PASSWORD=${QB_PASSWORD:-adminadmin}
       - JDOWNLOADER_EMAIL=${JD_EMAIL}
@@ -27,9 +27,13 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
+      aria2:
+        condition: service_healthy
+      qbittorrent:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--spider", "http://localhost:2000/health"]
+      test: ["CMD", "wget", "--spider", "http://localhost:4000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -46,6 +50,51 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    restart: unless-stopped
+
+  aria2:
+    image: alpine:latest
+    container_name: aiogames-aria2
+    command: >
+      sh -c "apk add --no-cache aria2 curl &&
+             aria2c --enable-rpc --rpc-listen-all=true --rpc-allow-origin-all
+             --dir=/downloads --daemon=false
+             --rpc-secret=${ARIA2_SECRET:-changeme}"
+    volumes:
+      - ./downloads:/downloads
+    ports:
+      - "6800:6800"
+    healthcheck:
+      test: >
+        CMD curl -f http://localhost:6800/jsonrpc || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: aiogames-qbittorrent
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - WEBUI_PORT=8080
+      - QB_WEBUI_USER=${QB_USERNAME:-admin}
+      - QB_WEBUI_PASS=${QB_PASSWORD:-adminadmin}
+    volumes:
+      - ./config/qbittorrent:/config
+      - ./downloads:/downloads
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: >
+        CMD curl -f http://localhost:8080 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
 volumes:

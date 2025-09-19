@@ -49,8 +49,9 @@ RUN apk add --no-cache \
 WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-# Create required directories with proper permissions
-RUN mkdir -p /app/logs /app/downloads && \
+# Create required directories and files with proper permissions
+RUN mkdir -p /app/logs /app/downloads /app/config && \
+    touch /app/data.db && \
     chown -R appuser:appgroup /app
 
 # Download JDownloader
@@ -63,8 +64,10 @@ RUN wget -O JDownloader.jar https://installer.jdownloader.org/JDownloader.jar &&
 COPY --from=backend-build --chown=appuser:appgroup /app/backend /app/
 COPY --from=frontend-build --chown=appuser:appgroup /app/frontend/dist /app/frontend/dist
 
-# Copy supervisord config
+# Copy supervisord config and init script
 COPY --chown=appuser:appgroup supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY --chown=appuser:appgroup init-services.sh /app/init-services.sh
+RUN chmod +x /app/init-services.sh
 
 # Create volume mount points
 VOLUME ["/app/data", "/app/downloads", "/app/config", "/app/logs"]
@@ -78,9 +81,6 @@ CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
 # Expose ports
 EXPOSE 2000 6800 8080 3000
 
-# Switch to non-root user
-USER appuser
-
 # Set environment
 ENV NODE_ENV=production \
     ARIA2_HOST=localhost \
@@ -88,7 +88,4 @@ ENV NODE_ENV=production \
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --spider http://localhost:2000/health || exit 1
-
-# Start supervisor
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+    CMD wget --spider http://localhost:4000/health || exit 1

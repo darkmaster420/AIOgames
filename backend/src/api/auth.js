@@ -1,30 +1,10 @@
 // backend/src/api/auth.js
 import express from "express";
 import jwt from "jsonwebtoken";
-import bcrypt from "bcrypt";
-import db from "../db.js";
+import bcryptjs from "bcryptjs";
+import { User } from "../models/user.js";
 
 const router = express.Router();
-
-// Initialize users table
-db.exec(`
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  username TEXT UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-`);
-
-// Create default admin user if none exists
-const existingUser = db.prepare("SELECT * FROM users LIMIT 1").get();
-if (!existingUser) {
-  const hashedPassword = await bcrypt.hash("admin", 10);
-  db.prepare("INSERT INTO users (username, password_hash) VALUES (?, ?)")
-    .run("admin", hashedPassword);
-  console.log("🔧 Default admin user created (username: admin, password: admin)");
-}
-
 // Login endpoint
 router.post("/login", async (req, res) => {
   try {
@@ -34,19 +14,19 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ error: "Username and password required" });
     }
 
-    const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
+    const user = await User.findOne({ username });
     if (!user) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    const isValid = await bcrypt.compare(password, user.password_hash);
+    const isValid = await bcryptjs.compare(password, user.password);
     if (!isValid) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
     const token = jwt.sign(
-      { id: user.id, username: user.username }, 
-      process.env.JWT_SECRET || "supersecret",
+      { id: user._id, username: user.username }, 
+      process.env.JWT_SECRET,
       { expiresIn: "24h" }
     );
 

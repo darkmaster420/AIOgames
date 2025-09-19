@@ -1,4 +1,4 @@
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:2000';
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 // Helper function to handle authentication
 const getAuthHeaders = () => {
@@ -124,18 +124,21 @@ export const getDownloadStatus = async (downloadId) => {
 
 // Check supported downloaders for a specific game
 export const checkSupportedDownloaders = async (gameId) => {
-    try {
-        const response = await fetch(`${BASE_URL}/api/downloads/supported/${gameId}`, {
-            headers: getAuthHeaders()
-        });
+  const response = await api.get(`/api/downloads/supported/${gameId}`);
+  return response.data;
+};
 
-        if (!response.ok) {
-            throw new Error('Failed to check supported downloaders');
-        }
+export const trackGame = async (gameId, title) => {
+  const response = await api.post('/api/games/track', { gameId, title });
+  return response.data;
+};
 
-        return await response.json();
-    } catch (error) {
-        console.error('Error checking supported downloaders:', error);
-        throw error;
-    }
+export const untrackGame = async (gameId) => {
+  const response = await api.delete(`/api/games/track/${gameId}`);
+  return response.data;
+};
+
+export const getTrackedGames = async () => {
+  const response = await api.get('/api/games/tracked');
+  return response.data;
 };

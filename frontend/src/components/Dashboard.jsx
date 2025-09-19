@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { fetchGames, checkSupportedDownloaders, addDownload, searchGames, getRecentGames, processGameDownload } from '../api';
+import { fetchGames, checkSupportedDownloaders, addDownload, searchGames, getRecentGames, processGameDownload, trackGame, untrackGame, getTrackedGames } from '../api';
 
 const Dashboard = () => {
     const [games, setGames] = useState([]);
@@ -7,9 +7,12 @@ const Dashboard = () => {
     const [error, setError] = useState('');
     const [selectedGame, setSelectedGame] = useState(null);
     const [supportedDownloaders, setSupportedDownloaders] = useState([]);
+    const [trackedGames, setTrackedGames] = useState([]);
+    const [showTracked, setShowTracked] = useState(false);
 
     useEffect(() => {
         loadGames();
+        loadTrackedGames();
     }, []);
 
     const [searchQuery, setSearchQuery] = useState('');
@@ -25,6 +28,39 @@ const Dashboard = () => {
             setError('Failed to load games');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const loadTrackedGames = async () => {
+        try {
+            const tracked = await getTrackedGames();
+            setTrackedGames(tracked);
+        } catch (err) {
+            console.error('Failed to load tracked games:', err);
+        }
+    };
+
+    const handleTrackGame = async (game) => {
+        try {
+            await trackGame(game.id, game.title);
+            await loadTrackedGames();
+            alert('Game tracked successfully!');
+        } catch (err) {
+            if (err.response?.status === 409) {
+                alert('This game is already being tracked');
+            } else {
+                alert('Failed to track game');
+            }
+        }
+    };
+
+    const handleUntrackGame = async (gameId) => {
+        try {
+            await untrackGame(gameId);
+            await loadTrackedGames();
+            alert('Game untracked successfully!');
+        } catch (err) {
+            alert('Failed to untrack game');
         }
     };
 

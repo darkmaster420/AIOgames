@@ -1,6 +1,8 @@
 // backend/src/api/games.js
 import express from "express";
 import fetch from "node-fetch";
+import jwt from "jsonwebtoken";
+import TrackedGame from "../models/trackedGame.js";
 
 const router = express.Router();
 const GAMEAPI_URL = "https://gameapi.a7a8524.workers.dev";
@@ -67,14 +69,14 @@ router.get("/:id", authenticateToken, async (req, res) => {
   }
 });
 
-// Get recent updates
-router.get("/updates/recent", authenticateToken, async (req, res) => {
+// Get all updates
+router.get("/updates", authenticateToken, async (req, res) => {
   try {
-    const response = await fetch(`${GAMEAPI_URL}/updates/recent`);
+    const response = await fetch(`${GAMEAPI_URL}/games/updates`);
     const updates = await response.json();
     res.json(updates);
   } catch (error) {
-    res.status(500).json({ error: "Failed to fetch recent updates" });
+    res.status(500).json({ error: "Failed to fetch updates" });
   }
 });
 
@@ -104,6 +106,61 @@ router.post("/check-updates", authenticateToken, async (req, res) => {
     res.json(results);
   } catch (error) {
     res.status(500).json({ error: "Failed to check for updates" });
+  }
+});
+
+// Track a game
+router.post("/track", authenticateToken, async (req, res) => {
+  try {
+    const { gameId, title } = req.body;
+    const userId = req.user.id;
+
+    if (!gameId || !title) {
+      return res.status(400).json({ error: "gameId and title are required" });
+    }
+
+    const trackedGame = new TrackedGame({
+      gameId,
+      userId,
+      title
+    });
+
+    await trackedGame.save();
+    res.status(201).json(trackedGame);
+  } catch (error) {
+    if (error.code === 11000) { // Duplicate key error
+      res.status(409).json({ error: "Game is already being tracked" });
+    } else {
+      res.status(500).json({ error: "Failed to track game" });
+    }
+  }
+});
+
+// Untrack a game
+router.delete("/track/:gameId", authenticateToken, async (req, res) => {
+  try {
+    const { gameId } = req.params;
+    const userId = req.user.id;
+
+    const result = await TrackedGame.findOneAndDelete({ gameId, userId });
+    if (!result) {
+      return res.status(404).json({ error: "Game not found or not tracked" });
+    }
+
+    res.json({ message: "Game untracked successfully" });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to untrack game" });
+  }
+});
+
+// Get tracked games
+router.get("/tracked", authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const trackedGames = await TrackedGame.find({ userId });
+    res.json(trackedGames);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch tracked games" });
   }
 });
 

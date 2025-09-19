@@ -1,7 +1,7 @@
 import { io } from "socket.io-client";
 import { useEffect, useState } from "react";
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:2000';
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 // Create socket instance
 export const socket = io(BASE_URL, {

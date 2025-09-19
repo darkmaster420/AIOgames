@@ -3,17 +3,50 @@ import bodyParser from "body-parser";
 import downloadsRouter from "./api/downloads.js";
 import authRouter from "./api/auth.js";
 import gamesRouter from "./api/games.js";
+import configRouter from "./api/config.js";
 import { startSync } from "./sync.js";
+import { getAllDownloads } from "./services/downloadManager.js";
 import http from "http";
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import path from "path";
 import { fileURLToPath } from "url";
 import { config } from "dotenv";
+import mongoose from "mongoose";
 
 // Load .env from root directory
 const rootDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
 config({ path: path.join(rootDir, ".env") });
+
+// Check required env vars
+const requiredEnvVars = ["JWT_SECRET", "MONGODB_URI"];
+const missingEnvVars = requiredEnvVars.filter(v => !process.env[v]);
+if (missingEnvVars.length > 0) {
+  throw new Error(`Missing required environment variables: ${missingEnvVars.join(", ")}`);
+}
+
+// Connect to MongoDB
+try {
+  await mongoose.connect(process.env.MONGODB_URI, {});
+  console.log("Connected to MongoDB successfully");
+
+  // Check for admin user
+  const { User } = await import('./models/user.js');
+  const bcrypt = (await import('bcryptjs')).default;
+  
+  const adminUser = await User.findOne({ username: 'admin' });
+  if (!adminUser) {
+    const hashedPassword = await bcrypt.hash('admin', 10);
+    await User.create({
+      username: 'admin',
+      password: hashedPassword
+    });
+    console.log('Created default admin user: admin/admin');
+  }
+} catch (error) {
+  console.error("Failed to connect to MongoDB:", error.message);
+  process.exit(1);
+}
 
 startSync();
 
@@ -24,21 +57,29 @@ app.use(bodyParser.json());
 app.use("/api/auth", authRouter);
 app.use("/api/games", gamesRouter);
 app.use("/api/downloads", downloadsRouter);
+app.use("/api/config", configRouter);
+
+// Healthcheck endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'healthy' });
+});
 
 // Resolve __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Serve frontend build
-const frontendPath = path.join(__dirname, "../frontend/dist");
+const frontendPath = path.join(__dirname, "../../frontend/dist");
 app.use(express.static(frontendPath));
 
 // Catch-all → send index.html
 app.get("*", (req, res) => {
-  res.sendFile(path.join(frontendPath, "index.html"));
+  const indexPath = path.join(frontendPath, "index.html");
+  console.log("Serving index.html from:", indexPath);
+  res.sendFile(indexPath);
 });
 
-const PORT = process.env.PORT || 2000;
+const PORT = 4000;
 
 // Create HTTP server + attach socket.io
 const server = http.createServer(app);

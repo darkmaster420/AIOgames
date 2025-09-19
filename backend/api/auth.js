@@ -1,11 +1,9 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import { User } from '../src/models/user.js';
 
 const router = express.Router();
-
-// In a real app, you would use a database
-const users = [];
 const JWT_SECRET = process.env.JWT_SECRET;
 
 if (!JWT_SECRET) {
@@ -18,21 +16,22 @@ router.post('/register', async (req, res) => {
         const { username, password } = req.body;
 
         // Check if user exists
-        if (users.find(user => user.username === username)) {
+        const existingUser = await User.findOne({ username });
+        if (existingUser) {
             return res.status(400).json({ message: 'User already exists' });
         }
 
-        // Hash password
+        // Hash password and create user
         const hashedPassword = await bcrypt.hash(password, 10);
-
-        // Store user
-        users.push({
+        const user = new User({
             username,
             password: hashedPassword
         });
 
+        await user.save();
         res.status(201).json({ message: 'User created successfully' });
     } catch (error) {
+        console.error('Register error:', error);
         res.status(500).json({ message: 'Error creating user' });
     }
 });
@@ -43,7 +42,7 @@ router.post('/login', async (req, res) => {
         const { username, password } = req.body;
 
         // Find user
-        const user = users.find(user => user.username === username);
+        const user = await User.findOne({ username });
         if (!user) {
             return res.status(400).json({ message: 'User not found' });
         }

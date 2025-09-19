@@ -9,14 +9,19 @@ async function callAria2(method, params = []) {
     method,
     params,
   };
-  const res = await fetch(ARIA2_URL, {
-    method: "POST",
-    body: JSON.stringify(body),
-    headers: { "Content-Type": "application/json" },
-  });
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
-  return data.result;
+  try {
+    const res = await fetch(ARIA2_URL, {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    return data.result;
+  } catch (err) {
+    console.error(`Aria2 RPC error (${method}):`, err.message);
+    throw new Error(`Aria2 RPC connection failed: ${err.message}`);
+  }
 }
 
 export async function addDownload(url) {

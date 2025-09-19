@@ -12,12 +12,12 @@ export default defineConfig(({ mode }) => {
     define: {
       // Make env variables available in frontend code
       'process.env.NODE_ENV': JSON.stringify(mode),
-      'process.env.VITE_API_URL': JSON.stringify(env.API_URL || 'http://localhost:2000'),
+      'process.env.VITE_API_URL': JSON.stringify(env.API_URL || 'http://localhost:4000'),
     },
     server: {
       proxy: {
         '/api': {
-          target: 'http://localhost:2000',
+          target: 'http://localhost:4000',
           changeOrigin: true,
         },
         '/socket.io': {
