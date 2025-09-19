@@ -126,10 +126,7 @@ services:
       dockerfile: Dockerfile.prod
     container_name: aiogames-app
     ports:
-      - "${PORT:-3000}:3000"
-      - "6800:6800"   # Aria2 RPC
-      - "8080:8080"   # qBittorrent WebUI
-      - "3128:3128"   # JDownloader API
+      - "${PORT:-3001}:3000"  # Web interface only
     volumes:
       - aiogames_data:/app/data
       - downloads_data:/app/downloads
@@ -137,13 +134,16 @@ services:
       - logs_data:/app/logs
     environment:
       - NODE_ENV=production
+      - DOCKER_ENV=true
       - PORT=${PORT:-3000}
       - JWT_SECRET=${JWT_SECRET}
       - MONGODB_URI=${MONGODB_URI}
       - ARIA2_URL=http://localhost:6800/jsonrpc
       - ARIA2_SECRET=${ARIA2_SECRET}
+      - QBITTORRENT_URL=http://localhost:8080
       - QB_USERNAME=${QB_USERNAME}
       - QB_PASSWORD=${QB_PASSWORD}
+      - JD_API_URL=http://localhost:3128/jd
       - JD_EMAIL=${JD_EMAIL}
       - JD_PASSWORD=${JD_PASSWORD}
       - STEAM_API_KEY=${STEAM_API_KEY}
@@ -265,10 +265,12 @@ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 echo ""
 echo -e "${BLUE}🌐 Access Points:${NC}"
 echo "• AIOgames Web UI: http://localhost:${PORT:-3000}"
-echo "• qBittorrent WebUI: http://localhost:8080"
-echo "• Aria2 RPC: http://localhost:6800"
 echo ""
 echo -e "${YELLOW}💡 Pro Tips:${NC}"
 echo "• Monitor logs: docker-compose logs -f"
 echo "• Check health: docker-compose ps"
 echo "• Update: git pull && ./deploy.sh"
+echo ""
+echo -e "${GREEN}🔒 Security Note:${NC}"
+echo "• Downloader services (Aria2, qBittorrent, JDownloader) are internal only"
+echo "• Access them through the main AIOgames web interface"
