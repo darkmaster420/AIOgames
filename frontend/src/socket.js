@@ -3,7 +3,8 @@ import { io } from "socket.io-client";
 // Grab token from localStorage (set at login)
 const token = localStorage.getItem("token");
 
-export const socket = io("http://localhost:2000", {
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:2000';
+export const socket = io(BASE_URL, {
   auth: { token }
 });
 

@@ -1,11 +1,15 @@
-const express = require('express');
+import express from 'express';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+
 const router = express.Router();
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
 
 // In a real app, you would use a database
 const users = [];
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+    throw new Error('JWT_SECRET environment variable is required');
 
 // Register endpoint
 router.post('/register', async (req, res) => {
@@ -77,4 +81,4 @@ const verifyToken = (req, res, next) => {
     }
 };
 
-module.exports = { router, verifyToken };
+export { router as default, verifyToken };

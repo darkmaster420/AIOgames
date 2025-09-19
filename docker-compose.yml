@@ -10,6 +10,7 @@ services:
       - ./data:/app/data              # Application data
       - ./downloads:/app/downloads     # Download directory
       - ./config:/app/config          # Config files
+      - ./.env:/app/.env             # Environment variables
     environment:
       - NODE_ENV=production
       - JWT_SECRET=${JWT_SECRET:-changeme}

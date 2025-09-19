@@ -9,6 +9,11 @@ import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import path from "path";
 import { fileURLToPath } from "url";
+import { config } from "dotenv";
+
+// Load .env from root directory
+const rootDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
+config({ path: path.join(rootDir, ".env") });
 
 startSync();
 

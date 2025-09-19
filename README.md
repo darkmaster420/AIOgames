@@ -340,22 +340,34 @@ MIT License - see the [LICENSE](LICENSE) file for details
 ### Pre-Deployment Checklist
 
 1. **Environment Setup**
-   Create `.env` file with required credentials:
+   Copy `.env.example` to `.env` in the root folder and configure your settings:
    ```bash
-   # Required Settings
-   PORT=2000                                    # App port
-   JWT_SECRET=generate-a-secure-random-string   # JWT token secret
-   MONGODB_URI=mongodb://mongodb:27017/aiogames # Leave as is for docker-compose
-   
-   # Download Service Credentials
-   ARIA2_SECRET=generate-a-secure-secret        # aria2 RPC secret
-   QB_USERNAME=admin                            # qBittorrent username
-   QB_PASSWORD=generate-a-strong-password       # qBittorrent password
-   JD_EMAIL=your-jd-account@email.com          # JDownloader email
-   JD_PASSWORD=your-jd-password                # JDownloader password
-   
+   # Core Configuration
+   NODE_ENV=production
+   PORT=2000
+   JWT_SECRET=generate-a-secure-random-string
+
+   # Database Configuration
+   MONGODB_URI=mongodb://mongodb:27017/aiogames
+
+   # Game API Configuration
+   GAME_API_URL=https://your-worker-subdomain.workers.dev
+   GAME_API_CACHE_TIMEOUT=3600000  # 1 hour in milliseconds
+
+   # Download Services
+   ARIA2_HOST=localhost
+   ARIA2_PORT=6800
+   ARIA2_SECRET=generate-a-secure-secret
+
+   QB_USERNAME=admin
+   QB_PASSWORD=generate-a-strong-password
+
+   JD_EMAIL=your-jd-account@email.com
+   JD_PASSWORD=your-jd-password
+   JD_DEVICE_ID=your-device-id  # Optional, will be auto-generated if not set
+
    # Optional: Steam Integration
-   STEAM_API_KEY=your-steam-api-key            # Optional for Steam features
+   STEAM_API_KEY=your-steam-api-key
    ```
 
 2. **Directory Structure**

@@ -1,5 +1,5 @@
-const Aria2 = require('aria2');
-const { promisify } = require('util');
+import Aria2 from 'aria2';
+import { promisify } from 'util';
 
 class Aria2Service {
     constructor(config = {}) {

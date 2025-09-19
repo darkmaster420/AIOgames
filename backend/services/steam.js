@@ -1,5 +1,5 @@
-const axios = require('axios');
-const { EventEmitter } = require('events');
+import axios from 'axios';
+import { EventEmitter } from 'events';
 
 class SteamService extends EventEmitter {
     constructor(config = {}) {

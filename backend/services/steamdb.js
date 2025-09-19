@@ -1,6 +1,6 @@
-const axios = require('axios');
-const cheerio = require('cheerio');
-const { setTimeout } = require('timers/promises');
+import axios from 'axios';
+import cheerio from 'cheerio';
+import { setTimeout } from 'timers/promises';
 
 class SteamDBService {
     constructor(config = {}) {
