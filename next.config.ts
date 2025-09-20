@@ -6,14 +6,34 @@ const nextConfig: NextConfig = {
   
   // Optimize images for production
   images: {
-    domains: [
-      'via.placeholder.com', 
-      'gameapi.a7a8524.workers.dev',
-      'cdn.cloudflare.steamstatic.com',
-      'steamcdn-a.akamaihd.net',
-      'shared.cloudflare.steamstatic.com'
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'via.placeholder.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'gameapi.a7a8524.workers.dev',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.steamstatic.com',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.akamaihd.net',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.cloudflare.com',
+      },
+      // Allow any HTTPS domain for debugging
+      {
+        protocol: 'https',
+        hostname: '**',
+      }
     ],
-    unoptimized: true, // Use our custom proxy instead
+    unoptimized: true, // Use our custom implementation
   },
   
   // Environment variable configuration

@@ -17,21 +17,34 @@ export async function GET(request: NextRequest) {
       return new NextResponse('Invalid image URL', { status: 400 });
     }
 
-    // Security: Only allow certain domains
+    // Security: Only allow HTTPS and certain domains (more permissive for VPS)
     const allowedDomains = [
       'gameapi.a7a8524.workers.dev',
       'via.placeholder.com',
       'cdn.cloudflare.steamstatic.com',
       'steamcdn-a.akamaihd.net',
       'shared.cloudflare.steamstatic.com',
-      // Add more trusted domains as needed
+      'cdn.akamai.steamstatic.com',
+      'store.steampowered.com',
+      // Steam CDN domains
+      'steamstatic.com',
+      'akamaihd.net',
+      'cloudflare.com',
     ];
 
+    // Only require HTTPS protocol for security
+    if (validUrl.protocol !== 'https:') {
+      return new NextResponse('Only HTTPS URLs are allowed', { status: 403 });
+    }
+
     const isAllowed = allowedDomains.some(domain => 
-      validUrl.hostname === domain || validUrl.hostname.endsWith('.' + domain)
+      validUrl.hostname === domain || 
+      validUrl.hostname.endsWith('.' + domain) ||
+      validUrl.hostname.includes(domain)
     );
 
     if (!isAllowed) {
+      console.log('Domain not allowed:', validUrl.hostname);
       return new NextResponse('Domain not allowed', { status: 403 });
     }
 

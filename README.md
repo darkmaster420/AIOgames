@@ -282,9 +282,40 @@ MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/aiogames
 NEXTAUTH_URL=https://yourdomain.com
 NEXTAUTH_SECRET=your-production-secret-key
 
+# Admin User Setup (Auto-created on first startup)
+ADMIN_EMAIL=admin@yourdomain.com
+ADMIN_PASSWORD=your-secure-admin-password
+ADMIN_NAME=Site Administrator
+
 # Optional
 NODE_ENV=production
 ```
+
+### Admin User Setup
+
+The admin user is automatically created when the application starts for the first time. Simply configure the admin environment variables:
+
+1. **Set admin credentials in `.env`:**
+   ```env
+   ADMIN_EMAIL=admin@yourdomain.com
+   ADMIN_PASSWORD=your-secure-admin-password
+   ADMIN_NAME=Site Administrator
+   ```
+
+2. **Start the application** - The admin user will be created automatically
+
+3. **Access admin dashboard:**
+   - Login at `/auth/signin` with your admin credentials
+   - Navigate to `/admin` for the admin dashboard
+
+**Features available to admin users:**
+- 👥 User management and oversight
+- 📊 System statistics and analytics  
+- 🎮 Game tracking statistics
+- 🔧 System configuration
+- 🗑️ User deletion capabilities
+
+> **🔒 Security Note**: The admin seeding only works in development or when explicitly configured. Change the default admin password in production!
 
 ### Update Check Frequency
 
