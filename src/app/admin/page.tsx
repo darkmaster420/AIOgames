@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { useSession } from 'next-auth/react';
 import { Navigation } from '../../components/Navigation';
+import { ImageWithFallback } from '../../utils/imageProxy';
 
 interface AdminStats {
   totalUsers: number;
@@ -250,13 +250,12 @@ export default function AdminDashboard() {
                             {index + 1}
                           </div>
                           {game.image && (
-                            <Image 
+                            <ImageWithFallback
                               src={game.image} 
                               alt={game.title}
                               width={32}
                               height={32}
                               className="w-8 h-8 object-cover rounded"
-                              unoptimized
                             />
                           )}
                           <div className="flex-1 min-w-0">
@@ -330,13 +329,12 @@ export default function AdminDashboard() {
                     <div key={game.title} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
                       <div className="flex items-center gap-3 mb-2">
                         {game.image && (
-                          <Image 
+                          <ImageWithFallback
                             src={game.image} 
                             alt={game.title}
                             width={48}
                             height={48}
                             className="w-12 h-12 object-cover rounded"
-                            unoptimized
                           />
                         )}
                         <div className="flex-1 min-w-0">

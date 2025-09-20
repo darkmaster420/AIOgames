@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { useSession } from 'next-auth/react';
 import { Navigation } from '../../components/Navigation';
 import { DownloadLinks } from '../../components/DownloadLinks';
 import { SequelNotifications } from '../../components/SequelNotifications';
 import { AddCustomGame } from '../../components/AddCustomGame';
+import { ImageWithFallback } from '../../utils/imageProxy';
 
 interface TrackedGame {
   _id: string;
@@ -227,13 +227,12 @@ export default function TrackingDashboard() {
                 <div className="flex items-start gap-4">
                   {/* Game Image */}
                   {game.image && (
-                    <Image
+                    <ImageWithFallback
                       src={game.image}
                       alt={game.title}
                       width={96}
                       height={96}
                       className="w-24 h-24 object-cover rounded-lg flex-shrink-0"
-                      unoptimized
                     />
                   )}
                   

@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Image from 'next/image';
 import { useSession } from 'next-auth/react';
+import { ImageWithFallback } from '../utils/imageProxy';
 import { Navigation } from '../components/Navigation';
 import { GameDownloadLinks } from '../components/GameDownloadLinks';
 import { AddCustomGame } from '../components/AddCustomGame';
@@ -209,13 +209,12 @@ export default function Dashboard() {
           ) : (
             games.map((game: Game) => (
             <div key={game.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
-              <Image
-                src={game.image || 'https://via.placeholder.com/300x400?text=No+Image'}
+              <ImageWithFallback
+                src={game.image}
                 alt={game.title}
                 width={300}
                 height={192}
                 className="w-full h-36 sm:h-48 object-cover"
-                unoptimized
               />
               <div className="p-3 sm:p-4">
                 <h3 className="font-semibold text-base sm:text-lg mb-2 text-gray-900 dark:text-white line-clamp-2">{game.title}</h3>

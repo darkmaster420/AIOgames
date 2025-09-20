@@ -6,8 +6,14 @@ const nextConfig: NextConfig = {
   
   // Optimize images for production
   images: {
-    domains: ['via.placeholder.com', 'gameapi.a7a8524.workers.dev'],
-    unoptimized: true, // For better compatibility in containers
+    domains: [
+      'via.placeholder.com', 
+      'gameapi.a7a8524.workers.dev',
+      'cdn.cloudflare.steamstatic.com',
+      'steamcdn-a.akamaihd.net',
+      'shared.cloudflare.steamstatic.com'
+    ],
+    unoptimized: true, // Use our custom proxy instead
   },
   
   // Environment variable configuration
