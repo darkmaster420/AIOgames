@@ -35,6 +35,7 @@ export function GameDownloadLinks({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isOpen, setIsOpen] = useState(false);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [context, setContext] = useState<{
@@ -93,6 +94,20 @@ export function GameDownloadLinks({
     if (!isOpen && downloadLinks.length === 0 && !loading) {
       fetchDownloadLinks();
     }
+    
+    if (!isOpen && buttonRef.current) {
+      // Calculate position for dropdown to appear above game cards
+      const rect = buttonRef.current.getBoundingClientRect();
+      const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+      const scrollX = window.pageXOffset || document.documentElement.scrollLeft;
+      
+      setDropdownPosition({
+        top: rect.bottom + scrollY + 4,
+        left: rect.left + scrollX,
+        width: rect.width
+      });
+    }
+    
     setIsOpen(!isOpen);
   };
 
@@ -135,11 +150,22 @@ export function GameDownloadLinks({
       </button>
 
       {isOpen && (
-        <div 
-          ref={dropdownRef}
-          className="absolute top-full left-0 right-0 mt-1 min-w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-96 overflow-y-auto z-50"
-        >
-          {/* Header */}
+        <>
+          {/* Invisible overlay to capture outside clicks */}
+          <div 
+            className="fixed inset-0 z-[9998]" 
+            onClick={() => setIsOpen(false)}
+          />
+          <div 
+            ref={dropdownRef}
+            className="fixed min-w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl max-h-96 overflow-y-auto z-[9999]"
+            style={{
+              top: `${dropdownPosition.top}px`,
+              left: `${dropdownPosition.left}px`,
+              minWidth: `${Math.max(dropdownPosition.width, 320)}px`
+            }}
+          >
+            {/* Header */}
           <div className="p-3 border-b border-gray-200 dark:border-gray-700">
             <h3 className="font-semibold text-gray-900 dark:text-white">Download Links</h3>
             {context.gameTitle && (
@@ -233,6 +259,7 @@ export function GameDownloadLinks({
             )}
           </div>
         </div>
+        </>
       )}
     </div>
   );
