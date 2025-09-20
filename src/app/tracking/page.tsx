@@ -49,7 +49,7 @@ interface TrackedGame {
 }
 
 export default function TrackingDashboard() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const [trackedGames, setTrackedGames] = useState<TrackedGame[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

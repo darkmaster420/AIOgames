@@ -19,6 +19,20 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# Add build-time environment variables
+ARG MONGODB_URI
+ARG NEXTAUTH_SECRET
+ARG NEXTAUTH_URL
+ARG GAME_API_URL
+ARG NODE_ENV
+
+# Set environment variables for build
+ENV MONGODB_URI=${MONGODB_URI}
+ENV NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+ENV NEXTAUTH_URL=${NEXTAUTH_URL}
+ENV GAME_API_URL=${GAME_API_URL}
+ENV NODE_ENV=${NODE_ENV}
+
 # Build the application
 RUN npm run build
 

@@ -19,7 +19,7 @@ interface Game {
 }
 
 export default function Dashboard() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const [games, setGames] = useState<Game[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);

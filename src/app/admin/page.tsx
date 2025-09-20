@@ -39,7 +39,7 @@ interface User {
 }
 
 export default function AdminDashboard() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [recentUsers, setRecentUsers] = useState<RecentUser[]>([]);
   const [topGames, setTopGames] = useState<TopGame[]>([]);
