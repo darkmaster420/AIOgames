@@ -17,48 +17,47 @@ export async function GET(request: NextRequest) {
       return new NextResponse('Invalid image URL', { status: 400 });
     }
 
-    // Security: Only allow HTTPS and certain domains (more permissive for VPS)
-    const allowedDomains = [
-      'gameapi.a7a8524.workers.dev',
-      'via.placeholder.com',
-      'cdn.cloudflare.steamstatic.com',
-      'steamcdn-a.akamaihd.net',
-      'shared.cloudflare.steamstatic.com',
-      'cdn.akamai.steamstatic.com',
-      'store.steampowered.com',
-      // Steam CDN domains
-      'steamstatic.com',
-      'akamaihd.net',
-      'cloudflare.com',
-    ];
-
-    // Only require HTTPS protocol for security
+    // Security: Only require HTTPS protocol, be more permissive with domains for VPS
     if (validUrl.protocol !== 'https:') {
       return new NextResponse('Only HTTPS URLs are allowed', { status: 403 });
     }
 
-    const isAllowed = allowedDomains.some(domain => 
-      validUrl.hostname === domain || 
-      validUrl.hostname.endsWith('.' + domain) ||
-      validUrl.hostname.includes(domain)
+    // More permissive domain checking - block only obviously bad domains
+    const blockedDomains = [
+      'localhost',
+      '127.0.0.1',
+      '0.0.0.0',
+      '10.',
+      '172.',
+      '192.168.',
+    ];
+
+    const isBlocked = blockedDomains.some(blocked => 
+      validUrl.hostname.startsWith(blocked) || validUrl.hostname.includes(blocked)
     );
 
-    if (!isAllowed) {
-      console.log('Domain not allowed:', validUrl.hostname);
-      return new NextResponse('Domain not allowed', { status: 403 });
+    if (isBlocked) {
+      console.log('Domain blocked for security:', validUrl.hostname);
+      return new NextResponse('Domain not allowed for security reasons', { status: 403 });
     }
 
-    // Fetch the image
+    // Fetch the image with better headers for CORS
     const imageResponse = await fetch(imageUrl, {
       headers: {
-        'User-Agent': 'AIOgames/1.0',
-        'Accept': 'image/*',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Referer': validUrl.origin,
       },
       // Add timeout
-      signal: AbortSignal.timeout(10000), // 10 second timeout
+      signal: AbortSignal.timeout(15000), // 15 second timeout
     });
 
     if (!imageResponse.ok) {
+      console.log(`Failed to fetch image from ${validUrl.hostname}: ${imageResponse.status} ${imageResponse.statusText}`);
       return new NextResponse('Failed to fetch image', { status: imageResponse.status });
     }
 

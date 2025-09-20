@@ -35,7 +35,6 @@ export function GameDownloadLinks({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isOpen, setIsOpen] = useState(false);
-  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [context, setContext] = useState<{
@@ -94,19 +93,6 @@ export function GameDownloadLinks({
     if (!isOpen && downloadLinks.length === 0 && !loading) {
       fetchDownloadLinks();
     }
-    
-    if (!isOpen && buttonRef.current) {
-      // Calculate position for dropdown
-      const rect = buttonRef.current.getBoundingClientRect();
-      const scrollY = window.pageYOffset || document.documentElement.scrollTop;
-      const scrollX = window.pageXOffset || document.documentElement.scrollLeft;
-      
-      setDropdownPosition({
-        top: rect.bottom + scrollY + 2,
-        left: rect.left + scrollX
-      });
-    }
-    
     setIsOpen(!isOpen);
   };
 
@@ -135,31 +121,23 @@ export function GameDownloadLinks({
   };
 
   return (
-    <>
-      <div className={`relative inline-block ${className}`}>
-        <button
-          ref={buttonRef}
-          onClick={handleToggle}
-          className="w-full px-3 py-2 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 text-sm rounded hover:bg-green-200 dark:hover:bg-green-800 transition-colors flex items-center justify-center gap-2"
-        >
-          <span>📁</span>
-          <span>Download Links</span>
-          <span className={`transform transition-transform ${isOpen ? 'rotate-180' : ''}`}>
-            ⌄
-          </span>
-        </button>
-      </div>
+    <div className={`relative inline-block ${className}`}>
+      <button
+        ref={buttonRef}
+        onClick={handleToggle}
+        className="w-full px-3 py-2 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 text-sm rounded hover:bg-green-200 dark:hover:bg-green-800 transition-colors flex items-center justify-center gap-2"
+      >
+        <span>📁</span>
+        <span>Download Links</span>
+        <span className={`transform transition-transform ${isOpen ? 'rotate-180' : ''}`}>
+          ⌄
+        </span>
+      </button>
 
       {isOpen && (
         <div 
           ref={dropdownRef}
-          className="fixed min-w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-96 overflow-y-auto"
-          style={{
-            position: 'fixed',
-            top: `${dropdownPosition.top}px`,
-            left: `${dropdownPosition.left}px`,
-            zIndex: 9999
-          }}
+          className="absolute top-full left-0 right-0 mt-1 min-w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-96 overflow-y-auto z-50"
         >
           {/* Header */}
           <div className="p-3 border-b border-gray-200 dark:border-gray-700">
@@ -256,7 +234,7 @@ export function GameDownloadLinks({
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
 

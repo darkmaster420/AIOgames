@@ -96,7 +96,12 @@ export function getProxiedImageUrl(imageUrl: string | undefined): string {
     return imageUrl;
   }
   
-  // For VPS deployment, try direct first (will fallback to proxy on error)
+  // For external images, immediately use proxy to avoid CORS issues on VPS
+  if (imageUrl.startsWith('https://') && !imageUrl.includes('localhost')) {
+    return `/api/proxy-image?url=${encodeURIComponent(imageUrl)}`;
+  }
+  
+  // For local development, try direct first
   return imageUrl;
 }
 
