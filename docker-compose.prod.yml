@@ -1,0 +1,75 @@
+# Production Docker Compose using published image
+# Simple deployment for end users
+
+version: '3.8'
+
+services:
+  aiogames:
+    image: ghcr.io/darkmaster420/aiogames:latest
+    container_name: aiogames-app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - MONGODB_URI=${MONGODB_URI}
+      - GAME_API_URL=${GAME_API_URL:-https://gameapi.a7a8524.workers.dev}
+    env_file:
+      - .env
+    restart: unless-stopped
+    volumes:
+      # Optional: Persist any application data
+      - aiogames_data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - mongodb
+
+  # Optional: MongoDB (remove if using MongoDB Atlas)
+  mongodb:
+    image: mongo:7
+    container_name: aiogames-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-changeme123}
+      - MONGO_INITDB_DATABASE=aiogames
+    volumes:
+      - mongodb_data:/data/db
+      - ./docker/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    restart: unless-stopped
+    command: --auth
+
+  # Optional: MongoDB Web Interface
+  mongo-express:
+    image: mongo-express:latest
+    container_name: aiogames-mongo-express
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=admin
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGO_ROOT_PASSWORD:-changeme123}
+      - ME_CONFIG_MONGODB_URL=mongodb://admin:${MONGO_ROOT_PASSWORD:-changeme123}@mongodb:27017/
+      - ME_CONFIG_BASICAUTH_USERNAME=admin
+      - ME_CONFIG_BASICAUTH_PASSWORD=${MONGO_EXPRESS_PASSWORD:-admin123}
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+    profiles:
+      - debug
+
+volumes:
+  mongodb_data:
+    driver: local
+  aiogames_data:
+    driver: local
+
+networks:
+  default:
+    name: aiogames-network

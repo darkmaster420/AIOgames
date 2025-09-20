@@ -1,17 +1,69 @@
+# Dependencies
 node_modules
+
+# Build outputs
 .next
-.env.local
-.env
+*.tgz
+*.tar.gz
+
+# Environment files (will be provided at runtime)
+.env*
+!.env.example
+
+# Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.log
+
+# OS generated files
 .DS_Store
-*.tgz
-*.tar.gz
-.vercel
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Development files
 .git
-README.md
-Dockerfile
-docker-compose*.yml
 .gitignore
 .dockerignore
+.vscode
+.idea
+
+# Documentation (reduce image size)
+README.md
+docs/
+*.md
+
+# Development Docker files
+Dockerfile
+docker-compose*.yml
+
+# CI/CD
+.github/
+
+# Deployment scripts (not needed in image)
+scripts/
+
+# Temporary files
+.vercel
+.next/cache
+.npm
+.yarn
+
+# Test files
+__tests__/
+*.test.*
+*.spec.*
+
+# Coverage reports
+coverage/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

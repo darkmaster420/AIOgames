@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release-url: ${{ steps.create-release.outputs.html_url }}
+      
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Simple changelog generation
+          if git describe --tags --abbrev=0 HEAD^ >/dev/null 2>&1; then
+            PREV_TAG=$(git describe --tags --abbrev=0 HEAD^)
+            echo "## Changes since $PREV_TAG" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            git log --pretty=format:"* %s (%an)" $PREV_TAG..HEAD >> CHANGELOG.md
+          else
+            echo "## Initial Release" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "* First release of AIOgames" >> CHANGELOG.md
+          fi
+          
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          cat CHANGELOG.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create-release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: AIOgames ${{ github.ref }}
+          body: |
+            # AIOgames Release ${{ github.ref_name }}
+            
+            ## 🐳 Docker Images
+            
+            This release is available as Docker images:
+            
+            ```bash
+            # Pull the latest release
+            docker pull ghcr.io/darkmaster420/aiogames:${{ github.ref_name }}
+            docker pull ghcr.io/darkmaster420/aiogames:latest
+            
+            # Quick deploy
+            curl -sSL https://raw.githubusercontent.com/darkmaster420/AIOgames/main/scripts/quick-deploy.sh | bash
+            ```
+            
+            ## 📦 Available Images
+            - `ghcr.io/darkmaster420/aiogames:${{ github.ref_name }}` - This specific version
+            - `ghcr.io/darkmaster420/aiogames:latest` - Latest stable release
+            
+            ## 🏗️ Supported Architectures
+            - `linux/amd64` (Intel/AMD 64-bit)
+            - `linux/arm64` (ARM 64-bit, Apple Silicon)
+            
+            ## 📋 Deployment Guide
+            See [Docker Deployment Guide](https://github.com/darkmaster420/AIOgames/blob/main/docs/DOCKER_REGISTRY_DEPLOYMENT.md) for complete instructions.
+            
+            ${{ steps.changelog.outputs.changelog }}
+          draft: false
+          prerelease: false
+
+  update-latest-docs:
+    needs: create-release
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Update quick-deploy script
+        run: |
+          # Update version references in quick-deploy script if needed
+          echo "Quick deploy script is version-agnostic, no updates needed"
+        
+      - name: Notify users
+        run: |
+          echo "🎉 New release ${{ github.ref_name }} is available!"
+          echo "📦 Docker images are being built and will be available shortly"
+          echo "🚀 Use the quick deploy script for easy installation"

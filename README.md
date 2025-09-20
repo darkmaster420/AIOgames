@@ -78,7 +78,39 @@ A modern, comprehensive web application for discovering, tracking, and managing 
    - Replace `<password>` with your database user's password
    - Replace `<database>` with your preferred database name (e.g., "aiogames")
 
-### Installation
+## 🚀 Quick Start
+
+### Option 1: Docker (Recommended)
+
+The fastest way to get started is using our pre-built Docker image:
+
+```bash
+# Quick deploy with everything included
+curl -sSL https://raw.githubusercontent.com/darkmaster420/AIOgames/main/scripts/quick-deploy.sh | bash
+```
+
+**Or manually with Docker Compose:**
+```bash
+# Download configuration
+curl -o docker-compose.yml https://raw.githubusercontent.com/darkmaster420/AIOgames/main/docker-compose.prod.yml
+curl -o .env.example https://raw.githubusercontent.com/darkmaster420/AIOgames/main/.env.example
+
+# Configure environment
+cp .env.example .env
+nano .env  # Edit with your settings
+
+# Start services
+docker-compose up -d
+```
+
+**Docker Images Available:**
+- `ghcr.io/darkmaster420/aiogames:latest` - Latest stable release
+- `ghcr.io/darkmaster420/aiogames:v1.0.0` - Specific version tags
+- Multi-architecture support: `linux/amd64`, `linux/arm64`
+
+📚 **[Complete Docker Deployment Guide](docs/DOCKER_REGISTRY_DEPLOYMENT.md)**
+
+### Option 2: Build from Source
 
 1. **Clone and install dependencies:**
 ```bash
@@ -188,8 +220,31 @@ scripts/
 
 docs/
 ├── GAME_TRACKING.md  # Detailed tracking setup
+├── DOCKER_REGISTRY_DEPLOYMENT.md  # Docker deployment guide
 └── ...
 ```
+
+## 🚢 Deployment Options
+
+### Production Deployment
+
+**🐳 Docker (Recommended)**
+- Pre-built images on GitHub Container Registry
+- Automated builds with security scanning
+- Multi-architecture support (AMD64/ARM64)
+- One-command deployment
+
+**📋 Manual Setup**
+- Build from source on your server
+- Full control over environment
+- Custom configurations
+
+**☁️ Cloud Platforms**
+- Deploy Docker images to any cloud provider
+- Container orchestration support
+- Scalable infrastructure
+
+See [DOCKER_REGISTRY_DEPLOYMENT.md](docs/DOCKER_REGISTRY_DEPLOYMENT.md) for complete deployment instructions.
 
 ## Development
 
