@@ -6,6 +6,7 @@ import { ImageWithFallback } from '../utils/imageProxy';
 import { Navigation } from '../components/Navigation';
 import { GameDownloadLinks } from '../components/GameDownloadLinks';
 import { AddCustomGame } from '../components/AddCustomGame';
+import { useNotification } from '../contexts/NotificationContext';
 
 interface Game {
   id: string;
@@ -20,6 +21,7 @@ interface Game {
 
 export default function Dashboard() {
   const { status } = useSession();
+  const { showSuccess, showError } = useNotification();
   const [games, setGames] = useState<Game[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -113,13 +115,13 @@ export default function Dashboard() {
 
       if (response.ok) {
         setTrackedGames(prev => new Set(prev).add(game.id));
-        alert('Game added to tracking!');
+        showSuccess('Game Added!', `${game.title} has been added to your tracking list.`);
       } else {
         const error = await response.json();
-        alert(error.error || 'Failed to track game');
+        showError('Failed to Track Game', error.error || 'An unexpected error occurred.');
       }
     } catch {
-      alert('Failed to track game');
+      showError('Network Error', 'Unable to connect to the server. Please try again.');
     }
   };
 
@@ -135,13 +137,13 @@ export default function Dashboard() {
           newSet.delete(game.id);
           return newSet;
         });
-        alert('Game removed from tracking!');
+        showSuccess('Game Removed!', `${game.title} has been removed from tracking.`);
       } else {
         const error = await response.json();
-        alert(error.error || 'Failed to untrack game');
+        showError('Failed to Remove Game', error.error || 'An unexpected error occurred.');
       }
     } catch {
-      alert('Failed to untrack game');
+      showError('Network Error', 'Unable to connect to the server. Please try again.');
     }
   };
 

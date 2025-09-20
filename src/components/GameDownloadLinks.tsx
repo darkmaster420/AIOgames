@@ -98,26 +98,25 @@ export function GameDownloadLinks({
     if (!isOpen && buttonRef.current) {
       // Calculate initial position with viewport bounds checking
       const rect = buttonRef.current.getBoundingClientRect();
-      const scrollY = window.pageYOffset || document.documentElement.scrollTop;
-      const scrollX = window.pageXOffset || document.documentElement.scrollLeft;
       
-      // Viewport bounds checking
+      // For fixed positioning, we use getBoundingClientRect() directly 
+      // since it's relative to the viewport, not the document
       const viewportHeight = window.innerHeight;
       const viewportWidth = window.innerWidth;
       const dropdownHeight = 384; // max-h-96 = ~384px
       const dropdownWidth = Math.max(rect.width, 320);
       
-      let top = rect.bottom + scrollY + 4;
-      let left = rect.left + scrollX;
+      let top = rect.bottom + 4;
+      let left = rect.left;
       
       // If dropdown would go off bottom of viewport, show it above the button
       if (rect.bottom + dropdownHeight > viewportHeight) {
-        top = rect.top + scrollY - dropdownHeight - 4;
+        top = rect.top - dropdownHeight - 4;
       }
       
       // If dropdown would go off right edge, align it to the right
       if (rect.left + dropdownWidth > viewportWidth) {
-        left = rect.right + scrollX - dropdownWidth;
+        left = rect.right - dropdownWidth;
       }
       
       // Ensure it doesn't go off the left edge
@@ -154,26 +153,23 @@ export function GameDownloadLinks({
           return;
         }
         
-        const scrollY = window.pageYOffset || document.documentElement.scrollTop;
-        const scrollX = window.pageXOffset || document.documentElement.scrollLeft;
-        
-        // Viewport bounds checking
+        // For fixed positioning, use getBoundingClientRect() directly
         const viewportHeight = window.innerHeight;
         const viewportWidth = window.innerWidth;
         const dropdownHeight = 384; // max-h-96 = ~384px
         const dropdownWidth = Math.max(rect.width, 320);
         
-        let top = rect.bottom + scrollY + 4;
-        let left = rect.left + scrollX;
+        let top = rect.bottom + 4;
+        let left = rect.left;
         
         // If dropdown would go off bottom of viewport, show it above the button
         if (rect.bottom + dropdownHeight > viewportHeight) {
-          top = rect.top + scrollY - dropdownHeight - 4;
+          top = rect.top - dropdownHeight - 4;
         }
         
         // If dropdown would go off right edge, align it to the right
         if (rect.left + dropdownWidth > viewportWidth) {
-          left = rect.right + scrollX - dropdownWidth;
+          left = rect.right - dropdownWidth;
         }
         
         // Ensure it doesn't go off the left edge

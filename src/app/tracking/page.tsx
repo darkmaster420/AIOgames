@@ -8,6 +8,7 @@ import { DownloadLinks } from '../../components/DownloadLinks';
 import { SequelNotifications } from '../../components/SequelNotifications';
 import { AddCustomGame } from '../../components/AddCustomGame';
 import { ImageWithFallback } from '../../utils/imageProxy';
+import { useNotification } from '../../contexts/NotificationContext';
 
 interface TrackedGame {
   _id: string;
@@ -50,6 +51,7 @@ interface TrackedGame {
 
 export default function TrackingDashboard() {
   const { status } = useSession();
+  const { showSuccess, showError, showInfo } = useNotification();
   const [trackedGames, setTrackedGames] = useState<TrackedGame[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -83,12 +85,14 @@ export default function TrackingDashboard() {
 
       if (response.ok) {
         setTrackedGames(prev => prev.filter(game => game.gameId !== gameId));
+        const gameTitle = trackedGames.find(g => g.gameId === gameId)?.title || 'Game';
+        showSuccess('Game Removed!', `${gameTitle} has been removed from tracking.`);
       } else {
         const error = await response.json();
-        alert(error.error || 'Failed to untrack game');
+        showError('Failed to Remove Game', error.error || 'An unexpected error occurred.');
       }
     } catch {
-      alert('Failed to untrack game');
+      showError('Network Error', 'Unable to connect to the server. Please try again.');
     }
   };
 
@@ -102,12 +106,12 @@ export default function TrackingDashboard() {
       if (!response.ok) throw new Error('Failed to check for updates');
       
       const result = await response.json();
-      alert(`Update check completed! Checked ${result.checked} games, found ${result.updatesFound} updates.`);
+      showInfo('Update Check Complete!', `Checked ${result.checked} games and found ${result.updatesFound} updates.`);
       
       // Reload tracked games to show any updates
       loadTrackedGames();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to check for updates');
+      showError('Update Check Failed', err instanceof Error ? err.message : 'Unable to check for updates.');
     } finally {
       setCheckingUpdates(false);
     }

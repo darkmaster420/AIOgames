@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { Navigation } from '../../components/Navigation';
 import { ImageWithFallback } from '../../utils/imageProxy';
+import { useNotification } from '../../contexts/NotificationContext';
+import { useConfirm } from '../../components/ConfirmDialog';
 
 interface AdminStats {
   totalUsers: number;
@@ -40,6 +42,8 @@ interface User {
 
 export default function AdminDashboard() {
   const { status } = useSession();
+  const { showSuccess, showError } = useNotification();
+  const { confirm, ConfirmDialog } = useConfirm();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [recentUsers, setRecentUsers] = useState<RecentUser[]>([]);
   const [topGames, setTopGames] = useState<TopGame[]>([]);
@@ -90,7 +94,17 @@ export default function AdminDashboard() {
   };
 
   const handleDeleteUser = async (userId: string, userName: string) => {
-    if (!confirm(`Are you sure you want to delete user "${userName}" and all their tracked games?`)) {
+    const confirmed = await confirm(
+      'Delete User',
+      `Are you sure you want to delete user "${userName}" and all their tracked games? This action cannot be undone.`,
+      { 
+        confirmText: 'Delete', 
+        cancelText: 'Cancel', 
+        type: 'danger' 
+      }
+    );
+
+    if (!confirmed) {
       return;
     }
 
@@ -101,11 +115,13 @@ export default function AdminDashboard() {
 
       if (!response.ok) throw new Error('Failed to delete user');
 
+      showSuccess('User Deleted', `User "${userName}" and all associated data has been deleted.`);
+
       // Reload users and stats
       loadUsers();
       loadAdminData();
     } catch (err) {
-      alert('Failed to delete user: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      showError('Failed to Delete User', err instanceof Error ? err.message : 'An unexpected error occurred.');
     }
   };
 
@@ -355,6 +371,7 @@ export default function AdminDashboard() {
         )}
         </div>
       </div>
+      <ConfirmDialog />
     </>
   );
 }
