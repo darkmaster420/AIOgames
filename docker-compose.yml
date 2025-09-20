@@ -1,145 +1,56 @@
-version: "3.9"
+version: '3.8'
 
 services:
-  # Main AIOgames Application
+  # Main Application
   aiogames:
-    build: .
-    container_name: aiogames-app
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
-      - "${PORT:-3000}:3000"
-    volumes:
-      - aiogames_data:/app/data
-      - downloads_data:/app/downloads  
-      - config_data:/app/config
-      - logs_data:/app/logs
+      - "3000:3000"
     environment:
       - NODE_ENV=production
-      - PORT=${PORT:-3000}
-      - JWT_SECRET=${JWT_SECRET:-changeme}
-      - MONGODB_URI=mongodb://mongodb:27017/aiogames
-      - ARIA2_URL=http://aria2:6800/jsonrpc
-      - ARIA2_SECRET=${ARIA2_SECRET:-aiogames123}
-      - QB_URL=http://qbittorrent:8080
-      - QB_USERNAME=${QB_USERNAME:-admin}
-      - QB_PASSWORD=${QB_PASSWORD:-adminadmin}
-      - JD_EMAIL=${JD_EMAIL}
-      - JD_PASSWORD=${JD_PASSWORD}
-      - RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-100}
-      - RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-900000}
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      mongodb:
-        condition: service_healthy
-      aria2:
-        condition: service_healthy
-      qbittorrent:
-        condition: service_healthy
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - MONGODB_URI=${MONGODB_URI}
+      - GAME_API_URL=${GAME_API_URL}
+    env_file:
+      - .env.local
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
-    networks:
-      - aiogames-network
 
-  # MongoDB Database
-  mongodb:
-    image: mongo:7-jammy
-    container_name: aiogames-mongodb
-    volumes:
-      - mongodb_data:/data/db
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER:-admin}
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-changeme}
-      - MONGO_INITDB_DATABASE=aiogames
-    ports:
-      - "27017:27017"
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    restart: unless-stopped
-    networks:
-      - aiogames-network
+  # Optional: MongoDB (if not using Atlas)
+  # mongodb:
+  #   image: mongo:7
+  #   container_name: aiogames-mongodb
+  #   ports:
+  #     - "27017:27017"
+  #   environment:
+  #     - MONGO_INITDB_ROOT_USERNAME=admin
+  #     - MONGO_INITDB_ROOT_PASSWORD=password
+  #     - MONGO_INITDB_DATABASE=aiogames
+  #   volumes:
+  #     - mongodb_data:/data/db
+  #   restart: unless-stopped
 
-  # Aria2 Download Manager
-  aria2:
-    image: p3terx/aria2-pro:latest
-    container_name: aiogames-aria2
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - UMASK_SET=022
-      - RPC_SECRET=${ARIA2_SECRET:-aiogames123}
-      - RPC_PORT=6800
-      - LISTEN_PORT=6888
-    volumes:
-      - downloads_data:/downloads
-      - aria2_config:/config
-    ports:
-      - "6800:6800"
-      - "6888:6888"
-      - "6888:6888/udp"
-    healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:6800 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    restart: unless-stopped
-    networks:
-      - aiogames-network
+  # Optional: MongoDB Web Interface
+  # mongo-express:
+  #   image: mongo-express
+  #   ports:
+  #     - "8081:8081"
+  #   environment:
+  #     - ME_CONFIG_MONGODB_ADMINUSERNAME=admin
+  #     - ME_CONFIG_MONGODB_ADMINPASSWORD=password
+  #     - ME_CONFIG_MONGODB_URL=mongodb://admin:password@mongodb:27017/
+  #     - ME_CONFIG_BASICAUTH_USERNAME=admin
+  #     - ME_CONFIG_BASICAUTH_PASSWORD=admin
+  #   depends_on:
+  #     - mongodb
 
-  # qBittorrent Torrent Client  
-  qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:latest
-    container_name: aiogames-qbittorrent
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=${TZ:-UTC}
-      - WEBUI_PORT=8080
-      - TORRENTING_PORT=6881
-    volumes:
-      - qbit_config:/config
-      - downloads_data:/downloads
-    ports:
-      - "8080:8080"
-      - "6881:6881"
-      - "6881:6881/udp"
-    healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:8080 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    restart: unless-stopped
-    networks:
-      - aiogames-network
-
-networks:
-  aiogames-network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
-
-volumes:
-  aiogames_data:
-    driver: local
-  downloads_data:
-    driver: local
-  config_data:
-    driver: local 
-  logs_data:
-    driver: local
-  mongodb_data:
-    driver: local
-  aria2_config:
-    driver: local
-  qbit_config:
-    driver: local
+# volumes:
+#   mongodb_data:
