@@ -96,14 +96,38 @@ export function GameDownloadLinks({
     }
     
     if (!isOpen && buttonRef.current) {
-      // Calculate position for dropdown to appear above game cards
+      // Calculate initial position with viewport bounds checking
       const rect = buttonRef.current.getBoundingClientRect();
       const scrollY = window.pageYOffset || document.documentElement.scrollTop;
       const scrollX = window.pageXOffset || document.documentElement.scrollLeft;
       
+      // Viewport bounds checking
+      const viewportHeight = window.innerHeight;
+      const viewportWidth = window.innerWidth;
+      const dropdownHeight = 384; // max-h-96 = ~384px
+      const dropdownWidth = Math.max(rect.width, 320);
+      
+      let top = rect.bottom + scrollY + 4;
+      let left = rect.left + scrollX;
+      
+      // If dropdown would go off bottom of viewport, show it above the button
+      if (rect.bottom + dropdownHeight > viewportHeight) {
+        top = rect.top + scrollY - dropdownHeight - 4;
+      }
+      
+      // If dropdown would go off right edge, align it to the right
+      if (rect.left + dropdownWidth > viewportWidth) {
+        left = rect.right + scrollX - dropdownWidth;
+      }
+      
+      // Ensure it doesn't go off the left edge
+      if (left < 0) {
+        left = 4;
+      }
+      
       setDropdownPosition({
-        top: rect.bottom + scrollY + 4,
-        left: rect.left + scrollX,
+        top,
+        left,
         width: rect.width
       });
     }
@@ -111,7 +135,7 @@ export function GameDownloadLinks({
     setIsOpen(!isOpen);
   };
 
-  // Close dropdown when clicking outside
+  // Close dropdown when clicking outside and handle scroll updates
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node) &&
@@ -120,9 +144,61 @@ export function GameDownloadLinks({
       }
     };
 
+    const updatePosition = () => {
+      if (isOpen && buttonRef.current) {
+        const rect = buttonRef.current.getBoundingClientRect();
+        
+        // If button is scrolled too far off screen, close the dropdown
+        if (rect.bottom < 0 || rect.top > window.innerHeight) {
+          setIsOpen(false);
+          return;
+        }
+        
+        const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+        const scrollX = window.pageXOffset || document.documentElement.scrollLeft;
+        
+        // Viewport bounds checking
+        const viewportHeight = window.innerHeight;
+        const viewportWidth = window.innerWidth;
+        const dropdownHeight = 384; // max-h-96 = ~384px
+        const dropdownWidth = Math.max(rect.width, 320);
+        
+        let top = rect.bottom + scrollY + 4;
+        let left = rect.left + scrollX;
+        
+        // If dropdown would go off bottom of viewport, show it above the button
+        if (rect.bottom + dropdownHeight > viewportHeight) {
+          top = rect.top + scrollY - dropdownHeight - 4;
+        }
+        
+        // If dropdown would go off right edge, align it to the right
+        if (rect.left + dropdownWidth > viewportWidth) {
+          left = rect.right + scrollX - dropdownWidth;
+        }
+        
+        // Ensure it doesn't go off the left edge
+        if (left < 0) {
+          left = 4;
+        }
+        
+        setDropdownPosition({
+          top,
+          left,
+          width: rect.width
+        });
+      }
+    };
+
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
+      window.addEventListener('scroll', updatePosition, true);
+      window.addEventListener('resize', updatePosition);
+      
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+        window.removeEventListener('scroll', updatePosition, true);
+        window.removeEventListener('resize', updatePosition);
+      };
     }
   }, [isOpen]);
 
