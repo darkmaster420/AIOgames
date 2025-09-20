@@ -85,7 +85,7 @@ GAME_API_URL=https://gameapi.a7a8524.workers.dev
    git clone <repository>
    cd AIOgames
    npm install
-   cp .env.example .env.local
+   cp .env.example .env
    # Configure environment variables
    ```
 

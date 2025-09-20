@@ -13,12 +13,12 @@ if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/
     exit 1
 fi
 
-# Check if .env.local exists
-if [ ! -f .env.local ]; then
-    echo "❌ .env.local file not found!"
-    echo "📝 Please copy .env.production to .env.local and configure your settings:"
-    echo "   cp .env.production .env.local"
-    echo "   nano .env.local"
+# Check if .env exists
+if [ ! -f .env ]; then
+    echo "❌ .env file not found!"
+    echo "📝 Please copy .env.example to .env and configure your settings:"
+    echo "   cp .env.example .env"
+    echo "   nano .env"
     exit 1
 fi
 

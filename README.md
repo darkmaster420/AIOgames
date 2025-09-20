@@ -89,10 +89,10 @@ npm install
 
 2. **Set up environment variables:**
 ```bash
-cp .env.example .env.local
+cp .env.example .env
 ```
 
-Edit `.env.local` with your configuration:
+Edit `.env` with your configuration:
 ```env
 # Database - Use your MongoDB Atlas connection string
 MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/aiogames?retryWrites=true&w=majority

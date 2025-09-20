@@ -57,7 +57,7 @@ docker compose up -d
 
 ## 🔧 Production Configuration
 
-### **Environment Variables** (`.env.local`)
+### **Environment Variables** (`.env`)
 ```bash
 # Database - MongoDB Atlas (recommended)
 MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/aiogames
@@ -116,7 +116,7 @@ NODE_ENV=production
 
 1. **Update Environment Variables:**
    ```bash
-   # Change these in .env.local
+   # Change these in .env
    NEXTAUTH_URL=https://your-domain.com
    NEXTAUTH_SECRET=generate-a-secure-secret-key
    ```

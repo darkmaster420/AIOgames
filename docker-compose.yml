@@ -14,8 +14,7 @@ services:
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
       - MONGODB_URI=${MONGODB_URI}
       - GAME_API_URL=${GAME_API_URL}
-    env_file:
-      - .env.local
+    env_file: .env
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]

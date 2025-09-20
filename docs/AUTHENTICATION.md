@@ -40,8 +40,8 @@ AIOgames uses NextAuth.js for secure authentication with MongoDB Atlas for user 
 
 ## Environment Configuration
 
-### Update .env.local
-Replace the placeholders in your `.env.local` file:
+### Update .env
+Replace the placeholders in your `.env` file:
 
 ```env
 # Replace with your actual Atlas connection string
@@ -167,7 +167,7 @@ Unauthenticated users are redirected to `/auth/signin`.
    - Verify NextAuth configuration
 
 ### Debug Mode
-Enable debug logging by adding to `.env.local`:
+Enable debug logging by adding to `.env`:
 ```env
 NEXTAUTH_DEBUG=true
 ```
@@ -200,7 +200,7 @@ NODE_ENV=production
 
 If you encounter issues:
 1. Check the troubleshooting section above
-2. Verify your `.env.local` configuration
+2. Verify your `.env` configuration
 3. Test your MongoDB Atlas connection
 4. Review the console for error messages
 5. Check the MongoDB Atlas logs in the Atlas dashboard
