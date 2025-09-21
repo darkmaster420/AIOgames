@@ -1,0 +1,72 @@
+# Development Docker Compose - Local MongoDB
+# 
+# This configuration is for development/testing only.
+# It runs both the Next.js app and MongoDB containers locally.
+# 
+# ⚠️  NOT recommended for production use!
+# Use MongoDB Atlas for production instead.
+# 
+# Usage:
+#   docker-compose -f docker-compose.development.yml up -d
+# 
+
+services:
+  # Next.js Application
+  aiogames:
+    build:
+      context: .
+      dockerfile: Dockerfile.development
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - MONGODB_URI=mongodb://aiogames:aiogames123@mongodb:27017/aiogames
+      - NEXTAUTH_URL=http://localhost:3000
+    env_file: 
+      - .env  # Uses your local .env file
+    depends_on:
+      - mongodb
+    networks:
+      - aiogames-network
+    restart: unless-stopped
+
+  # Local MongoDB (Development Only)
+  mongodb:
+    image: mongo:7
+    container_name: aiogames-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=admin123
+      - MONGO_INITDB_DATABASE=aiogames
+    volumes:
+      - mongodb_data:/data/db
+      - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - aiogames-network
+    restart: unless-stopped
+
+  # MongoDB Web Interface (Optional)
+  mongo-express:
+    image: mongo-express:latest
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=admin
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=admin123
+      - ME_CONFIG_MONGODB_URL=mongodb://admin:admin123@mongodb:27017/
+      - ME_CONFIG_BASICAUTH_USERNAME=admin
+      - ME_CONFIG_BASICAUTH_PASSWORD=admin
+    depends_on:
+      - mongodb
+    networks:
+      - aiogames-network
+    restart: unless-stopped
+
+networks:
+  aiogames-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:

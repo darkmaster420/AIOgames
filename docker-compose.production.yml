@@ -1,0 +1,34 @@
+# Production Docker Compose - MongoDB Atlas (RECOMMENDED)
+# 
+# This configuration is for production deployment using MongoDB Atlas.
+# It only runs the Next.js application container.
+# 
+# Prerequisites:
+# 1. Set up MongoDB Atlas cluster at https://cloud.mongodb.com
+# 2. Get your connection string and update MONGODB_URI in .env.production
+# 3. Set NEXTAUTH_URL to your actual domain
+# 
+# Usage:
+#   docker-compose -f docker-compose.production.yml up -d
+# 
+
+services:
+  aiogames:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    env_file: 
+      - .env.production  # Create this file with your production variables
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+# No volumes needed - MongoDB Atlas handles data persistence
