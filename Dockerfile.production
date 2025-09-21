@@ -2,7 +2,7 @@
 # Optimized for production deployment with external MongoDB
 
 FROM node:18-alpine AS base
-RUN apk add --no-cache libc6-compat
+RUN apk add --no-cache libc6-compat curl
 WORKDIR /app
 
 # Dependencies
@@ -38,8 +38,8 @@ ENV PORT=3000 \
     NODE_ENV="production" \
     HOSTNAME="0.0.0.0"
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:3000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+# Health check with better IPv4/IPv6 handling and curl fallback
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://127.0.0.1:3000/api/health || curl -f http://localhost:3000/api/health || exit 1
 
 CMD ["node", "server.js"]

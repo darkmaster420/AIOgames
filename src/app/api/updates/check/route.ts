@@ -4,6 +4,7 @@ import { TrackedGame, User } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel, getSequelThreshold } from '../../../../utils/sequelDetection';
 import { SITE_VALUES } from '../../../../lib/sites';
+import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
 
 interface GameSearchResult {
   id: string;
@@ -393,6 +394,24 @@ export async function POST() {
                     $push: { sequelNotifications: sequelNotification }
                   });
                   
+                  // Send sequel notification to the user
+                  try {
+                    const notificationData = createUpdateNotificationData(
+                      game.title,
+                      {
+                        gameLink: currentGame.link,
+                        image: currentGame.image
+                      },
+                      'sequel'
+                    );
+                    
+                    await sendUpdateNotification(game.userId.toString(), notificationData);
+                    console.log(`📢 Sequel notification sent for ${game.title} -> ${currentGame.title} to user ${game.userId}`);
+                  } catch (notificationError) {
+                    console.error(`Failed to send sequel notification for ${game.title}:`, notificationError);
+                    // Don't fail the whole operation if notification fails
+                  }
+                  
                   sequelsFound++;
                 }
               }
@@ -492,6 +511,25 @@ export async function POST() {
               gameLink: bestMatch.link,
               title: bestMatch.title // Update title if it's more current
             });
+
+            // Send update notification to the user
+            try {
+              const notificationData = createUpdateNotificationData(
+                game.title,
+                {
+                  version: versionString,
+                  gameLink: bestMatch.link,
+                  image: bestMatch.image
+                },
+                'update'
+              );
+              
+              await sendUpdateNotification(game.userId.toString(), notificationData);
+              console.log(`📢 Update notification sent for ${game.title} to user ${game.userId}`);
+            } catch (notificationError) {
+              console.error(`Failed to send update notification for ${game.title}:`, notificationError);
+              // Don't fail the whole operation if notification fails
+            }
 
             updateDetails.push({
               title: game.title,

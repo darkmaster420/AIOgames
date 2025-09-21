@@ -2,7 +2,7 @@
 # Not optimized for production - use for development/testing only
 
 FROM node:18-alpine AS base
-RUN apk add --no-cache libc6-compat
+RUN apk add --no-cache libc6-compat curl
 WORKDIR /app
 
 # Install dependencies
@@ -12,8 +12,8 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build the application
-ENV NODE_ENV="development"
+# Build the application (use production NODE_ENV for build)
+ENV NODE_ENV="production"
 RUN npm run build
 
 # Create nextjs user for security
@@ -28,8 +28,8 @@ EXPOSE 3000
 ENV PORT=3000 \
     NODE_ENV="development"
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:3000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+# Health check with better IPv4/IPv6 handling and curl fallback
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://127.0.0.1:3000/api/health || curl -f http://localhost:3000/api/health || exit 1
 
 CMD ["npm", "start"]
