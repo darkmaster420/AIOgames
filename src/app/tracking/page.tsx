@@ -155,6 +155,11 @@ export default function TrackingDashboard() {
           <div className="text-center sm:text-left mb-6 sm:mb-8">
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">Your Tracked Games</h1>
             <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mt-1">Manage your game collection and check for updates</p>
+            <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <p className="text-sm text-blue-800 dark:text-blue-200">
+                <span className="font-medium">🔍 Smart Cross-Site Tracking:</span> Updates are automatically checked across all sites (GameDrive, SteamRip, SkidRow, FreeGog) regardless of where you originally found the game.
+              </p>
+            </div>
           </div>
           
           {/* Action Buttons */}
@@ -191,9 +196,12 @@ export default function TrackingDashboard() {
             </p>
           </div>
           <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Sources</h3>
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Original Sources</h3>
             <p className="text-2xl font-bold text-purple-600">
               {new Set(trackedGames.map(g => g.source)).size}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Updates checked across all sites
             </p>
           </div>
         </div>

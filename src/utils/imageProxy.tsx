@@ -35,15 +35,15 @@ export const ImageWithFallback = ({
     setHasError(true);
     
     // Try different fallback strategies
-    if (retryCount === 0 && src && !src.includes('via.placeholder.com')) {
-      // First retry: try our proxy
+    if (retryCount === 0 && src && !src.includes('via.placeholder.com') && !src.includes('gameapi.a7a8524.workers.dev/proxy-image')) {
+      // First retry: try our proxy (but only if not already proxied by external API)
       const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(src)}`;
       setImageSrc(proxyUrl);
       setRetryCount(1);
       setIsLoading(true);
       setHasError(false);
-    } else if (retryCount === 1) {
-      // Second retry: use placeholder
+    } else if (retryCount === 1 || src?.includes('gameapi.a7a8524.workers.dev/proxy-image')) {
+      // Second retry or if already externally proxied: use placeholder
       setImageSrc('https://via.placeholder.com/300x400/3B82F6/FFFFFF?text=Game+Image');
       setRetryCount(2);
       setIsLoading(true);
@@ -94,6 +94,11 @@ export function getProxiedImageUrl(imageUrl: string | undefined): string {
   
   // If it's already a placeholder or our proxy, return as-is
   if (imageUrl.includes('via.placeholder.com') || imageUrl.includes('/api/proxy-image')) {
+    return imageUrl;
+  }
+  
+  // If it's already proxied by the external API, use directly
+  if (imageUrl.includes('gameapi.a7a8524.workers.dev/proxy-image')) {
     return imageUrl;
   }
   

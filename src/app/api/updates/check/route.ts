@@ -3,6 +3,7 @@ import connectDB from '../../../../lib/db';
 import { TrackedGame, User } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel, getSequelThreshold } from '../../../../utils/sequelDetection';
+import { SITE_VALUES } from '../../../../lib/sites';
 
 interface GameSearchResult {
   id: string;
@@ -340,10 +341,12 @@ export async function POST() {
         let bestMatch: GameSearchResult | null = null;
         let bestSimilarity = 0;
 
-        for (const query of searchQueries) {
-          const searchResponse = await fetch(
-            `${API_BASE}/search?query=${encodeURIComponent(query)}&limit=10`
-          );
+        // Search across all sites for comprehensive update checking
+        for (const site of SITE_VALUES) {
+          for (const query of searchQueries) {
+            const searchResponse = await fetch(
+              `${API_BASE}/search?query=${encodeURIComponent(query)}&site=${site}&limit=10`
+            );
           
           if (!searchResponse.ok) continue;
           
@@ -396,6 +399,7 @@ export async function POST() {
             }
           }
         }
+      }
 
         if (!bestMatch) {
           // Update last checked even if no match found
