@@ -6,9 +6,9 @@
  *   node scripts/generate-vapid.js --write  # writes/updates .env.local
  */
 
-const fs = require('fs');
-const path = require('path');
-const webpush = require('web-push');
+import fs from 'fs';
+import path from 'path';
+import webpush from 'web-push';
 
 function generate() {
   return webpush.generateVAPIDKeys();

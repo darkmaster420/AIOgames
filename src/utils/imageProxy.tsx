@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Image from 'next/image';
 
 /**
  * Robust image component with fallback and proxy support
@@ -58,7 +59,7 @@ export const ImageWithFallback = ({
           <div className="text-gray-500 dark:text-gray-400 text-sm">Loading...</div>
         </div>
       )}
-      <img
+      <Image
         {...props}
         src={imageSrc}
         alt={alt}

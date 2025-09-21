@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-const fs = require('fs');
-const path = require('path');
-const child = require('child_process');
+import fs from 'fs';
+import path from 'path';
+import child from 'child_process';
 
 function envHas(key) {
   // Check both process.env and .env.local

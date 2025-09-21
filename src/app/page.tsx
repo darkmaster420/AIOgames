@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { ImageWithFallback } from '../utils/imageProxy';
 import { Navigation } from '../components/Navigation';
 import { GameDownloadLinks } from '../components/GameDownloadLinks';
 import { AddCustomGame } from '../components/AddCustomGame';
 import { useNotification } from '../contexts/NotificationContext';
+import { SITES } from '../lib/sites';
 
 interface Game {
   id: string;
@@ -29,27 +30,7 @@ export default function Dashboard() {
   const [error, setError] = useState('');
   const [trackedGames, setTrackedGames] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    if (status === 'authenticated') {
-      loadRecentGames();
-      loadTrackedGames();
-    }
-  }, [status]);
-
-  const loadTrackedGames = async () => {
-    try {
-      const response = await fetch('/api/tracking');
-      if (response.ok) {
-        const data = await response.json();
-        const trackedIds = new Set(data.games?.map((game: { gameId: string }) => game.gameId) || []);
-        setTrackedGames(trackedIds as Set<string>);
-      }
-    } catch (err) {
-      console.error('Failed to load tracked games:', err);
-    }
-  };
-
-  const loadRecentGames = async () => {
+  const loadRecentGames = useCallback(async () => {
     try {
       setLoading(true);
       const response = await fetch(`/api/games/recent${siteFilter && siteFilter !== 'all' ? `?site=${encodeURIComponent(siteFilter)}` : ''}`);
@@ -69,6 +50,26 @@ export default function Dashboard() {
       setGames([]); // Set to empty array on error
     } finally {
       setLoading(false);
+    }
+  }, [siteFilter]);
+
+  useEffect(() => {
+    if (status === 'authenticated') {
+      loadRecentGames();
+      loadTrackedGames();
+    }
+  }, [status, loadRecentGames]);
+
+  const loadTrackedGames = async () => {
+    try {
+      const response = await fetch('/api/tracking');
+      if (response.ok) {
+        const data = await response.json();
+        const trackedIds = new Set(data.games?.map((game: { gameId: string }) => game.gameId) || []);
+        setTrackedGames(trackedIds as Set<string>);
+      }
+    } catch (err) {
+      console.error('Failed to load tracked games:', err);
     }
   };
 
@@ -206,10 +207,9 @@ export default function Dashboard() {
               className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
             >
               <option value="all">All Sites</option>
-              <option value="itch">itch.io</option>
-              <option value="gamejolt">Game Jolt</option>
-              <option value="tigsource">TIGSource</option>
-              <option value="reddit">Reddit</option>
+              {SITES.map(site => (
+                <option key={site.value} value={site.value}>{site.label}</option>
+              ))}
             </select>
             <button
               onClick={(e) => { e.preventDefault(); loadRecentGames(); }}

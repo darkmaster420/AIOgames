@@ -1,0 +1,165 @@
+nohup: ignoring input
+
+> aiogames-unified@0.1.0 dev
+> next dev --turbopack -p 3000
+
+   ▲ Next.js 15.5.3 (Turbopack)
+   - Local:        http://localhost:3000
+   - Network:      http://10.0.1.3:3000
+   - Environments: .env.local, .env.development, .env
+
+ ✓ Starting...
+ ○ Compiling middleware ...
+ ✓ Compiled middleware in 1014ms
+ ✓ Ready in 2.4s
+ ○ Compiling /api/auth/[...nextauth] ...
+ ✓ Compiled /api/auth/[...nextauth] in 4.9s
+ HEAD /api/proxy-image?url=https://www.skidrowreloaded.com/wp-content/uploads/2025/09/Synthwave-Burnout.jpg 200 in 1618ms
+ GET /api/auth/providers 200 in 6576ms
+ GET /api/auth/csrf 200 in 335ms
+Auth error: MongooseServerSelectionError: getaddrinfo ENOTFOUND mongodb
+    at async connectDB (src/lib/db.ts:55:19)
+    at async Object.authorize (src/app/api/auth/[...nextauth]/route.ts:22:11)
+  53 |
+  54 |   try {
+> 55 |     cached.conn = await cached.promise;
+     |                   ^
+  56 |   } catch (e) {
+  57 |     cached.promise = null;
+  58 |     throw e; {
+  errorLabelSet: Set(0) {},
+  reason: [TopologyDescription],
+  code: undefined,
+  [cause]: [TopologyDescription]
+}
+ POST /api/auth/callback/credentials 401 in 30569ms
+ ○ Compiling /auth/signin ...
+ ✓ Compiled /auth/signin in 4.7s
+ GET /auth/signin?callbackUrl=%2F 200 in 5193ms
+ ✓ Compiled /favicon.ico in 363ms
+ GET /api/auth/session 200 in 342ms
+ GET /favicon.ico?favicon.0b3bf435.ico 200 in 670ms
+ GET /api/auth/providers 200 in 284ms
+ GET /api/auth/csrf 200 in 391ms
+Auth error: MongooseServerSelectionError: getaddrinfo ENOTFOUND mongodb
+    at async connectDB (src/lib/db.ts:55:19)
+    at async Object.authorize (src/app/api/auth/[...nextauth]/route.ts:22:11)
+  53 |
+  54 |   try {
+> 55 |     cached.conn = await cached.promise;
+     |                   ^
+  56 |   } catch (e) {
+  57 |     cached.promise = null;
+  58 |     throw e; {
+  errorLabelSet: Set(0) {},
+  reason: [TopologyDescription],
+  code: undefined,
+  [cause]: [TopologyDescription]
+}
+ POST /api/auth/callback/credentials 401 in 30490ms
+Primary fetch returned 403 for steamrip.com, retrying with fallback headers
+403 persists for steamrip.com, trying final fallback with Origin/Sec-Fetch headers
+Final fallback failed: 403 Forbidden
+ GET /api/proxy-image?url=https%3A%2F%2Fsteamrip.com%2Fwp-content%2Fuploads%2F2025%2F09%2Fdying-light-the-beast-steamrip-300x169.jpg 403 in 476ms
+Primary fetch returned 403 for steamrip.com, retrying with fallback headers
+403 persists for steamrip.com, trying final fallback with Origin/Sec-Fetch headers
+Final fallback failed: 403 Forbidden
+ GET /api/proxy-image?url=https%3A%2F%2Fsteamrip.com%2Fwp-content%2Fuploads%2F2025%2F09%2Fdying-light-the-beast-steamrip-300x169.jpg 403 in 589ms
+ GET /api/auth/providers 200 in 288ms
+ GET /api/auth/csrf 200 in 303ms
+Primary fetch returned 403 for steamrip.com, retrying with fallback headers
+403 persists for steamrip.com, trying final fallback with Origin/Sec-Fetch headers
+Final fallback failed: 403 Forbidden
+ GET /api/proxy-image?url=https%3A%2F%2Fsteamrip.com%2Fwp-content%2Fuploads%2F2025%2F09%2Fdying-light-the-beast-steamrip-300x169.jpg 403 in 501ms
+ POST /api/auth/callback/credentials 200 in 28881ms
+Auth error: MongooseServerSelectionError: getaddrinfo ENOTFOUND mongodb
+    at async connectDB (src/lib/db.ts:55:19)
+    at async Object.authorize (src/app/api/auth/[...nextauth]/route.ts:22:11)
+  53 |
+  54 |   try {
+> 55 |     cached.conn = await cached.promise;
+     |                   ^
+  56 |   } catch (e) {
+  57 |     cached.promise = null;
+  58 |     throw e; {
+  errorLabelSet: Set(0) {},
+  reason: [TopologyDescription],
+  code: undefined,
+  [cause]: [TopologyDescription]
+}
+ GET /auth/signin?callbackUrl=%2F 200 in 319ms
+ GET /api/auth/session 200 in 349ms
+ GET /api/auth/providers 200 in 305ms
+ GET /api/auth/csrf 200 in 305ms
+Auth error: MongooseServerSelectionError: getaddrinfo ENOTFOUND mongodb
+    at async connectDB (src/lib/db.ts:55:19)
+    at async Object.authorize (src/app/api/auth/[...nextauth]/route.ts:22:11)
+  53 |
+  54 |   try {
+> 55 |     cached.conn = await cached.promise;
+     |                   ^
+  56 |   } catch (e) {
+  57 |     cached.promise = null;
+  58 |     throw e; {
+  errorLabelSet: Set(0) {},
+  reason: [TopologyDescription],
+  code: undefined,
+  [cause]: [TopologyDescription]
+}
+ POST /api/auth/callback/credentials 401 in 30568ms
+ GET /api/auth/providers 200 in 273ms
+ GET /api/auth/csrf 200 in 465ms
+Auth error: MongooseServerSelectionError: getaddrinfo ENOTFOUND mongodb
+    at async connectDB (src/lib/db.ts:55:19)
+    at async Object.authorize (src/app/api/auth/[...nextauth]/route.ts:22:11)
+  53 |
+  54 |   try {
+> 55 |     cached.conn = await cached.promise;
+     |                   ^
+  56 |   } catch (e) {
+  57 |     cached.promise = null;
+  58 |     throw e; {
+  errorLabelSet: Set(0) {},
+  reason: [TopologyDescription],
+  code: undefined,
+  [cause]: [TopologyDescription]
+}
+ POST /api/auth/callback/credentials 401 in 30829ms
+ ✓ Compiled middleware in 12ms
+ ✓ Compiled in 0ms
+ ✓ Compiled in 2.6s
+ ⨯ [Error: ENOENT: no such file or directory, open '/workspaces/AIOgames/.next/server/edge/chunks/_42644797._.js']
+ ○ Compiling /_error ...
+ ✓ Compiled /_error in 3.5s
+ ⨯ [Error: ENOENT: no such file or directory, open '/workspaces/AIOgames/.next/static/development/_buildManifest.js.tmp.hq3e710gt3'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/workspaces/AIOgames/.next/static/development/_buildManifest.js.tmp.hq3e710gt3'
+}
+ ○ Compiling /_not-found/page ...
+ ✓ Compiled /_not-found/page in 574ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/workspaces/AIOgames/.next/static/development/_buildManifest.js.tmp.dgzr0pyanuh'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/workspaces/AIOgames/.next/static/development/_buildManifest.js.tmp.dgzr0pyanuh'
+}
+[Error: ENOENT: no such file or directory, open '/workspaces/AIOgames/.next/static/development/_buildManifest.js.tmp.66g6pvfpbjo'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/workspaces/AIOgames/.next/static/development/_buildManifest.js.tmp.66g6pvfpbjo'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/workspaces/AIOgames/.next/static/development/_buildManifest.js.tmp.w3no49snec'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/workspaces/AIOgames/.next/static/development/_buildManifest.js.tmp.w3no49snec'
+}
+[Error: ENOENT: no such file or directory, open '/workspaces/AIOgames/.next/static/development/_buildManifest.js.tmp.whs9jfllw4'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/workspaces/AIOgames/.next/static/development/_buildManifest.js.tmp.whs9jfllw4'
+}
