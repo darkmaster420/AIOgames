@@ -1,15 +1,24 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const response = await fetch('https://gameapi.a7a8524.workers.dev/recent');
-    
+    const { searchParams } = new URL(request.url);
+    const site = searchParams.get('site') || 'all';
+
+    // Build external API URL and include site param when provided
+    let apiUrl = 'https://gameapi.a7a8524.workers.dev/recent';
+    if (site && site !== 'all') {
+      apiUrl += `?site=${encodeURIComponent(site)}`;
+    }
+
+    const response = await fetch(apiUrl);
+
     if (!response.ok) {
       throw new Error(`API request failed: ${response.status}`);
     }
-    
+
     const data = await response.json();
-    
+
     // Extract the results array from the API response structure
     if (data.success && data.results && Array.isArray(data.results)) {
       return NextResponse.json(data.results);

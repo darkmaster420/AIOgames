@@ -24,6 +24,7 @@ export default function Dashboard() {
   const { showSuccess, showError } = useNotification();
   const [games, setGames] = useState<Game[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [siteFilter, setSiteFilter] = useState('all');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [trackedGames, setTrackedGames] = useState<Set<string>>(new Set());
@@ -51,7 +52,7 @@ export default function Dashboard() {
   const loadRecentGames = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/games/recent');
+      const response = await fetch(`/api/games/recent${siteFilter && siteFilter !== 'all' ? `?site=${encodeURIComponent(siteFilter)}` : ''}`);
       if (!response.ok) throw new Error('Failed to load games');
       const data = await response.json();
       
@@ -78,7 +79,7 @@ export default function Dashboard() {
     try {
       setLoading(true);
       setError('');
-      const response = await fetch(`/api/games/search?search=${encodeURIComponent(searchQuery)}`);
+  const response = await fetch(`/api/games/search?search=${encodeURIComponent(searchQuery)}${siteFilter && siteFilter !== 'all' ? `&site=${encodeURIComponent(siteFilter)}` : ''}`);
       if (!response.ok) throw new Error('Search failed');
       const data = await response.json();
       
@@ -194,6 +195,30 @@ export default function Dashboard() {
             </button>
           </div>
         </form>
+
+        {/* Site Filter */}
+        <div className="mb-6 sm:mb-8">
+          <label className="block text-sm text-gray-700 dark:text-gray-300 mb-2">Filter by Site</label>
+          <div className="flex gap-2 items-center">
+            <select
+              value={siteFilter}
+              onChange={(e) => setSiteFilter(e.target.value)}
+              className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+            >
+              <option value="all">All Sites</option>
+              <option value="itch">itch.io</option>
+              <option value="gamejolt">Game Jolt</option>
+              <option value="tigsource">TIGSource</option>
+              <option value="reddit">Reddit</option>
+            </select>
+            <button
+              onClick={(e) => { e.preventDefault(); loadRecentGames(); }}
+              className="px-3 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            >
+              Apply
+            </button>
+          </div>
+        </div>
 
         {/* Error */}
         {error && (
