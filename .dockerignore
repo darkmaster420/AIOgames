@@ -46,6 +46,8 @@ docker-compose*.yml
 
 # Deployment scripts (not needed in image)
 scripts/
+!scripts/ensure-vapid.js
+!scripts/generate-vapid.js
 
 # Temporary files
 .vercel
