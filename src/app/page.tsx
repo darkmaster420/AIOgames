@@ -210,16 +210,16 @@ export default function Dashboard() {
             </div>
           ) : (
             games.map((game: Game) => (
-            <div key={game.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+            <div key={game.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-200 dark:border-gray-700">
               <ImageWithFallback
                 src={game.image}
                 alt={game.title}
                 width={300}
                 height={192}
-                className="w-full h-36 sm:h-48 object-cover"
+                className="w-full h-36 sm:h-48 object-cover hover:scale-105 transition-transform duration-300"
               />
-              <div className="p-3 sm:p-4">
-                <h3 className="font-semibold text-base sm:text-lg mb-2 text-gray-900 dark:text-white line-clamp-2">{game.title}</h3>
+              <div className="p-3 sm:p-4 bg-gradient-to-b from-white to-gray-50 dark:from-gray-800 dark:to-gray-900">
+                <h3 className="font-bold text-base sm:text-lg mb-2 text-gray-900 dark:text-white line-clamp-2">{game.title}</h3>
                 <p className="text-gray-600 dark:text-gray-300 text-xs sm:text-sm mb-3 sm:mb-4 line-clamp-3">
                   {game.description}
                 </p>

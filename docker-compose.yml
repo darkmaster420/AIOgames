@@ -5,7 +5,7 @@ services:
   aiogames:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.prod
       args:
         - MONGODB_URI=${MONGODB_URI}
         - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
@@ -13,15 +13,17 @@ services:
         - GAME_API_URL=${GAME_API_URL}
         - NODE_ENV=${NODE_ENV}
     ports:
-      - "3000:3000"
+      - "3002:3000"
     environment:
       - NODE_ENV=production
-      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_URL=http://localhost:3002
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
-      - MONGODB_URI=${MONGODB_URI}
+      - MONGODB_URI=mongodb://aiogames:aiogames123@aiogames-mongodb-dev:27017/aiogames
       - GAME_API_URL=${GAME_API_URL}
     env_file: .env
     restart: unless-stopped
+    networks:
+      - aiogames-dev-network
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
@@ -59,3 +61,7 @@ services:
 
 # volumes:
 #   mongodb_data:
+
+networks:
+  aiogames-dev-network:
+    external: true

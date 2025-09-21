@@ -65,21 +65,43 @@ export function DownloadLinks({ gameId, updateIndex, pendingUpdateId, className 
     }
     
     if (!isOpen && buttonRef.current) {
-      // Calculate position for dropdown
+      // Calculate position for dropdown - fixed positioning uses viewport coordinates
       const rect = buttonRef.current.getBoundingClientRect();
-      const scrollY = window.pageYOffset || document.documentElement.scrollTop;
-      const scrollX = window.pageXOffset || document.documentElement.scrollLeft;
+      
+      // For fixed positioning, use getBoundingClientRect() directly
+      const viewportHeight = window.innerHeight;
+      const viewportWidth = window.innerWidth;
+      const dropdownHeight = 300; // estimated height
+      const dropdownWidth = Math.max(rect.width, 200);
+      
+      let top = rect.bottom + 2;
+      let left = rect.left;
+      
+      // If dropdown would go off bottom of viewport, show it above the button
+      if (rect.bottom + dropdownHeight > viewportHeight) {
+        top = rect.top - dropdownHeight - 2;
+      }
+      
+      // If dropdown would go off right edge, align it to the right
+      if (rect.left + dropdownWidth > viewportWidth) {
+        left = rect.right - dropdownWidth;
+      }
+      
+      // Ensure it doesn't go off the left edge
+      if (left < 0) {
+        left = 4;
+      }
       
       setDropdownPosition({
-        top: rect.bottom + scrollY + 2,
-        left: rect.left + scrollX
+        top,
+        left
       });
     }
     
     setIsOpen(!isOpen);
   };
 
-  // Close dropdown when clicking outside
+  // Close dropdown when clicking outside and handle scroll updates
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node) &&
@@ -88,9 +110,57 @@ export function DownloadLinks({ gameId, updateIndex, pendingUpdateId, className 
       }
     };
 
+    const updatePosition = () => {
+      if (isOpen && buttonRef.current) {
+        const rect = buttonRef.current.getBoundingClientRect();
+        
+        // If button is scrolled too far off screen, close the dropdown
+        if (rect.bottom < 0 || rect.top > window.innerHeight) {
+          setIsOpen(false);
+          return;
+        }
+        
+        // For fixed positioning, use getBoundingClientRect() directly
+        const viewportHeight = window.innerHeight;
+        const viewportWidth = window.innerWidth;
+        const dropdownHeight = 300; // estimated height
+        const dropdownWidth = Math.max(rect.width, 200);
+        
+        let top = rect.bottom + 2;
+        let left = rect.left;
+        
+        // If dropdown would go off bottom of viewport, show it above the button
+        if (rect.bottom + dropdownHeight > viewportHeight) {
+          top = rect.top - dropdownHeight - 2;
+        }
+        
+        // If dropdown would go off right edge, align it to the right
+        if (rect.left + dropdownWidth > viewportWidth) {
+          left = rect.right - dropdownWidth;
+        }
+        
+        // Ensure it doesn't go off the left edge
+        if (left < 0) {
+          left = 4;
+        }
+        
+        setDropdownPosition({
+          top,
+          left
+        });
+      }
+    };
+
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
+      window.addEventListener('scroll', updatePosition, true);
+      window.addEventListener('resize', updatePosition);
+      
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+        window.removeEventListener('scroll', updatePosition, true);
+        window.removeEventListener('resize', updatePosition);
+      };
     }
   }, [isOpen]);
 
