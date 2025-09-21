@@ -14,6 +14,7 @@ export function Navigation() {
     { href: '/', label: '🏠 Home', description: 'Main Dashboard' },
     { href: '/tracking', label: '📊 Tracking', description: 'Your Games' },
     ...(isAdmin ? [{ href: '/admin', label: '⚙️ Admin', description: 'Admin Panel' }] : []),
+    ...(session ? [{ href: '/user/manage', label: '👤 Account', description: 'Manage your account' }] : []),
   ];
 
   return (

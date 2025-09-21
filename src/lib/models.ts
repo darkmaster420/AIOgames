@@ -48,6 +48,15 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: true
       },
+      provider: {
+        type: String,
+        enum: ['email', 'webpush'],
+        default: 'webpush'
+      },
+      webpushEnabled: {
+        type: Boolean,
+        default: true
+      },
       updateFrequency: {
         type: String,
         enum: ['immediate', 'daily', 'weekly'],
@@ -70,6 +79,13 @@ const userSchema = new mongoose.Schema({
       }
     }
   },
+  pushSubscriptions: [{
+    endpoint: String,
+    keys: {
+      p256dh: String,
+      auth: String
+    }
+  }],
   isActive: {
     type: Boolean,
     default: true
