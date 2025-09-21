@@ -7,6 +7,7 @@
 # Use MongoDB Atlas for production instead.
 # 
 # Usage:
+#   cp .env.development.example .env.development  # Then edit if needed
 #   docker-compose -f docker-compose.development.yml up -d
 # 
 
@@ -23,7 +24,7 @@ services:
       - MONGODB_URI=mongodb://aiogames:aiogames123@mongodb:27017/aiogames
       - NEXTAUTH_URL=http://localhost:3000
     env_file: 
-      - .env  # Uses your local .env file
+      - .env.development  # Development environment file
     depends_on:
       - mongodb
     networks:

@@ -7,8 +7,8 @@ This project offers two deployment configurations:
 ### 🌟 Production (Recommended) - MongoDB Atlas
 ```bash
 # 1. Copy and configure environment
-cp .env.production.example .env.production
-# Edit .env.production with your values
+cp .env.example .env
+# Edit .env with your production values
 
 # 2. Deploy
 docker-compose -f docker-compose.production.yml up -d
@@ -16,7 +16,10 @@ docker-compose -f docker-compose.production.yml up -d
 
 ### 🔧 Development - Local MongoDB
 ```bash
-# 1. Use your existing .env file
+# 1. Copy and configure development environment
+cp .env.development.example .env.development
+# Edit .env.development if needed (optional)
+
 # 2. Deploy with local database
 docker-compose -f docker-compose.development.yml up -d
 ```
@@ -43,9 +46,9 @@ docker-compose -f docker-compose.development.yml up -d
 
 2. **Configure Environment**
    ```bash
-   cp .env.production.example .env.production
+   cp .env.example .env
    ```
-   Edit `.env.production`:
+   Edit `.env`:
    ```env
    NEXTAUTH_URL=https://yourdomain.com
    MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/aiogames
@@ -72,9 +75,11 @@ This setup runs MongoDB containers on your server, which uses more resources and
 
 ### 📋 Setup Steps:
 
-1. **Use Existing Environment**
-   - Your `.env` file should work as-is
-   - Or copy from `.env.example`
+1. **Configure Development Environment**
+   ```bash
+   cp .env.development.example .env.development
+   ```
+   Edit `.env.development` if needed (defaults should work)
 
 2. **Deploy**
    ```bash
@@ -87,6 +92,20 @@ This setup runs MongoDB containers on your server, which uses more resources and
    - MongoDB Direct: `localhost:27017`
 
 ---
+
+## 📁 Environment File Structure
+
+```
+.env                      # Production environment (from .env.example)
+.env.development          # Development environment (from .env.development.example)
+.env.example              # Production template
+.env.development.example  # Development template
+```
+
+### Standard Convention:
+- **`.env`** - Default production environment
+- **`.env.development`** - Development environment
+- **`.env.example`** - Template for production setup
 
 ## 🛠️ Common Commands
 
