@@ -1,0 +1,26 @@
+#!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+const child = require('child_process');
+
+function envHas(key) {
+  // Check both process.env and .env.local
+  if (process.env[key]) return true;
+  const envPath = path.resolve(process.cwd(), '.env.local');
+  if (!fs.existsSync(envPath)) return false;
+  const contents = fs.readFileSync(envPath, 'utf8');
+  const re = new RegExp(`^${key}=`, 'm');
+  return re.test(contents);
+}
+
+function runGenerate() {
+  console.log('VAPID keys missing. Generating new VAPID keys and writing to .env.local...');
+  const script = path.resolve(process.cwd(), 'scripts', 'generate-vapid.js');
+  child.execSync(`node "${script}" --write`, { stdio: 'inherit' });
+}
+
+if (!envHas('VAPID_PUBLIC_KEY') || !envHas('VAPID_PRIVATE_KEY')) {
+  runGenerate();
+} else {
+  console.log('VAPID keys already present. Skipping generation.');
+}

@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
+  "dev": "next dev --turbopack",
+  "prebuild": "node scripts/ensure-vapid.js",
+  "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint"
   },
@@ -17,7 +18,8 @@
     "next-auth": "^4.24.11",
     "node-fetch": "^3.3.2",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

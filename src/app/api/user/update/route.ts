@@ -1,0 +1,74 @@
+import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../../auth/[...nextauth]/route';
+import connectDB from '../../../../lib/db';
+import { User } from '../../../../lib/models';
+import bcrypt from 'bcryptjs';
+
+export async function PATCH(req: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+  const body = await req.json();
+  const { email, currentPassword, newPassword, provider, webpushEnabled } = body;
+
+    await connectDB();
+
+    const user = await User.findById(session.user.id);
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    // Update email if provided and different
+    if (email && email !== user.email) {
+      // ensure uniqueness
+      const exists = await User.findOne({ email: email.toLowerCase() });
+      if (exists) {
+        return NextResponse.json({ error: 'Email already in use' }, { status: 400 });
+      }
+      user.email = email.toLowerCase();
+    }
+
+    // Handle password change
+    if (newPassword) {
+      if (!currentPassword) {
+        return NextResponse.json({ error: 'Current password required to change password' }, { status: 400 });
+      }
+
+      const isMatch = await bcrypt.compare(currentPassword, user.password);
+      if (!isMatch) {
+        return NextResponse.json({ error: 'Current password is incorrect' }, { status: 400 });
+      }
+
+      if (newPassword.length < 6) {
+        return NextResponse.json({ error: 'New password must be at least 6 characters' }, { status: 400 });
+      }
+
+      const hashed = await bcrypt.hash(newPassword, 10);
+      user.password = hashed;
+    }
+
+    // Update notification preferences if provided
+    if (typeof provider === 'string') {
+      user.preferences = user.preferences || {};
+      user.preferences.notifications = user.preferences.notifications || {};
+      user.preferences.notifications.provider = provider;
+    }
+
+    if (typeof webpushEnabled === 'boolean') {
+      user.preferences = user.preferences || {};
+      user.preferences.notifications = user.preferences.notifications || {};
+      user.preferences.notifications.webpushEnabled = webpushEnabled;
+    }
+
+    await user.save();
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('PATCH /api/user/update error', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
