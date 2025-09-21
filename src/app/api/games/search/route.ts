@@ -10,12 +10,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Search query required' }, { status: 400 });
     }
 
-    // Build query parameters for the external API
-    const queryParams = new URLSearchParams({
-      search,
-      ...(site !== 'all' && { site })
-    });
-
+    // Build query parameters for the external API - it supports site filtering for search
+    const queryParams = new URLSearchParams({ search });
+    if (site && site !== 'all') {
+      queryParams.set('site', site);
+    }
+    
     const response = await fetch(`https://gameapi.a7a8524.workers.dev/?${queryParams}`);
     
     if (!response.ok) {
