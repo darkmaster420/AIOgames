@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../lib/db';
 import { TrackedGame } from '../../../lib/models';
 import { getCurrentUser } from '../../../lib/auth';
+import { cleanGameTitle, decodeHtmlEntities } from '../../../utils/steamApi';
 
 // GET - Fetch all tracked games for the current user
 export async function GET() {
@@ -88,9 +89,10 @@ export async function POST(request: NextRequest) {
       title,
       source,
       image,
-      description,
+      description: decodeHtmlEntities(description || ''),
       gameLink,
-      originalTitle: title
+      originalTitle: title,
+      cleanedTitle: cleanGameTitle(title)
     });
 
     await trackedGame.save();

@@ -22,7 +22,7 @@ export function DownloadLinks({ gameId, updateIndex, pendingUpdateId, className 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isOpen, setIsOpen] = useState(false);
-  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [context, setContext] = useState<{
@@ -65,36 +65,48 @@ export function DownloadLinks({ gameId, updateIndex, pendingUpdateId, className 
     }
     
     if (!isOpen && buttonRef.current) {
-      // Calculate position for dropdown - fixed positioning uses viewport coordinates
+      // Calculate position for dropdown - improved mobile-first positioning
       const rect = buttonRef.current.getBoundingClientRect();
-      
-      // For fixed positioning, use getBoundingClientRect() directly
       const viewportHeight = window.innerHeight;
       const viewportWidth = window.innerWidth;
-      const dropdownHeight = 300; // estimated height
-      const dropdownWidth = Math.max(rect.width, 200);
       
-      let top = rect.bottom + 2;
+      // Responsive dropdown sizing
+      const isMobile = viewportWidth < 768;
+      const dropdownHeight = 300; // estimated height
+      const dropdownWidth = isMobile ? Math.min(viewportWidth - 16, 320) : Math.max(rect.width, 200);
+      
+      let top = rect.bottom + 4;
       let left = rect.left;
       
-      // If dropdown would go off bottom of viewport, show it above the button
-      if (rect.bottom + dropdownHeight > viewportHeight) {
-        top = rect.top - dropdownHeight - 2;
-      }
-      
-      // If dropdown would go off right edge, align it to the right
-      if (rect.left + dropdownWidth > viewportWidth) {
-        left = rect.right - dropdownWidth;
-      }
-      
-      // Ensure it doesn't go off the left edge
-      if (left < 0) {
-        left = 4;
+      // Mobile-specific positioning
+      if (isMobile) {
+        // On mobile, center the dropdown or align to screen edges
+        const idealLeft = Math.max(8, Math.min(rect.left, viewportWidth - dropdownWidth - 8));
+        left = idealLeft;
+        
+        // If dropdown would go off bottom, show above with mobile considerations
+        if (rect.bottom + dropdownHeight > viewportHeight - 20) {
+          top = Math.max(20, rect.top - dropdownHeight - 4);
+        }
+      } else {
+        // Desktop positioning logic
+        if (rect.bottom + dropdownHeight > viewportHeight) {
+          top = rect.top - dropdownHeight - 4;
+        }
+        
+        if (rect.left + dropdownWidth > viewportWidth) {
+          left = rect.right - dropdownWidth;
+        }
+        
+        if (left < 4) {
+          left = 4;
+        }
       }
       
       setDropdownPosition({
         top,
-        left
+        left,
+        width: dropdownWidth
       });
     }
     
@@ -120,33 +132,43 @@ export function DownloadLinks({ gameId, updateIndex, pendingUpdateId, className 
           return;
         }
         
-        // For fixed positioning, use getBoundingClientRect() directly
+        // Improved mobile-responsive positioning
         const viewportHeight = window.innerHeight;
         const viewportWidth = window.innerWidth;
+        const isMobile = viewportWidth < 768;
         const dropdownHeight = 300; // estimated height
-        const dropdownWidth = Math.max(rect.width, 200);
+        const dropdownWidth = isMobile ? Math.min(viewportWidth - 16, 320) : Math.max(rect.width, 200);
         
-        let top = rect.bottom + 2;
+        let top = rect.bottom + 4;
         let left = rect.left;
         
-        // If dropdown would go off bottom of viewport, show it above the button
-        if (rect.bottom + dropdownHeight > viewportHeight) {
-          top = rect.top - dropdownHeight - 2;
-        }
-        
-        // If dropdown would go off right edge, align it to the right
-        if (rect.left + dropdownWidth > viewportWidth) {
-          left = rect.right - dropdownWidth;
-        }
-        
-        // Ensure it doesn't go off the left edge
-        if (left < 0) {
-          left = 4;
+        if (isMobile) {
+          // Mobile positioning - keep within screen bounds
+          const idealLeft = Math.max(8, Math.min(rect.left, viewportWidth - dropdownWidth - 8));
+          left = idealLeft;
+          
+          if (rect.bottom + dropdownHeight > viewportHeight - 20) {
+            top = Math.max(20, rect.top - dropdownHeight - 4);
+          }
+        } else {
+          // Desktop positioning
+          if (rect.bottom + dropdownHeight > viewportHeight) {
+            top = rect.top - dropdownHeight - 4;
+          }
+          
+          if (rect.left + dropdownWidth > viewportWidth) {
+            left = rect.right - dropdownWidth;
+          }
+          
+          if (left < 4) {
+            left = 4;
+          }
         }
         
         setDropdownPosition({
           top,
-          left
+          left,
+          width: dropdownWidth
         });
       }
     };
@@ -192,11 +214,14 @@ export function DownloadLinks({ gameId, updateIndex, pendingUpdateId, className 
       {isOpen && (
         <div 
           ref={dropdownRef}
-          className="fixed min-w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-96 overflow-y-auto"
+          className="fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-96 overflow-y-auto"
           style={{
             position: 'fixed',
             top: `${dropdownPosition.top}px`,
             left: `${dropdownPosition.left}px`,
+            width: dropdownPosition.width > 0 ? `${dropdownPosition.width}px` : '20rem',
+            minWidth: '16rem',
+            maxWidth: '90vw',
             zIndex: 9999
           }}
         >

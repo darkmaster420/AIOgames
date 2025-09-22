@@ -281,41 +281,226 @@ export async function findSteamMatches(
 }
 
 /**
+ * Public function to clean and normalize game titles
+ * @param title - Raw game title to clean
+ * @returns Cleaned and normalized title
+ */
+export function cleanGameTitle(title: string): string {
+  return title
+    .toLowerCase()
+    // Remove common piracy/release tags first
+    .replace(/\b(denuvoless|cracked|repack|fitgirl|dodi|empress|codex|skidrow|plaza|rune|tenoke|p2p)\b/gi, '')
+    .replace(/\b(free download|full version|complete edition)\b/gi, '')
+    .replace(/\b(all dlc|with dlc|dlc included)\b/gi, '')
+    .replace(/\b(pre-installed|preinstalled)\b/gi, '')
+    .replace(/\b(update \d+|hotfix|patch)\b/gi, '')
+    
+    // Remove DLC, add-on content, and bonus material indicators
+    .replace(/\b(character pack \d*|dlc pack \d*|expansion pack \d*)\b/gi, '')
+    .replace(/\b(pre-purchase bonus|pre-order bonus|bonus content)\b/gi, '')
+    .replace(/\b(\+\s*all dlc|\+ dlc|with all dlc)\b/gi, '')
+    .replace(/\b(season pass|dlc bundle)\b/gi, '')
+    
+    // Remove complex version patterns - improved to catch more cases
+    .replace(/v\d+(\.\d+){3,}-[A-Z0-9]+/gi, '') // v2013.012.003.008.007-P2P
+    .replace(/v\d+(\.\d+){1,}-[A-Z0-9]+/gi, '') // v1.2-PLAZA, v1.2.3-CODEX
+    .replace(/v\d+(\.\d+){2,}/gi, '') // v1.2.3.4 or longer
+    .replace(/v\d+\.\d+/gi, '') // v1.2, v2.5 etc
+    .replace(/\bversion\s*\d+(\.\d+)*/gi, '') // version 1.2.3
+    .replace(/\bver\.?\s*\d+(\.\d+)*/gi, '') // ver 1.2 or ver. 1.2
+    .replace(/\bbuild\s*\d+/gi, '') // build 20035145
+    .replace(/\bb\d{4,}/gi, '') // b20035145 (build numbers)
+    .replace(/\bupdate\s*\d+(\.\d+)*/gi, '') // update 1.5
+    
+    // Remove year tags like (2025), [2024] etc - but preserve years that are part of game names
+    .replace(/\(20\d{2}\)/g, '') // (2025)
+    .replace(/\[20\d{2}\]/g, '') // [2024]
+    
+    // Remove scene groups - improved to catch more patterns
+    .replace(/-[A-Z0-9]{3,}$/gi, '') // Scene groups at end like -RUNE, -TENOKE
+    .replace(/-[A-Z0-9]{3,}\s/gi, ' ') // Scene groups in middle
+    
+    // Remove bracketed/parenthetical content (after year removal to avoid conflicts)
+    .replace(/\[[^\]]*\]/g, '')    
+    .replace(/\([^)]*\)/g, '')     
+    
+    // Remove trademark symbols
+    .replace(/[®™©]/g, '')
+    
+    // IMPORTANT: Keep "ZERO" as "zero" when it's likely part of a game name
+    // Only convert isolated "0" to "zero" when appropriate
+    // This preserves "Dragon Ball Sparking ZERO" while handling numbered sequels
+    .replace(/\b(dragon\s+ball\s+sparking)\s+0\b/gi, '$1 zero') // Special case for Dragon Ball
+    
+    // Normalize other number words to numbers for better matching
+    .replace(/\bone\b/gi, '1')
+    .replace(/\btwo\b/gi, '2')
+    .replace(/\bthree\b/gi, '3')
+    .replace(/\bfour\b/gi, '4')
+    .replace(/\bfive\b/gi, '5')
+    .replace(/\bsix\b/gi, '6')
+    .replace(/\bseven\b/gi, '7')
+    .replace(/\beight\b/gi, '8')
+    .replace(/\bnine\b/gi, '9')
+    
+    // Normalize roman numerals to numbers
+    .replace(/\bii\b/gi, '2')
+    .replace(/\biii\b/gi, '3')
+    .replace(/\biv\b/gi, '4')
+    .replace(/\bv\b(?!\w)/gi, '5') // \b at end to avoid matching "vs"
+    .replace(/\bvi\b/gi, '6')
+    .replace(/\bvii\b/gi, '7')
+    .replace(/\bviii\b/gi, '8')
+    .replace(/\bix\b/gi, '9')
+    .replace(/\bx\b(?!\w)/gi, '10')
+    
+    // Normalize common variations
+    .replace(/\band\b/gi, '&')
+    .replace(/\bvs\.?\b/gi, 'vs')
+    .replace(/\bof the\b/gi, 'of')
+    
+    // Normalize apostrophes and dashes
+    .replace(/[']/g, '')           // Remove apostrophes (Assassin's -> Assassins)
+    .replace(/[-:]/g, ' ')         // Convert dashes/colons to spaces
+    
+    // Remove special characters and normalize
+    .replace(/[^\w\s&]/g, ' ')       
+    .replace(/\s+/g, ' ')          
+    .trim();
+}
+
+/**
+ * Enhanced game title cleaning that preserves edition information
+ * Use this for better edition distinction while still allowing basic matching
+ */
+export function cleanGameTitlePreserveEdition(title: string): string {
+  return title
+    .toLowerCase()
+    // Remove common piracy/release tags first
+    .replace(/\b(denuvoless|cracked|repack|fitgirl|dodi|empress|codex|skidrow|plaza|rune|tenoke|p2p)\b/gi, '')
+    .replace(/\b(free download|full version|complete edition)\b/gi, '')
+    .replace(/\b(all dlc|with dlc|dlc included)\b/gi, '')
+    .replace(/\b(pre-installed|preinstalled)\b/gi, '')
+    .replace(/\b(update \d+|hotfix|patch)\b/gi, '')
+    
+    // Remove DLC, add-on content, and bonus material indicators
+    .replace(/\b(character pack \d*|dlc pack \d*|expansion pack \d*)\b/gi, '')
+    .replace(/\b(pre-purchase bonus|pre-order bonus|bonus content)\b/gi, '')
+    .replace(/\b(\+\s*all dlc|\+ dlc|with all dlc)\b/gi, '')
+    .replace(/\b(season pass|dlc bundle)\b/gi, '')
+    
+    // PRESERVE edition information - only remove redundant "edition" word
+    .replace(/\s+edition\b/gi, '') // "Deluxe Edition" -> "Deluxe"
+    
+    // Remove complex version patterns - same as main function
+    .replace(/v\d+(\.\d+){3,}-[A-Z0-9]+/gi, '') // v2013.012.003.008.007-P2P
+    .replace(/v\d+(\.\d+){1,}-[A-Z0-9]+/gi, '') // v1.2-PLAZA, v1.2.3-CODEX
+    .replace(/v\d+(\.\d+){2,}/gi, '') // v1.2.3.4 or longer
+    .replace(/v\d+\.\d+/gi, '') // v1.2, v2.5 etc
+    .replace(/\bversion\s*\d+(\.\d+)*/gi, '') // version 1.2.3
+    .replace(/\bver\.?\s*\d+(\.\d+)*/gi, '') // ver 1.2 or ver. 1.2
+    .replace(/\bbuild\s*\d+/gi, '') // build 20035145
+    .replace(/\bb\d{4,}/gi, '') // b20035145 (build numbers)
+    .replace(/\bupdate\s*\d+(\.\d+)*/gi, '') // update 1.5
+    
+    // Remove year tags like (2025), [2024] etc
+    .replace(/\(20\d{2}\)/g, '') // (2025)
+    .replace(/\[20\d{2}\]/g, '') // [2024]
+    
+    // Remove scene groups
+    .replace(/-[A-Z0-9]{3,}$/gi, '') // Scene groups at end like -RUNE, -TENOKE
+    .replace(/-[A-Z0-9]{3,}\s/gi, ' ') // Scene groups in middle
+    
+    // Remove bracketed/parenthetical content
+    .replace(/\[[^\]]*\]/g, '')    
+    .replace(/\([^)]*\)/g, '')     
+    
+    // Remove trademark symbols
+    .replace(/[®™©]/g, '')
+    
+    // Keep version indicators as they're crucial for edition tracking
+    // Don't remove versions - they help distinguish editions
+    
+    // IMPORTANT: Keep "ZERO" as "zero" when it's likely part of a game name
+    .replace(/\b(dragon\s+ball\s+sparking)\s+0\b/gi, '$1 zero') // Special case for Dragon Ball
+    
+    // Normalize other number words
+    .replace(/\bone\b/gi, '1')
+    .replace(/\btwo\b/gi, '2')
+    .replace(/\bthree\b/gi, '3')
+    .replace(/\bfour\b/gi, '4')
+    .replace(/\bfive\b/gi, '5')
+    .replace(/\bsix\b/gi, '6')
+    .replace(/\bseven\b/gi, '7')
+    .replace(/\beight\b/gi, '8')
+    .replace(/\bnine\b/gi, '9')
+    
+    // Normalize roman numerals to numbers
+    .replace(/\bii\b/gi, '2')
+    .replace(/\biii\b/gi, '3')
+    .replace(/\biv\b/gi, '4')
+    .replace(/\bv\b(?!\w)/gi, '5')
+    .replace(/\bvi\b/gi, '6')
+    .replace(/\bvii\b/gi, '7')
+    .replace(/\bviii\b/gi, '8')
+    .replace(/\bix\b/gi, '9')
+    .replace(/\bx\b(?!\w)/gi, '10')
+    
+    // Normalize common variations
+    .replace(/\band\b/gi, '&')
+    .replace(/\bvs\.?\b/gi, 'vs')
+    .replace(/\bof the\b/gi, 'of')
+    
+    // Normalize apostrophes and dashes
+    .replace(/[']/g, '')
+    .replace(/[-:]/g, ' ')
+    
+    // Remove special characters and normalize
+    .replace(/[^\w\s&]/g, ' ')       
+    .replace(/\s+/g, ' ')          
+    .trim();
+}
+
+/**
+ * Decode HTML entities to proper characters
+ * @param text - Text containing HTML entities
+ * @returns Decoded text with proper characters
+ */
+export function decodeHtmlEntities(text: string): string {
+  if (typeof document !== 'undefined') {
+    // Client-side: use DOM parser
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = text;
+    return textarea.value;
+  } else {
+    // Server-side: manual replacement of common entities
+    return text
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#x27;/g, "'")
+      .replace(/&#x2F;/g, '/')
+      .replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&#8211;/g, '–') // en dash
+      .replace(/&#8212;/g, '—') // em dash
+      .replace(/&#8216;/g, "'") // left single quotation mark
+      .replace(/&#8217;/g, "'") // right single quotation mark
+      .replace(/&#8220;/g, '"') // left double quotation mark
+      .replace(/&#8221;/g, '"') // right double quotation mark
+      .replace(/&#8230;/g, '…') // horizontal ellipsis
+      .replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec))
+      .replace(/&#x([a-fA-F0-9]+);/g, (match, hex) => String.fromCharCode(parseInt(hex, 16)));
+  }
+}
+
+/**
  * Calculate similarity between two game titles
- * Enhanced version of the existing similarity calculation with piracy tag handling
+ * Enhanced version with improved normalization for number/word variations
  */
 function calculateGameSimilarity(title1: string, title2: string): number {
-  const cleanTitle = (title: string) => {
-    return title
-      .toLowerCase()
-      // Remove common piracy/release tags first
-      .replace(/\b(denuvoless|cracked|repack|fitgirl|dodi|empress|codex|skidrow|plaza)\b/gi, '')
-      .replace(/\b(free download|full version|complete edition)\b/gi, '')
-      .replace(/\b(all dlc|with dlc|dlc included)\b/gi, '')
-      .replace(/\b(pre-installed|preinstalled)\b/gi, '')
-      .replace(/\b(update \d+|hotfix|patch)\b/gi, '')
-      // Remove common edition tags that don't affect core identity
-      .replace(/\b(deluxe|digital deluxe|premium|ultimate|collectors?)\s+edition\b/gi, '')
-      .replace(/\b(goty|game of the year)\s+edition\b/gi, '')
-      // Remove year tags like (2023), (2024) etc
-      .replace(/\(\d{4}\)/g, '')
-      // Remove scene groups
-      .replace(/-[A-Z0-9]{3,}/g, '') 
-      // Remove bracketed/parenthetical content
-      .replace(/\[[^\]]*\]/g, '')    
-      .replace(/\([^)]*\)/g, '')     
-      // Remove trademark symbols
-      .replace(/[®™©]/g, '')         
-      // Remove version indicators
-      .replace(/\bv?\d+\.\d+(?:\.\d+)*\b/gi, '')
-      // Normalize apostrophes and dashes
-      .replace(/[']/g, '')           // Remove apostrophes (Assassin's -> Assassins)
-      .replace(/[-:]/g, ' ')         // Convert dashes/colons to spaces
-      // Remove special characters and normalize
-      .replace(/[^\w\s]/g, ' ')       
-      .replace(/\s+/g, ' ')          
-      .trim();
-  };
+  const cleanTitle = cleanGameTitle;
 
   const clean1 = cleanTitle(title1);
   const clean2 = cleanTitle(title2);
@@ -330,8 +515,8 @@ function calculateGameSimilarity(title1: string, title2: string): number {
   }
   
   // Word-based similarity with enhanced scoring
-  const words1 = clean1.split(/\s+/).filter(word => word.length > 1);
-  const words2 = clean2.split(/\s+/).filter(word => word.length > 1);
+  const words1 = clean1.split(/\s+/).filter(word => word.length > 0);
+  const words2 = clean2.split(/\s+/).filter(word => word.length > 0);
   
   if (words1.length === 0 || words2.length === 0) return 0;
   

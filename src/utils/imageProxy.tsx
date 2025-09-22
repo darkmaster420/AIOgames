@@ -92,17 +92,18 @@ export function getProxiedImageUrl(imageUrl: string | undefined): string {
     return 'https://via.placeholder.com/300x400/3B82F6/FFFFFF?text=No+Image';
   }
   
-  // If it's already a placeholder or our proxy, return as-is
+  // If it's already a placeholder or our internal proxy, return as-is
   if (imageUrl.includes('via.placeholder.com') || imageUrl.includes('/api/proxy-image')) {
     return imageUrl;
   }
   
-  // If it's already proxied by the external API, use directly
-  if (imageUrl.includes('gameapi.a7a8524.workers.dev/proxy-image')) {
+  // IMPROVED: If it's already proxied by the external gameapi (SkidrowReloaded, etc.), use directly
+  if (imageUrl.includes('gameapi.a7a8524.workers.dev/proxy-image') || 
+      imageUrl.includes('gameapi.a7a8524.workers.dev')) {
     return imageUrl;
   }
   
-  // For external images, immediately use proxy to avoid CORS issues on VPS
+  // For other external images that might have CORS issues, proxy them
   if (imageUrl.startsWith('https://') && !imageUrl.includes('localhost')) {
     return `/api/proxy-image?url=${encodeURIComponent(imageUrl)}`;
   }

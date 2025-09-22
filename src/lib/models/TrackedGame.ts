@@ -15,6 +15,22 @@ const TrackedGameSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  // Steam verification fields
+  steamAppId: {
+    type: Number,
+    index: true
+  },
+  steamName: {
+    type: String
+  },
+  steamVerified: {
+    type: Boolean,
+    default: false
+  },
+  cleanedTitle: {
+    type: String,
+    index: true
+  },
   source: {
     type: String,
     required: true,
@@ -84,5 +100,8 @@ const TrackedGameSchema = new mongoose.Schema({
 TrackedGameSchema.index({ source: 1, isActive: 1 });
 TrackedGameSchema.index({ lastChecked: 1 });
 TrackedGameSchema.index({ title: 'text', originalTitle: 'text' });
+TrackedGameSchema.index({ steamAppId: 1 });
+TrackedGameSchema.index({ cleanedTitle: 1 });
+TrackedGameSchema.index({ steamVerified: 1 });
 
 export const TrackedGame = mongoose.models.TrackedGame || mongoose.model('TrackedGame', TrackedGameSchema);

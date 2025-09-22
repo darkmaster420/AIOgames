@@ -5,7 +5,7 @@ import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel, getSequelThreshold } from '../../../../utils/sequelDetection';
 import { SITE_VALUES } from '../../../../lib/sites';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
-import { findSteamMatches } from '../../../../utils/steamApi';
+import { findSteamMatches, cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities } from '../../../../utils/steamApi';
 
 interface GameSearchResult {
   id: string;
@@ -48,49 +48,34 @@ interface VersionInfo {
 
 // Enhanced game matching and update detection
 function calculateGameSimilarity(title1: string, title2: string): number {
-  // Remove scene group tags and piracy-related tags for better matching
-  const cleanTitle = (title: string) => {
-    return title
-      .toLowerCase()
-      // Remove common piracy/release tags first
-      .replace(/\b(denuvoless|cracked|repack|fitgirl|dodi|empress|codex|skidrow|plaza)\b/gi, '')
-      .replace(/\b(free download|full version|complete edition)\b/gi, '')
-      .replace(/\b(all dlc|with dlc|dlc included)\b/gi, '')
-      .replace(/\b(pre-installed|preinstalled)\b/gi, '')
-      .replace(/\b(update \d+|hotfix|patch)\b/gi, '')
-      // Remove common edition tags that don't affect core identity
-      .replace(/\b(deluxe|digital deluxe|premium|ultimate|collectors?)\s+edition\b/gi, '')
-      .replace(/\b(goty|game of the year)\s+edition\b/gi, '')
-      // Remove year tags like (2023), (2024) etc
-      .replace(/\(\d{4}\)/g, '')
-      // Remove scene groups like -TENOKE, -CODEX
-      .replace(/-[A-Z0-9]{3,}/g, '') 
-      // Remove bracketed/parenthetical content
-      .replace(/\[[^\]]*\]/g, '')    
-      .replace(/\([^)]*\)/g, '')     
-      // Remove version indicators
-      .replace(/\bv?\d+\.\d+(?:\.\d+)*\b/gi, '')
-      // Normalize apostrophes and dashes
-      .replace(/[']/g, '')           // Remove apostrophes (Assassin's -> Assassins)
-      .replace(/[-:]/g, ' ')         // Convert dashes/colons to spaces
-      // Remove special characters
-      .replace(/[^\w\s]/g, ' ')       
-      // Normalize whitespace
-      .replace(/\s+/g, ' ')          
-      .trim();
-  };
+  // Use the enhanced title cleaning functions that preserve edition information when needed
+  const cleanTitle1 = cleanGameTitlePreserveEdition(title1);
+  const cleanTitle2 = cleanGameTitlePreserveEdition(title2);
+  
+  // If both titles have edition information, preserve it for more accurate matching
+  const hasEditionInfo = (title: string) => 
+    /\b(deluxe|premium|ultimate|collectors?|gold|standard|definitive|enhanced|complete|special|limited)\b/i.test(title);
+  
+  let finalTitle1, finalTitle2;
+  
+  if (hasEditionInfo(title1) || hasEditionInfo(title2)) {
+    // Preserve edition information if either title has it
+    finalTitle1 = cleanTitle1;
+    finalTitle2 = cleanTitle2;
+  } else {
+    // Use standard cleaning for basic matching when no edition info is present
+    finalTitle1 = cleanGameTitle(title1);
+    finalTitle2 = cleanGameTitle(title2);
+  }
 
-  const clean1 = cleanTitle(title1);
-  const clean2 = cleanTitle(title2);
-  
-  if (clean1 === clean2) return 1.0;
-  
+  if (finalTitle1 === finalTitle2) return 1.0;
+
   // Check for substring matches
-  if (clean1.includes(clean2) || clean2.includes(clean1)) return 0.8;
+  if (finalTitle1.includes(finalTitle2) || finalTitle2.includes(finalTitle1)) return 0.8;
   
   // Split into words and check overlap
-  const words1 = clean1.split(/\s+/);
-  const words2 = clean2.split(/\s+/);
+  const words1 = finalTitle1.split(/\s+/);
+  const words2 = finalTitle2.split(/\s+/);
   const intersection = words1.filter(word => words2.includes(word));
   const union = [...new Set([...words1, ...words2])];
   
@@ -211,21 +196,57 @@ function extractVersionInfo(title: string): VersionInfo {
     }
   }
 
-  // Clean up base title by removing common patterns including piracy tags
+  // Clean up base title using improved algorithm that handles ZERO vs 0
   result.baseTitle = result.baseTitle
-    // Remove common piracy/release tags
+    // Remove common piracy/release tags first
     .replace(/\b(denuvoless|cracked|repack|fitgirl|dodi|empress|codex|skidrow|plaza)\b/gi, '')
     .replace(/\b(free download|full version|complete edition)\b/gi, '')
     .replace(/\b(all dlc|with dlc|dlc included)\b/gi, '')
     .replace(/\b(pre-installed|preinstalled)\b/gi, '')
+    .replace(/\b(update \d+|hotfix|patch)\b/gi, '')
+    // Remove common edition tags that don't affect core identity
+    .replace(/\b(deluxe|digital deluxe|premium|ultimate|collectors?)\s+edition\b/gi, '')
+    .replace(/\b(goty|game of the year)\s+edition\b/gi, '')
     // Remove year tags like (2023), (2024) etc
     .replace(/\(\d{4}\)/g, '')
-    // Remove bracketed content
-    .replace(/\[[^\]]*\]/g, '') 
-    // Remove parenthetical content
-    .replace(/\([^)]*\]/g, '')  
-    // Normalize whitespace
-    .replace(/\s+/g, ' ')       
+    // Remove scene groups and release info
+    .replace(/-[A-Z0-9]{3,}$/g, '') // Scene groups at end
+    // Remove bracketed/parenthetical content
+    .replace(/\[[^\]]*\]/g, '')    
+    .replace(/\([^)]*\)/g, '')     
+    // Remove trademark symbols
+    .replace(/[®™©]/g, '')         
+    // Normalize number words - key improvement for ZERO vs 0
+    .replace(/\bzero\b/gi, '0')
+    .replace(/\bone\b/gi, '1')
+    .replace(/\btwo\b/gi, '2')
+    .replace(/\bthree\b/gi, '3')
+    .replace(/\bfour\b/gi, '4')
+    .replace(/\bfive\b/gi, '5')
+    .replace(/\bsix\b/gi, '6')
+    .replace(/\bseven\b/gi, '7')
+    .replace(/\beight\b/gi, '8')
+    .replace(/\bnine\b/gi, '9')
+    // Normalize roman numerals to numbers
+    .replace(/\bii\b/gi, '2')
+    .replace(/\biii\b/gi, '3')
+    .replace(/\biv\b/gi, '4')
+    .replace(/\bv\b(?!\w)/gi, '5') // \b at end to avoid matching "vs"
+    .replace(/\bvi\b/gi, '6')
+    .replace(/\bvii\b/gi, '7')
+    .replace(/\bviii\b/gi, '8')
+    .replace(/\bix\b/gi, '9')
+    .replace(/\bx\b(?!\w)/gi, '10')
+    // Normalize common variations
+    .replace(/\band\b/gi, '&')
+    .replace(/\bvs\.?\b/gi, 'vs')
+    .replace(/\bof the\b/gi, 'of')
+    // Normalize apostrophes and dashes
+    .replace(/[']/g, '')           // Remove apostrophes (Assassin's -> Assassins)
+    .replace(/[-:]/g, ' ')         // Convert dashes/colons to spaces
+    // Remove special characters and normalize
+    .replace(/[^\w\s&]/g, ' ')       
+    .replace(/\s+/g, ' ')          
     .trim();
 
   // If no version info found, mark for user confirmation
@@ -359,7 +380,7 @@ async function enhanceGameMatchingWithSteam(
             link: `https://store.steampowered.com/app/${steamMatch.appid}`,
             date: steamMatch.release_date?.date || new Date().toISOString(),
             image: steamMatch.header_image,
-            description: steamMatch.short_description || steamMatch.detailed_description,
+            description: decodeHtmlEntities(steamMatch.short_description || steamMatch.detailed_description || ''),
             source: 'steam',
             downloadLinks: [], // Steam doesn't provide direct download links
             steamEnhanced: true,

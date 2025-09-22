@@ -8,6 +8,7 @@ import { GameDownloadLinks } from '../components/GameDownloadLinks';
 import { AddCustomGame } from '../components/AddCustomGame';
 import { useNotification } from '../contexts/NotificationContext';
 import { SITES } from '../lib/sites';
+import { decodeHtmlEntities } from '../utils/steamApi';
 
 interface Game {
   id: string;
@@ -164,12 +165,12 @@ export default function Dashboard() {
   return (
     <>
       <Navigation />
-      <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-2 sm:p-4">
+      <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-3 sm:p-4">
         <div className="max-w-7xl mx-auto">
           {/* Page Header */}
-          <div className="text-center sm:text-left mb-6 sm:mb-8">
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">Game Discovery</h1>
-            <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mt-1">Search and discover games to track</p>
+          <div className="text-center mb-4 sm:mb-6">
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">Game Discovery</h1>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Search and discover games to track</p>
           </div>
           
           {/* Add Custom Game Button */}
@@ -178,19 +179,19 @@ export default function Dashboard() {
           </div>
         
         {/* Mobile-optimized Search */}
-        <form onSubmit={searchGames} className="mb-6 sm:mb-8">
+        <form onSubmit={searchGames} className="mb-4 sm:mb-6">
           <div className="flex flex-col sm:flex-row gap-2">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search for games..."
-              className="flex-1 px-3 py-2 sm:px-4 text-sm sm:text-base border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
             />
             <button
               type="submit"
               disabled={loading}
-              className="px-4 py-2 sm:px-6 text-sm sm:text-base bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm font-medium"
             >
               {loading ? 'Searching...' : 'Search'}
             </button>
@@ -198,13 +199,13 @@ export default function Dashboard() {
         </form>
 
         {/* Site Filter */}
-        <div className="mb-6 sm:mb-8">
+        <div className="mb-4 sm:mb-6">
           <label className="block text-sm text-gray-700 dark:text-gray-300 mb-2">Filter by Site</label>
-          <div className="flex gap-2 items-center">
+          <div className="flex flex-col sm:flex-row gap-2">
             <select
               value={siteFilter}
               onChange={(e) => setSiteFilter(e.target.value)}
-              className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
             >
               <option value="all">All Sites</option>
               {SITES.map(site => (
@@ -213,7 +214,7 @@ export default function Dashboard() {
             </select>
             <button
               onClick={(e) => { e.preventDefault(); loadRecentGames(); }}
-              className="px-3 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
             >
               Apply
             </button>
@@ -222,31 +223,31 @@ export default function Dashboard() {
 
         {/* Error */}
         {error && (
-          <div className="mb-4 p-3 sm:p-4 bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 rounded text-sm">
+          <div className="mb-4 p-3 bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 rounded text-sm">
             {error}
           </div>
         )}
 
         {/* Mobile-optimized Games Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
           {games.length === 0 && !loading ? (
             <div className="col-span-full text-center py-8 text-gray-500 dark:text-gray-400">
               {error ? 'Failed to load games' : 'No games found'}
             </div>
           ) : (
             games.map((game: Game) => (
-            <div key={game.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-200 dark:border-gray-700">
+            <div key={game.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-200 dark:border-gray-700">
               <ImageWithFallback
                 src={game.image}
                 alt={game.title}
                 width={300}
-                height={192}
-                className="w-full h-36 sm:h-48 object-cover hover:scale-105 transition-transform duration-300"
+                height={180}
+                className="w-full h-32 sm:h-40 object-cover"
               />
-              <div className="p-3 sm:p-4 bg-gradient-to-b from-white to-gray-50 dark:from-gray-800 dark:to-gray-900">
-                <h3 className="font-bold text-base sm:text-lg mb-2 text-gray-900 dark:text-white line-clamp-2">{game.title}</h3>
-                <p className="text-gray-600 dark:text-gray-300 text-xs sm:text-sm mb-3 sm:mb-4 line-clamp-3">
-                  {game.description}
+              <div className="p-3">
+                <h3 className="font-semibold text-sm sm:text-base mb-2 text-gray-900 dark:text-white line-clamp-2 leading-tight">{game.title}</h3>
+                <p className="text-gray-600 dark:text-gray-300 text-xs mb-3 line-clamp-2 leading-relaxed">
+                  {decodeHtmlEntities(game.description)}
                 </p>
                 
                 {/* Mobile-optimized Game Actions */}
@@ -261,36 +262,38 @@ export default function Dashboard() {
                     />
                   )}
                   
-                  {/* View Original Post Link */}
-                  <a
-                    href={game.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block w-full px-2 py-2 sm:px-3 text-center bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs sm:text-sm rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                  >
-                    📖 View Post on {game.source}
-                  </a>
-                  
-                  {/* Track/Untrack Button */}
-                  {trackedGames.has(game.id) ? (
-                    <button
-                      onClick={() => handleUntrackGame(game)}
-                      className="block w-full px-2 py-2 sm:px-3 text-center bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 text-xs sm:text-sm rounded hover:bg-red-200 dark:hover:bg-red-800 transition-colors"
+                  {/* Action Buttons */}
+                  <div className="flex flex-col gap-1.5">
+                    <a
+                      href={game.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block w-full px-3 py-1.5 text-center bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                     >
-                      🔔 Stop Tracking Updates
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handleTrackGame(game)}
-                      className="block w-full px-2 py-2 sm:px-3 text-center bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 text-xs sm:text-sm rounded hover:bg-green-200 dark:hover:bg-green-800 transition-colors"
-                    >
-                      🔔 Track for Updates
-                    </button>
-                  )}
+                      📖 View on {game.source}
+                    </a>
+                    
+                    {/* Track/Untrack Button */}
+                    {trackedGames.has(game.id) ? (
+                      <button
+                        onClick={() => handleUntrackGame(game)}
+                        className="block w-full px-3 py-1.5 text-center bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 text-xs rounded hover:bg-red-200 dark:hover:bg-red-800 transition-colors"
+                      >
+                        🔔 Stop Tracking
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleTrackGame(game)}
+                        className="block w-full px-3 py-1.5 text-center bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+                      >
+                        ⏰ Track Updates
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          ))
+            ))
           )}
         </div>
 
