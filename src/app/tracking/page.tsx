@@ -177,12 +177,12 @@ export default function TrackingDashboard() {
           </div>
           
           {/* Action Buttons */}
-          <div className="flex flex-wrap justify-center sm:justify-start items-center gap-2 mb-6">
+          <div className="flex flex-wrap justify-center sm:justify-start items-center gap-3 mb-6">
             <AddCustomGame onGameAdded={loadTrackedGames} />
             <button
               onClick={handleCheckForUpdates}
               disabled={checkingUpdates || trackedGames.length === 0}
-              className="px-3 py-2 text-xs sm:text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+              className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap min-h-[40px] flex items-center justify-center"
             >
               {checkingUpdates ? 'Checking...' : 'Check Updates'}
             </button>
@@ -293,7 +293,7 @@ export default function TrackingDashboard() {
                       
                       <button
                         onClick={() => handleUntrack(game.gameId)}
-                        className="self-start px-2 sm:px-3 py-1 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 text-xs sm:text-sm rounded hover:bg-red-200 dark:hover:bg-red-800 transition-colors whitespace-nowrap"
+                        className="self-start px-4 py-2 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 text-sm rounded-lg hover:bg-red-200 dark:hover:bg-red-800 transition-colors min-h-[40px] flex items-center justify-center"
                       >
                         Untrack
                       </button>
@@ -352,23 +352,27 @@ export default function TrackingDashboard() {
                     )}
 
                     {/* Action Links - Mobile optimized */}
-                    <div className="mt-3 sm:mt-4 flex flex-col sm:flex-row gap-2 sm:gap-2">
+                    <div className="mt-3 sm:mt-4 flex flex-col sm:flex-row gap-2 sm:gap-3">
                       <a
                         href={game.gameLink}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-2 sm:px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs sm:text-sm rounded hover:bg-blue-200 dark:hover:bg-blue-800 text-center sm:text-left transition-colors"
+                        className="px-4 py-2 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-sm rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 text-center transition-colors min-h-[40px] flex items-center justify-center w-full sm:w-auto"
                       >
                         View Original Post
                       </a>
-                      
-                      {/* Download Links for latest update */}
-                      <div className="sm:inline-block">
+                      <div className="w-full sm:w-auto">
                         <DownloadLinks 
                           gameId={game._id} 
-                          className="w-full sm:w-auto"
+                          className="w-full sm:w-auto px-4 py-2 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 text-sm rounded-lg hover:bg-green-200 dark:hover:bg-green-800 transition-colors min-h-[40px] flex items-center justify-center" 
                         />
                       </div>
+                      <button
+                        onClick={() => handleUntrack(game.gameId)}
+                        className="px-4 py-2 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 text-sm rounded-lg hover:bg-red-200 dark:hover:bg-red-800 transition-colors min-h-[40px] flex items-center justify-center w-full sm:w-auto"
+                      >
+                        Untrack
+                      </button>
                     </div>
 
                     {/* Pending Updates - Mobile optimized */}

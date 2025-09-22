@@ -201,7 +201,7 @@ export function DownloadLinks({ gameId, updateIndex, pendingUpdateId, className 
         <button
           ref={buttonRef}
           onClick={handleToggle}
-          className="px-3 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 text-sm rounded hover:bg-green-200 dark:hover:bg-green-800 transition-colors flex items-center gap-2"
+          className="px-4 py-2 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 text-sm rounded-lg hover:bg-green-200 dark:hover:bg-green-800 transition-colors flex items-center gap-2 min-h-[40px]"
         >
           <span>📁</span>
           <span>Download Links</span>

@@ -236,7 +236,7 @@ export default function Dashboard() {
             </div>
           ) : (
             games.map((game: Game) => (
-            <div key={game.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-200 dark:border-gray-700">
+            <div key={game.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-200 dark:border-gray-700 flex flex-col h-full">
               <ImageWithFallback
                 src={game.image}
                 alt={game.title}
@@ -244,14 +244,14 @@ export default function Dashboard() {
                 height={180}
                 className="w-full h-32 sm:h-40 object-cover"
               />
-              <div className="p-3">
+              <div className="p-3 flex flex-col flex-grow">
                 <h3 className="font-semibold text-sm sm:text-base mb-2 text-gray-900 dark:text-white line-clamp-2 leading-tight">{game.title}</h3>
-                <p className="text-gray-600 dark:text-gray-300 text-xs mb-3 line-clamp-2 leading-relaxed">
+                <p className="text-gray-600 dark:text-gray-300 text-xs mb-3 line-clamp-2 leading-relaxed flex-grow">
                   {decodeHtmlEntities(game.description)}
                 </p>
                 
-                {/* Mobile-optimized Game Actions */}
-                <div className="space-y-2">
+                {/* Mobile-optimized Game Actions - Always at bottom */}
+                <div className="mt-auto space-y-2">
                   {/* Download Links */}
                   {status === 'authenticated' && (
                     <GameDownloadLinks
@@ -268,25 +268,31 @@ export default function Dashboard() {
                       href={game.link}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="block w-full px-3 py-1.5 text-center bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                      className="block w-full px-4 py-2 text-center bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors min-h-[40px] flex items-center justify-center"
                     >
-                      📖 View on {game.source}
+                      <span className="flex items-center gap-2">
+                        📖 <span>View on {game.source}</span>
+                      </span>
                     </a>
                     
                     {/* Track/Untrack Button */}
                     {trackedGames.has(game.id) ? (
                       <button
                         onClick={() => handleUntrackGame(game)}
-                        className="block w-full px-3 py-1.5 text-center bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 text-xs rounded hover:bg-red-200 dark:hover:bg-red-800 transition-colors"
+                        className="block w-full px-4 py-2 text-center bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 text-sm font-medium rounded-lg hover:bg-red-200 dark:hover:bg-red-800 transition-colors min-h-[40px] flex items-center justify-center"
                       >
-                        🔔 Stop Tracking
+                        <span className="flex items-center gap-2">
+                          🔔 <span>Stop Tracking</span>
+                        </span>
                       </button>
                     ) : (
                       <button
                         onClick={() => handleTrackGame(game)}
-                        className="block w-full px-3 py-1.5 text-center bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+                        className="block w-full px-4 py-2 text-center bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-sm font-medium rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors min-h-[40px] flex items-center justify-center"
                       >
-                        ⏰ Track Updates
+                        <span className="flex items-center gap-2">
+                          ⏰ <span>Track Updates</span>
+                        </span>
                       </button>
                     )}
                   </div>

@@ -163,6 +163,18 @@ const trackedGameSchema = new mongoose.Schema({
     enum: ['hourly', 'daily', 'weekly', 'manual'],
     default: 'daily'
   },
+  steamVerified: {
+    type: Boolean,
+    default: false
+  },
+  steamAppId: {
+    type: Number,
+    default: null
+  },
+  steamName: {
+    type: String,
+    default: null
+  },
   updateHistory: [{
     version: {
       type: String,

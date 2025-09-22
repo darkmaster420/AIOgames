@@ -419,6 +419,68 @@ async function enhanceGameMatchingWithSteam(
   return enhancedCandidates;
 }
 
+/**
+ * Validate an update using stored Steam verification data
+ * This cross-checks potential updates against verified Steam game information
+ */
+async function validateUpdateWithSteamData(
+  trackedGame: { steamVerified?: boolean; steamAppId?: number; steamName?: string; title: string },
+  potentialUpdate: GameSearchResult,
+  confidence: number
+): Promise<{ isValidated: boolean; confidence: number; reason: string }> {
+  // Only use Steam validation if the game has been Steam-verified
+  if (!trackedGame.steamVerified || !trackedGame.steamAppId || !trackedGame.steamName) {
+    return {
+      isValidated: false,
+      confidence,
+      reason: 'No Steam verification data available'
+    };
+  }
+
+  try {
+    const updateTitleCleaned = cleanGameTitle(potentialUpdate.title);
+    const storedSteamNameCleaned = cleanGameTitle(trackedGame.steamName);
+    
+    // Calculate similarity between potential update and verified Steam name
+    const steamSimilarity = calculateGameSimilarity(updateTitleCleaned, storedSteamNameCleaned);
+    
+    console.log(`🎮 Steam Validation: "${potentialUpdate.title}" vs stored "${trackedGame.steamName}" = ${Math.round(steamSimilarity * 100)}%`);
+    
+    if (steamSimilarity >= 0.8) {
+      // High similarity with Steam-verified name - boost confidence significantly
+      const boostedConfidence = Math.min(0.95, confidence + 0.3);
+      return {
+        isValidated: true,
+        confidence: boostedConfidence,
+        reason: `Validated against Steam: "${trackedGame.steamName}" (${Math.round(steamSimilarity * 100)}% match)`
+      };
+    } else if (steamSimilarity >= 0.6) {
+      // Moderate similarity - provide some confidence boost but still flag for review
+      const moderateBoost = Math.min(0.85, confidence + 0.15);
+      return {
+        isValidated: true,
+        confidence: moderateBoost,
+        reason: `Partial Steam validation: "${trackedGame.steamName}" (${Math.round(steamSimilarity * 100)}% match) - review recommended`
+      };
+    } else {
+      // Low similarity with Steam data - this might not be a valid update
+      return {
+        isValidated: false,
+        confidence: Math.max(0.2, confidence - 0.2), // Reduce confidence
+        reason: `Steam validation failed: Low similarity with verified name "${trackedGame.steamName}" (${Math.round(steamSimilarity * 100)}%)`
+      };
+    }
+    
+  } catch (error) {
+    console.error(`Steam validation error for ${trackedGame.title}:`, error);
+    return {
+      isValidated: false,
+      confidence,
+      reason: 'Steam validation error occurred'
+    };
+  }
+}
+
 export async function POST() {
   try {
     const user = await getCurrentUser();
@@ -627,56 +689,94 @@ export async function POST() {
           if (!versionString) versionString = 'New Version';
           
           // Check if this needs user confirmation (ambiguous update)
-          if (versionInfo.needsUserConfirmation || bestSimilarity < 0.8 || !versionInfo.version) {
+          let finalSimilarity = bestSimilarity;
+          let finalReason = '';
+          let steamValidation = null;
+          
+          // Use Steam validation if available and confidence is low
+          if (bestSimilarity < 0.8 || versionInfo.needsUserConfirmation) {
+            steamValidation = await validateUpdateWithSteamData(game, bestMatch, bestSimilarity);
+            finalSimilarity = steamValidation.confidence;
+            
+            console.log(`🎮 Steam validation result for "${game.title}": ${steamValidation.isValidated ? 'VALIDATED' : 'NOT VALIDATED'} (${Math.round(steamValidation.confidence * 100)}%)`);
+          }
+          
+          if (versionInfo.needsUserConfirmation || finalSimilarity < 0.8 || !versionInfo.version) {
             // Determine reason for pending status
-            let pendingReason = 'Ambiguous update - manual review recommended';
             if (versionInfo.needsUserConfirmation) {
-              pendingReason = 'No clear version info - needs manual confirmation';
-            } else if (bestSimilarity < 0.8) {
-              pendingReason = `Low similarity match (${Math.round(bestSimilarity * 100)}%)`;
+              finalReason = 'No clear version info - needs manual confirmation';
+            } else if (finalSimilarity < 0.8) {
+              finalReason = `Low similarity match (${Math.round(finalSimilarity * 100)}%)`;
+            } else {
+              finalReason = 'Ambiguous update - manual review recommended';
+            }
+            
+            // Add Steam validation information to the reason
+            if (steamValidation) {
+              finalReason = `${finalReason} | ${steamValidation.reason}`;
             }
             
             // Check if this was enhanced by Steam API
             const isSteamEnhanced = bestMatch && 'steamEnhanced' in bestMatch && bestMatch.steamEnhanced;
             if (isSteamEnhanced) {
               const steamConfidence = ('steamConfidence' in bestMatch && typeof bestMatch.steamConfidence === 'number') ? bestMatch.steamConfidence : 0;
-              pendingReason += ` - Enhanced by Steam API (confidence: ${Math.round(steamConfidence * 100)}%)`;
+              finalReason += ` | Enhanced by Steam API (confidence: ${Math.round(steamConfidence * 100)}%)`;
             }
             
-            // Store as pending update for user confirmation
-            const pendingUpdate = {
-              detectedVersion: versionInfo.version || '',
-              build: versionInfo.build || '',
-              releaseType: versionInfo.releaseType || '',
-              updateType: versionInfo.updateType || '',
-              sceneGroup: versionInfo.sceneGroup || '',
-              newTitle: bestMatch.title,
-              newLink: bestMatch.link,
-              newImage: bestMatch.image || '',
-              dateFound: new Date(),
-              confidence: bestSimilarity,
-              reason: pendingReason,
-              downloadLinks: bestMatch.downloadLinks || [],
-              steamEnhanced: isSteamEnhanced || false,
-              steamAppId: isSteamEnhanced ? bestMatch.id : undefined
-            };
+            // Check if Steam validation boosted confidence enough for auto-approval
+            if (steamValidation && steamValidation.isValidated && finalSimilarity >= 0.8 && versionInfo.version) {
+              console.log(`🎮 Steam validation boosted confidence for "${game.title}" - auto-approving update`);
+              // Proceed with auto-approval instead of pending
+            } else {
+              // Store as pending update for user confirmation
+              const pendingUpdate = {
+                detectedVersion: versionInfo.version || '',
+                build: versionInfo.build || '',
+                releaseType: versionInfo.releaseType || '',
+                updateType: versionInfo.updateType || '',
+                sceneGroup: versionInfo.sceneGroup || '',
+                newTitle: bestMatch.title,
+                newLink: bestMatch.link,
+                newImage: bestMatch.image || '',
+                dateFound: new Date(),
+                confidence: finalSimilarity,
+                reason: finalReason,
+                downloadLinks: bestMatch.downloadLinks || [],
+                steamEnhanced: isSteamEnhanced || false,
+                steamAppId: isSteamEnhanced ? bestMatch.id : undefined,
+                steamValidated: steamValidation?.isValidated || false
+              };
 
-            await TrackedGame.findByIdAndUpdate(game._id, {
-              $push: { pendingUpdates: pendingUpdate },
-              lastChecked: new Date()
-            });
+              await TrackedGame.findByIdAndUpdate(game._id, {
+                $push: { pendingUpdates: pendingUpdate },
+                lastChecked: new Date()
+              });
 
-            updateDetails.push({
-              title: game.title,
-              version: versionString + (isSteamEnhanced ? ' (Steam)' : '') + ' (PENDING)',
-              changeType: 'pending_confirmation',
-              significance: 0,
-              updateType: 'Pending Confirmation',
-              link: bestMatch.link,
-              details: pendingReason
-            });
-          } else {
-            // Auto-confirm update with high confidence
+              updateDetails.push({
+                title: game.title,
+                version: versionString,
+                changeType: 'pending_confirmation',
+                significance: 0,
+                updateType: 'Pending Confirmation',
+                link: bestMatch.link,
+                details: finalReason
+              });
+
+              console.log(`⏳ Found pending update for "${game.title}": ${bestMatch.title} (confidence: ${Math.round(finalSimilarity * 100)}%)`);
+              continue; // Skip to next game
+            }
+          }
+          
+          // Auto-approve confident updates or Steam-validated updates
+          const updateResult = isSignificantUpdate(
+            game.lastKnownVersion || game.title,
+            bestMatch.title,
+            game.gameLink,
+            bestMatch.link
+          );
+
+          if (updateResult.isUpdate) {
+            // Auto-confirm update with high confidence or Steam validation
             const isSteamEnhanced = bestMatch && 'steamEnhanced' in bestMatch && bestMatch.steamEnhanced;
             
             const newUpdate = {
