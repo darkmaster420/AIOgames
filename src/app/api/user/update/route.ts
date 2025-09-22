@@ -13,7 +13,16 @@ export async function PATCH(req: Request) {
     }
 
   const body = await req.json();
-  const { email, currentPassword, newPassword, provider, webpushEnabled } = body;
+  const { 
+    email, 
+    currentPassword, 
+    newPassword, 
+    provider, 
+    webpushEnabled, 
+    telegramEnabled, 
+    telegramBotToken, 
+    telegramChatId 
+  } = body;
 
     await connectDB();
 
@@ -62,6 +71,25 @@ export async function PATCH(req: Request) {
       user.preferences = user.preferences || {};
       user.preferences.notifications = user.preferences.notifications || {};
       user.preferences.notifications.webpushEnabled = webpushEnabled;
+    }
+
+    // Update Telegram notification settings
+    if (typeof telegramEnabled === 'boolean') {
+      user.preferences = user.preferences || {};
+      user.preferences.notifications = user.preferences.notifications || {};
+      user.preferences.notifications.telegramEnabled = telegramEnabled;
+    }
+
+    if (typeof telegramBotToken === 'string') {
+      user.preferences = user.preferences || {};
+      user.preferences.notifications = user.preferences.notifications || {};
+      user.preferences.notifications.telegramBotToken = telegramBotToken;
+    }
+
+    if (typeof telegramChatId === 'string') {
+      user.preferences = user.preferences || {};
+      user.preferences.notifications = user.preferences.notifications || {};
+      user.preferences.notifications.telegramChatId = telegramChatId;
     }
 
     await user.save();

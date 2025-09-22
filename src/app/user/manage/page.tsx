@@ -14,9 +14,12 @@ export default function UserManagePage() {
     currentPassword: '',
     newPassword: '',
     confirmNewPassword: '',
-    // placeholder for notification settings
+    // notification settings
     notificationsProvider: '',
-    webpushEnabled: true
+    webpushEnabled: true,
+    telegramEnabled: false,
+    telegramBotToken: '',
+    telegramChatId: ''
   });
 
   const router = useRouter();
@@ -36,7 +39,10 @@ export default function UserManagePage() {
           setForm((f) => ({
             ...f,
             notificationsProvider: data.preferences.notifications.provider || f.notificationsProvider,
-            webpushEnabled: typeof data.preferences.notifications.webpushEnabled === 'boolean' ? data.preferences.notifications.webpushEnabled : f.webpushEnabled
+            webpushEnabled: typeof data.preferences.notifications.webpushEnabled === 'boolean' ? data.preferences.notifications.webpushEnabled : f.webpushEnabled,
+            telegramEnabled: data.preferences.notifications.telegramEnabled || false,
+            telegramBotToken: data.preferences.notifications.telegramBotToken || '',
+            telegramChatId: data.preferences.notifications.telegramChatId || ''
           }));
           // If provider is webpush and enabled, prompt for permission
           if ((data.preferences.notifications.provider === 'webpush' || !data.preferences.notifications.provider) && data.preferences.notifications.webpushEnabled !== false) {
@@ -133,13 +139,28 @@ export default function UserManagePage() {
 
     setSaving(true);
     try {
-      const payload: { email: string; currentPassword?: string; newPassword?: string; provider?: string; webpushEnabled?: boolean } = { email: form.email };
+      const payload: { 
+        email: string; 
+        currentPassword?: string; 
+        newPassword?: string; 
+        provider?: string; 
+        webpushEnabled?: boolean;
+        telegramEnabled?: boolean;
+        telegramBotToken?: string;
+        telegramChatId?: string;
+      } = { email: form.email };
+      
       if (form.newPassword) {
         payload.currentPassword = form.currentPassword;
         payload.newPassword = form.newPassword;
       }
+      
+      // Notification settings
       payload.provider = form.notificationsProvider;
       payload.webpushEnabled = form.webpushEnabled;
+      payload.telegramEnabled = form.telegramEnabled;
+      payload.telegramBotToken = form.telegramBotToken;
+      payload.telegramChatId = form.telegramChatId;
 
       const res = await fetch('/api/user/update', {
         method: 'PATCH',
@@ -223,18 +244,25 @@ export default function UserManagePage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notification Provider (placeholder)</label>
-            <div className="flex items-center space-x-3">
-              <select
-                name="notificationsProvider"
-                value={form.notificationsProvider}
-                onChange={handleChange}
-                className="mt-1 block w-1/2 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              >
-                <option value="webpush">Web Push</option>
-                <option value="email">Email</option>
-              </select>
-              <label className="flex items-center space-x-2 text-sm">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notification Settings</label>
+            <div className="mt-3 space-y-4">
+              {/* Notification Provider */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Provider</label>
+                <select
+                  name="notificationsProvider"
+                  value={form.notificationsProvider}
+                  onChange={handleChange}
+                  className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                >
+                  <option value="webpush">Web Push</option>
+                  <option value="email">Email</option>
+                  <option value="telegram">Telegram Bot</option>
+                </select>
+              </div>
+
+              {/* Web Push Settings */}
+              <div className="flex items-center space-x-2">
                 <input
                   type="checkbox"
                   name="webpushEnabled"
@@ -242,8 +270,64 @@ export default function UserManagePage() {
                   onChange={(e) => setForm({ ...form, webpushEnabled: e.target.checked })}
                   className="w-4 h-4"
                 />
-                <span className="text-sm text-gray-600 dark:text-gray-300">Enable Web Push</span>
-              </label>
+                <label className="text-sm text-gray-600 dark:text-gray-300">Enable Web Push Notifications</label>
+              </div>
+
+              {/* Telegram Bot Settings */}
+              <div className="space-y-3 p-4 border border-gray-200 dark:border-gray-600 rounded-md">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    name="telegramEnabled"
+                    checked={form.telegramEnabled}
+                    onChange={(e) => setForm({ ...form, telegramEnabled: e.target.checked })}
+                    className="w-4 h-4"
+                  />
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Enable Telegram Bot Notifications</label>
+                </div>
+                
+                {form.telegramEnabled && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        Bot Token
+                        <span className="text-gray-500 ml-1">(from @BotFather)</span>
+                      </label>
+                      <input
+                        type="password"
+                        name="telegramBotToken"
+                        value={form.telegramBotToken}
+                        onChange={handleChange}
+                        placeholder="1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
+                        className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        Chat ID
+                        <span className="text-gray-500 ml-1">(your user ID or group chat ID)</span>
+                      </label>
+                      <input
+                        type="text"
+                        name="telegramChatId"
+                        value={form.telegramChatId}
+                        onChange={handleChange}
+                        placeholder="123456789 or -100123456789"
+                        className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      />
+                    </div>
+
+                    <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
+                      <p><strong>Setup Instructions:</strong></p>
+                      <p>1. Create a bot with @BotFather on Telegram</p>
+                      <p>2. Get your chat ID from @userinfobot</p>
+                      <p>3. Start a chat with your bot first</p>
+                      <p>4. Use the &ldquo;Test Telegram&rdquo; button below to verify</p>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
@@ -278,7 +362,7 @@ export default function UserManagePage() {
           {error && <div className="text-sm text-red-600 dark:text-red-300">{error}</div>}
           {success && <div className="text-sm text-green-600 dark:text-green-300">{success}</div>}
 
-          <div className="flex items-center space-x-3">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               type="submit"
               disabled={saving}
@@ -298,13 +382,41 @@ export default function UserManagePage() {
                     return;
                   }
                   alert('Test notification sent (check your device)');
-            } catch {
-            alert('Failed to send test notification');
-              }
+                } catch {
+                  alert('Failed to send test notification');
+                }
               }}
             >
-              Send Test Notification
+              Test Web Push
             </button>
+            {form.telegramEnabled && form.telegramBotToken && form.telegramChatId && (
+              <button
+                type="button"
+                className="px-4 py-2 bg-purple-600 text-white rounded-md"
+                onClick={async () => {
+                  try {
+                    const res = await fetch('/api/notifications/test-telegram', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        botToken: form.telegramBotToken,
+                        chatId: form.telegramChatId
+                      })
+                    });
+                    const data = await res.json();
+                    if (!res.ok) {
+                      alert(data?.error || 'Failed to send Telegram test');
+                      return;
+                    }
+                    alert('Telegram test message sent successfully!');
+                  } catch {
+                    alert('Failed to send Telegram test');
+                  }
+                }}
+              >
+                Test Telegram
+              </button>
+            )}
             <button
               type="button"
               className="px-4 py-2 border rounded-md"

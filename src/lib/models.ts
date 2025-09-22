@@ -50,12 +50,24 @@ const userSchema = new mongoose.Schema({
       },
       provider: {
         type: String,
-        enum: ['email', 'webpush'],
+        enum: ['email', 'webpush', 'telegram'],
         default: 'webpush'
       },
       webpushEnabled: {
         type: Boolean,
         default: true
+      },
+      telegramEnabled: {
+        type: Boolean,
+        default: false
+      },
+      telegramBotToken: {
+        type: String,
+        default: ''
+      },
+      telegramChatId: {
+        type: String,
+        default: ''
       },
       updateFrequency: {
         type: String,
