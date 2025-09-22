@@ -48,15 +48,35 @@ interface VersionInfo {
 
 // Enhanced game matching and update detection
 function calculateGameSimilarity(title1: string, title2: string): number {
-  // Remove scene group tags for better matching
+  // Remove scene group tags and piracy-related tags for better matching
   const cleanTitle = (title: string) => {
     return title
       .toLowerCase()
-      .replace(/-[A-Z0-9]{3,}/g, '') // Remove scene groups like -TENOKE, -CODEX
-      .replace(/\[[^\]]*\]/g, '')    // Remove bracketed content
-      .replace(/\([^)]*\)/g, '')     // Remove parenthetical content
-      .replace(/[^\w\s]/g, '')       // Remove special characters
-      .replace(/\s+/g, ' ')          // Normalize whitespace
+      // Remove common piracy/release tags first
+      .replace(/\b(denuvoless|cracked|repack|fitgirl|dodi|empress|codex|skidrow|plaza)\b/gi, '')
+      .replace(/\b(free download|full version|complete edition)\b/gi, '')
+      .replace(/\b(all dlc|with dlc|dlc included)\b/gi, '')
+      .replace(/\b(pre-installed|preinstalled)\b/gi, '')
+      .replace(/\b(update \d+|hotfix|patch)\b/gi, '')
+      // Remove common edition tags that don't affect core identity
+      .replace(/\b(deluxe|digital deluxe|premium|ultimate|collectors?)\s+edition\b/gi, '')
+      .replace(/\b(goty|game of the year)\s+edition\b/gi, '')
+      // Remove year tags like (2023), (2024) etc
+      .replace(/\(\d{4}\)/g, '')
+      // Remove scene groups like -TENOKE, -CODEX
+      .replace(/-[A-Z0-9]{3,}/g, '') 
+      // Remove bracketed/parenthetical content
+      .replace(/\[[^\]]*\]/g, '')    
+      .replace(/\([^)]*\)/g, '')     
+      // Remove version indicators
+      .replace(/\bv?\d+\.\d+(?:\.\d+)*\b/gi, '')
+      // Normalize apostrophes and dashes
+      .replace(/[']/g, '')           // Remove apostrophes (Assassin's -> Assassins)
+      .replace(/[-:]/g, ' ')         // Convert dashes/colons to spaces
+      // Remove special characters
+      .replace(/[^\w\s]/g, ' ')       
+      // Normalize whitespace
+      .replace(/\s+/g, ' ')          
       .trim();
   };
 
@@ -191,11 +211,21 @@ function extractVersionInfo(title: string): VersionInfo {
     }
   }
 
-  // Clean up base title by removing common patterns
+  // Clean up base title by removing common patterns including piracy tags
   result.baseTitle = result.baseTitle
-    .replace(/\[[^\]]*\]/g, '') // Remove bracketed content
-    .replace(/\([^)]*\)/g, '')  // Remove parenthetical content
-    .replace(/\s+/g, ' ')       // Normalize whitespace
+    // Remove common piracy/release tags
+    .replace(/\b(denuvoless|cracked|repack|fitgirl|dodi|empress|codex|skidrow|plaza)\b/gi, '')
+    .replace(/\b(free download|full version|complete edition)\b/gi, '')
+    .replace(/\b(all dlc|with dlc|dlc included)\b/gi, '')
+    .replace(/\b(pre-installed|preinstalled)\b/gi, '')
+    // Remove year tags like (2023), (2024) etc
+    .replace(/\(\d{4}\)/g, '')
+    // Remove bracketed content
+    .replace(/\[[^\]]*\]/g, '') 
+    // Remove parenthetical content
+    .replace(/\([^)]*\]/g, '')  
+    // Normalize whitespace
+    .replace(/\s+/g, ' ')       
     .trim();
 
   // If no version info found, mark for user confirmation
