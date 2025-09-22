@@ -5,6 +5,7 @@ import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel, getSequelThreshold } from '../../../../utils/sequelDetection';
 import { SITE_VALUES } from '../../../../lib/sites';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
+import { findSteamMatches } from '../../../../utils/steamApi';
 
 interface GameSearchResult {
   id: string;
@@ -281,6 +282,92 @@ function isSignificantUpdate(oldTitle: string, newTitle: string, oldLink: string
   return { isUpdate: false, details: null };
 }
 
+// Enhanced game matching with Steam API fallback for low confidence matches
+async function enhanceGameMatchingWithSteam(
+  originalTitle: string, 
+  candidates: GameSearchResult[], 
+  minConfidence: number = 0.8
+): Promise<Array<GameSearchResult & { steamEnhanced?: boolean; steamConfidence?: number }>> {
+  const enhancedCandidates = [...candidates];
+  
+  // Check if we have any high-confidence matches
+  const highConfidenceMatch = candidates.find(candidate => 
+    calculateGameSimilarity(originalTitle, candidate.title) >= minConfidence
+  );
+  
+  // If we have high confidence matches, no need for Steam API fallback
+  if (highConfidenceMatch) {
+    console.log(`🎮 High confidence match found for "${originalTitle}", skipping Steam API`);
+    return enhancedCandidates;
+  }
+  
+  try {
+    console.log(`🎮 Low confidence matches for "${originalTitle}", trying Steam API fallback...`);
+    
+    // Extract base title for better Steam matching
+    const baseTitle = extractVersionInfo(originalTitle).baseTitle;
+    const searchTitle = baseTitle || originalTitle;
+    
+    // Try to find matches using Steam API
+    const steamMatches = await findSteamMatches(searchTitle, 0.6, 3);
+    
+    if (steamMatches.length > 0) {
+      console.log(`🎮 Steam API found ${steamMatches.length} potential matches for "${searchTitle}"`);
+      
+      // Convert Steam matches to GameSearchResult format and add to candidates
+      for (const steamMatch of steamMatches) {
+        // Check if we already have this game in candidates
+        const existingMatch = enhancedCandidates.find(candidate => 
+          calculateGameSimilarity(candidate.title, steamMatch.name) > 0.9
+        );
+        
+        if (!existingMatch && steamMatch.confidence > 0.7) {
+          // Add Steam match as a new candidate
+          const steamCandidate: GameSearchResult & { steamEnhanced?: boolean; steamConfidence?: number } = {
+            id: steamMatch.appid,
+            title: steamMatch.name,
+            link: `https://store.steampowered.com/app/${steamMatch.appid}`,
+            date: steamMatch.release_date?.date || new Date().toISOString(),
+            image: steamMatch.header_image,
+            description: steamMatch.short_description || steamMatch.detailed_description,
+            source: 'steam',
+            downloadLinks: [], // Steam doesn't provide direct download links
+            steamEnhanced: true,
+            steamConfidence: steamMatch.confidence
+          };
+          
+          enhancedCandidates.push(steamCandidate);
+          console.log(`🎮 Added Steam match: "${steamMatch.name}" (confidence: ${steamMatch.confidence.toFixed(2)})`);
+        }
+      }
+      
+      // Re-sort candidates by Steam confidence and similarity
+      enhancedCandidates.sort((a, b) => {
+        const aConfidence = ('steamConfidence' in a && typeof a.steamConfidence === 'number') ? a.steamConfidence : 0;
+        const bConfidence = ('steamConfidence' in b && typeof b.steamConfidence === 'number') ? b.steamConfidence : 0;
+        const aSimilarity = calculateGameSimilarity(originalTitle, a.title);
+        const bSimilarity = calculateGameSimilarity(originalTitle, b.title);
+        
+        // Prioritize Steam-enhanced matches with high confidence
+        if ('steamEnhanced' in a && aConfidence > 0.8) return -1;
+        if ('steamEnhanced' in b && bConfidence > 0.8) return 1;
+        
+        // Then sort by similarity
+        return bSimilarity - aSimilarity;
+      });
+      
+    } else {
+      console.log(`🎮 Steam API found no suitable matches for "${searchTitle}"`);
+    }
+    
+  } catch (error) {
+    console.error(`🎮 Steam API fallback failed for "${originalTitle}":`, error);
+    // Continue with original candidates if Steam API fails
+  }
+  
+  return enhancedCandidates;
+}
+
 export async function POST() {
   try {
     const user = await getCurrentUser();
@@ -341,6 +428,7 @@ export async function POST() {
 
         let bestMatch: GameSearchResult | null = null;
         let bestSimilarity = 0;
+        const allCandidates: GameSearchResult[] = [];
 
         // Search across all sites for comprehensive update checking
         for (const site of SITE_VALUES) {
@@ -353,6 +441,9 @@ export async function POST() {
           
           const searchData = await searchResponse.json();
           const games = searchData.results || [];
+          
+          // Collect all candidates for Steam API enhancement
+          allCandidates.push(...games);
           
           // Find the best matching game for updates
           for (const currentGame of games) {
@@ -420,6 +511,42 @@ export async function POST() {
         }
       }
 
+        // Enhanced matching with Steam API fallback for low confidence matches
+        if (bestSimilarity < 0.8 && allCandidates.length > 0) {
+          console.log(`🎮 Low confidence match (${bestSimilarity.toFixed(2)}) for "${game.title}", enhancing with Steam API...`);
+          
+          try {
+            const enhancedCandidates = await enhanceGameMatchingWithSteam(
+              game.title, 
+              allCandidates, 
+              0.8
+            );
+            
+            // Re-evaluate best match after Steam enhancement
+            for (const candidate of enhancedCandidates) {
+              const similarity = calculateGameSimilarity(game.title, candidate.title);
+              const steamConfidence = ('steamConfidence' in candidate && typeof candidate.steamConfidence === 'number') ? candidate.steamConfidence : 0;
+              
+              // Boost similarity score for Steam-enhanced matches
+              const adjustedSimilarity = ('steamEnhanced' in candidate && candidate.steamEnhanced)
+                ? Math.max(similarity, steamConfidence * 0.9)
+                : similarity;
+              
+              if (adjustedSimilarity > bestSimilarity && adjustedSimilarity > 0.6) {
+                bestMatch = candidate;
+                bestSimilarity = adjustedSimilarity;
+                
+                if ('steamEnhanced' in candidate && candidate.steamEnhanced) {
+                  console.log(`🎮 Using Steam-enhanced match: "${candidate.title}" (similarity: ${adjustedSimilarity.toFixed(2)})`);
+                }
+              }
+            }
+          } catch (steamError) {
+            console.error(`Steam API enhancement failed for ${game.title}:`, steamError);
+            // Continue with original best match
+          }
+        }
+
         if (!bestMatch) {
           // Update last checked even if no match found
           await TrackedGame.findByIdAndUpdate(game._id, {
@@ -450,6 +577,21 @@ export async function POST() {
           
           // Check if this needs user confirmation (ambiguous update)
           if (versionInfo.needsUserConfirmation || bestSimilarity < 0.8 || !versionInfo.version) {
+            // Determine reason for pending status
+            let pendingReason = 'Ambiguous update - manual review recommended';
+            if (versionInfo.needsUserConfirmation) {
+              pendingReason = 'No clear version info - needs manual confirmation';
+            } else if (bestSimilarity < 0.8) {
+              pendingReason = `Low similarity match (${Math.round(bestSimilarity * 100)}%)`;
+            }
+            
+            // Check if this was enhanced by Steam API
+            const isSteamEnhanced = bestMatch && 'steamEnhanced' in bestMatch && bestMatch.steamEnhanced;
+            if (isSteamEnhanced) {
+              const steamConfidence = ('steamConfidence' in bestMatch && typeof bestMatch.steamConfidence === 'number') ? bestMatch.steamConfidence : 0;
+              pendingReason += ` - Enhanced by Steam API (confidence: ${Math.round(steamConfidence * 100)}%)`;
+            }
+            
             // Store as pending update for user confirmation
             const pendingUpdate = {
               detectedVersion: versionInfo.version || '',
@@ -462,12 +604,10 @@ export async function POST() {
               newImage: bestMatch.image || '',
               dateFound: new Date(),
               confidence: bestSimilarity,
-              reason: versionInfo.needsUserConfirmation 
-                ? 'No clear version info - needs manual confirmation'
-                : bestSimilarity < 0.8 
-                  ? `Low similarity match (${Math.round(bestSimilarity * 100)}%)`
-                  : 'Ambiguous update - manual review recommended',
-              downloadLinks: bestMatch.downloadLinks || []
+              reason: pendingReason,
+              downloadLinks: bestMatch.downloadLinks || [],
+              steamEnhanced: isSteamEnhanced || false,
+              steamAppId: isSteamEnhanced ? bestMatch.id : undefined
             };
 
             await TrackedGame.findByIdAndUpdate(game._id, {
@@ -477,15 +617,17 @@ export async function POST() {
 
             updateDetails.push({
               title: game.title,
-              version: versionString + ' (PENDING)',
+              version: versionString + (isSteamEnhanced ? ' (Steam)' : '') + ' (PENDING)',
               changeType: 'pending_confirmation',
               significance: 0,
               updateType: 'Pending Confirmation',
               link: bestMatch.link,
-              details: `Needs user confirmation - ${pendingUpdate.reason}`
+              details: pendingReason
             });
           } else {
             // Auto-confirm update with high confidence
+            const isSteamEnhanced = bestMatch && 'steamEnhanced' in bestMatch && bestMatch.steamEnhanced;
+            
             const newUpdate = {
               version: versionString,
               build: versionInfo.build || '',
@@ -500,7 +642,9 @@ export async function POST() {
                 old: oldVersionInfo,
                 new: versionInfo
               },
-              downloadLinks: bestMatch.downloadLinks || []
+              downloadLinks: bestMatch.downloadLinks || [],
+              steamEnhanced: isSteamEnhanced || false,
+              steamAppId: isSteamEnhanced ? bestMatch.id : undefined
             };
 
             await TrackedGame.findByIdAndUpdate(game._id, {
@@ -517,7 +661,7 @@ export async function POST() {
               const notificationData = createUpdateNotificationData(
                 game.title,
                 {
-                  version: versionString,
+                  version: versionString + (isSteamEnhanced ? ' (Steam Enhanced)' : ''),
                   gameLink: bestMatch.link,
                   image: bestMatch.image
                 },
@@ -525,7 +669,7 @@ export async function POST() {
               );
               
               await sendUpdateNotification(game.userId.toString(), notificationData);
-              console.log(`📢 Update notification sent for ${game.title} to user ${game.userId}`);
+              console.log(`📢 Update notification sent for ${game.title} to user ${game.userId}${isSteamEnhanced ? ' (Steam Enhanced)' : ''}`);
             } catch (notificationError) {
               console.error(`Failed to send update notification for ${game.title}:`, notificationError);
               // Don't fail the whole operation if notification fails
@@ -533,12 +677,12 @@ export async function POST() {
 
             updateDetails.push({
               title: game.title,
-              version: versionString,
+              version: versionString + (isSteamEnhanced ? ' (Steam)' : ''),
               changeType: newUpdate.changeType,
               significance: newUpdate.significance,
               updateType: versionInfo.updateType || 'Update',
               link: bestMatch.link,
-              details: `${oldVersionInfo.version || 'Unknown'} → ${versionInfo.version || versionInfo.build || 'New'}`
+              details: `${oldVersionInfo.version || 'Unknown'} → ${versionInfo.version || versionInfo.build || 'New'}${isSteamEnhanced ? ' (Steam Enhanced)' : ''}`
             });
           }
 
@@ -570,7 +714,9 @@ export async function POST() {
       sequelsFound,
       errors,
       updateDetails: updateDetails.slice(0, 5), // Limit response size
-      sequelDetectionEnabled: sequelPrefs.enabled
+      sequelDetectionEnabled: sequelPrefs.enabled,
+      steamApiUsed: true,
+      steamApiNote: 'Steam API used for enhanced game matching when confidence is low'
     });
 
   } catch (error) {
