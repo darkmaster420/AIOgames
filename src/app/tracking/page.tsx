@@ -6,6 +6,7 @@ import { useSession } from 'next-auth/react';
 import { Navigation } from '../../components/Navigation';
 import { DownloadLinks } from '../../components/DownloadLinks';
 import { SteamVerification } from '../../components/SteamVerification';
+import { SmartVersionVerification } from '../../components/SmartVersionVerification';
 import { SequelNotifications } from '../../components/SequelNotifications';
 import { AddCustomGame } from '../../components/AddCustomGame';
 import { ImageWithFallback } from '../../utils/imageProxy';
@@ -16,6 +17,7 @@ interface TrackedGame {
   _id: string;
   gameId: string;
   title: string;
+  originalTitle: string;
   source: string;
   image?: string;
   description: string;
@@ -24,6 +26,12 @@ interface TrackedGame {
   steamAppId?: number;
   steamName?: string;
   steamVerified?: boolean;
+  buildNumberVerified?: boolean;
+  currentBuildNumber?: string;
+  buildNumberSource?: string;
+  versionNumberVerified?: boolean;
+  currentVersionNumber?: string;
+  versionNumberSource?: string;
   lastVersionDate?: string;
   dateAdded: string;
   lastChecked: string;
@@ -287,6 +295,21 @@ export default function TrackingDashboard() {
                             steamName={game.steamName}
                             steamVerified={game.steamVerified}
                             onVerificationUpdate={handleVerificationUpdate}
+                          />
+                        </div>
+                        
+                        {/* Smart Version & Build Number Verification */}
+                        <div className="mt-2">
+                          <SmartVersionVerification
+                            gameId={game.gameId}
+                            gameTitle={game.title}
+                            originalTitle={game.originalTitle || game.title}
+                            steamAppId={game.steamAppId}
+                            currentBuildNumber={game.currentBuildNumber}
+                            buildNumberVerified={game.buildNumberVerified || false}
+                            currentVersionNumber={game.currentVersionNumber}
+                            versionNumberVerified={game.versionNumberVerified || false}
+                            onVerified={loadTrackedGames}
                           />
                         </div>
                       </div>

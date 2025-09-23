@@ -13,6 +13,7 @@ export function Navigation() {
   const navItems = [
     { href: '/', label: '🏠 Home', description: 'Main Dashboard' },
     { href: '/tracking', label: '📊 Tracking', description: 'Your Games' },
+    ...(session ? [{ href: '/updates', label: '🔄 Updates', description: 'Game Updates' }] : []),
     ...(isAdmin ? [{ href: '/admin', label: '⚙️ Admin', description: 'Admin Panel' }] : []),
     ...(session ? [{ href: '/user/manage', label: '👤 Account', description: 'Manage your account' }] : []),
   ];

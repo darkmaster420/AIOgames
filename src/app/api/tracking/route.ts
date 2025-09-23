@@ -21,7 +21,9 @@ export async function GET() {
     const trackedGames = await TrackedGame.find({ 
       userId: user.id,
       isActive: true 
-    }).sort({ dateAdded: -1 });
+    })
+    .select('gameId title originalTitle source image description gameLink lastKnownVersion steamAppId steamName steamVerified buildNumberVerified currentBuildNumber buildNumberSource versionNumberVerified currentVersionNumber versionNumberSource lastVersionDate dateAdded lastChecked notificationsEnabled checkFrequency updateHistory pendingUpdates isActive')
+    .sort({ dateAdded: -1 });
     
     return NextResponse.json({
       games: trackedGames

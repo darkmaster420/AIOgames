@@ -1,34 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
-import { TrackedGame, User } from '../../../../lib/models';
+import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
-
-interface TrackedGameWithUser {
-  _id: string;
-  gameId: string;
-  title: string;
-  originalTitle: string;
-  source: string;
-  image?: string;
-  description: string;
-  gameLink: string;
-  steamVerified: boolean;
-  steamAppId?: number;
-  steamName?: string;
-  dateAdded: Date;
-  lastChecked: Date;
-  user: {
-    _id: string;
-    name: string;
-    email: string;
-  };
-  updateHistory: Array<{
-    version: string;
-    dateFound: Date;
-    gameLink: string;
-  }>;
-  isActive: boolean;
-}
 
 // GET: Get all tracked games for admin dashboard
 export async function GET(request: NextRequest) {
@@ -53,7 +26,7 @@ export async function GET(request: NextRequest) {
     const steamVerified = searchParams.get('steamVerified');
 
     // Build filter query
-    const filter: any = {};
+    const filter: Record<string, unknown> = {};
     
     if (search) {
       filter.$or = [
@@ -98,6 +71,12 @@ export async function GET(request: NextRequest) {
           steamVerified: 1,
           steamAppId: 1,
           steamName: 1,
+          buildNumberVerified: 1,
+          currentBuildNumber: 1,
+          buildNumberSource: 1,
+          versionNumberVerified: 1,
+          currentVersionNumber: 1,
+          versionNumberSource: 1,
           dateAdded: 1,
           lastChecked: 1,
           isActive: 1,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { Navigation } from '../../components/Navigation';
@@ -50,6 +50,12 @@ interface AdminTrackedGame {
   steamVerified: boolean;
   steamAppId?: number;
   steamName?: string;
+  buildNumberVerified?: boolean;
+  currentBuildNumber?: string;
+  buildNumberSource?: string;
+  versionNumberVerified?: boolean;
+  currentVersionNumber?: string;
+  versionNumberSource?: string;
   dateAdded: string;
   updateHistoryCount: number;
   user: {
@@ -90,7 +96,7 @@ export default function AdminDashboard() {
       loadAdminData();
       loadUsers();
       if (activeTab === 'games') {
-        loadTrackedGames();
+        // loadTrackedGames will be called via the second useEffect
       }
     }
   }, [status, activeTab]);
@@ -100,7 +106,8 @@ export default function AdminDashboard() {
     if (activeTab === 'games') {
       loadTrackedGames(1); // Reset to page 1 on filter change
     }
-  }, [gamesFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gamesFilter, activeTab]);
 
   const loadAdminData = async () => {
     try {
@@ -134,7 +141,7 @@ export default function AdminDashboard() {
     }
   };
 
-  const loadTrackedGames = async (page: number = 1) => {
+  const loadTrackedGames = useCallback(async (page: number = 1) => {
     try {
       const params = new URLSearchParams({
         page: page.toString(),
@@ -154,7 +161,7 @@ export default function AdminDashboard() {
       console.error('Failed to load tracked games:', err);
       setError(err instanceof Error ? err.message : 'Failed to load tracked games');
     }
-  };
+  }, [gamesFilter]);
 
   const handleDeleteUser = async (userId: string, userName: string) => {
     const confirmed = await confirm(
@@ -507,6 +514,7 @@ export default function AdminDashboard() {
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">User</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Source</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Steam</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Version Info</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Updates</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Added</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
@@ -570,6 +578,45 @@ export default function AdminDashboard() {
                                   ❌ Not verified
                                 </span>
                               )}
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="space-y-1">
+                                {/* Build Number */}
+                                {game.buildNumberVerified && game.currentBuildNumber ? (
+                                  <div className="flex items-center gap-1">
+                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                      🔢 Build #{game.currentBuildNumber}
+                                    </span>
+                                    {game.buildNumberSource && (
+                                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                                        via {game.buildNumberSource}
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : null}
+                                
+                                {/* Version Number */}
+                                {game.versionNumberVerified && game.currentVersionNumber ? (
+                                  <div className="flex items-center gap-1">
+                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                                      📦 v{game.currentVersionNumber}
+                                    </span>
+                                    {game.versionNumberSource && (
+                                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                                        via {game.versionNumberSource}
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : null}
+                                
+                                {/* Show placeholder if neither is verified */}
+                                {(!game.buildNumberVerified || !game.currentBuildNumber) && 
+                                 (!game.versionNumberVerified || !game.currentVersionNumber) && (
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200">
+                                    ❌ No version info
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-900 dark:text-white">
                               {game.updateHistoryCount}

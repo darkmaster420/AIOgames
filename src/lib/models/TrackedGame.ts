@@ -31,6 +31,48 @@ const TrackedGameSchema = new mongoose.Schema({
     type: String,
     index: true
   },
+  
+  // Build number verification (manual SteamDB input)
+  buildNumberVerified: {
+    type: Boolean,
+    default: false
+  },
+  currentBuildNumber: {
+    type: String,
+    default: ''
+  },
+  buildNumberSource: {
+    type: String, // 'steamdb' for manual verification
+    default: ''
+  },
+  buildNumberLastUpdated: {
+    type: Date
+  },
+  buildNumberVerifiedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  
+  // Version number verification (manual version input like v1.2.3)
+  versionNumberVerified: {
+    type: Boolean,
+    default: false
+  },
+  currentVersionNumber: {
+    type: String,
+    default: ''
+  },
+  versionNumberSource: {
+    type: String, // 'manual', 'steam', 'official', etc.
+    default: ''
+  },
+  versionNumberLastUpdated: {
+    type: Date
+  },
+  versionNumberVerifiedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
   source: {
     type: String,
     required: true,
@@ -103,5 +145,9 @@ TrackedGameSchema.index({ title: 'text', originalTitle: 'text' });
 TrackedGameSchema.index({ steamAppId: 1 });
 TrackedGameSchema.index({ cleanedTitle: 1 });
 TrackedGameSchema.index({ steamVerified: 1 });
+TrackedGameSchema.index({ buildNumberVerified: 1 });
+TrackedGameSchema.index({ currentBuildNumber: 1 });
+TrackedGameSchema.index({ versionNumberVerified: 1 });
+TrackedGameSchema.index({ currentVersionNumber: 1 });
 
 export const TrackedGame = mongoose.models.TrackedGame || mongoose.model('TrackedGame', TrackedGameSchema);

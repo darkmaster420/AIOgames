@@ -20,52 +20,11 @@ export async function GET() {
       userId: user.id,
       'pendingUpdates.0': { $exists: true },
       isActive: true
-    }).select('title pendingUpdates gameLink lastKnownVersion');
-
-    const pendingUpdates = gamesWithPendingUpdates.flatMap(game => 
-      game.pendingUpdates.map((update: {
-        _id: string;
-        newTitle: string;
-        newLink: string;
-        newImage: string;
-        detectedVersion: string;
-        build: string;
-        releaseType: string;
-        updateType: string;
-        sceneGroup: string;
-        confidence: number;
-        reason: string;
-        dateFound: Date;
-        downloadLinks: Array<{
-          service: string;
-          url: string;
-          type: string;
-        }>;
-      }) => ({
-        gameId: game._id,
-        gameTitle: game.title,
-        currentVersion: game.lastKnownVersion || 'Unknown',
-        updateId: update._id,
-        pendingUpdate: {
-          newTitle: update.newTitle,
-          newLink: update.newLink,
-          newImage: update.newImage,
-          detectedVersion: update.detectedVersion,
-          build: update.build,
-          releaseType: update.releaseType,
-          updateType: update.updateType,
-          sceneGroup: update.sceneGroup,
-          confidence: update.confidence,
-          reason: update.reason,
-          dateFound: update.dateFound,
-          downloadLinks: update.downloadLinks || []
-        }
-      }))
-    );
+    }).select('title image pendingUpdates');
 
     return NextResponse.json({
-      pendingCount: pendingUpdates.length,
-      pendingUpdates
+      success: true,
+      games: gamesWithPendingUpdates
     });
 
   } catch (error) {
