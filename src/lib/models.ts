@@ -175,6 +175,47 @@ const trackedGameSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  // Build number verification (manual SteamDB input)
+  buildNumberVerified: {
+    type: Boolean,
+    default: false
+  },
+  currentBuildNumber: {
+    type: String,
+    default: ''
+  },
+  buildNumberSource: {
+    type: String, // 'steamdb' for manual verification
+    default: ''
+  },
+  buildNumberLastUpdated: {
+    type: Date
+  },
+  buildNumberVerifiedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  
+  // Version number verification (manual version input like v1.2.3)
+  versionNumberVerified: {
+    type: Boolean,
+    default: false
+  },
+  currentVersionNumber: {
+    type: String,
+    default: ''
+  },
+  versionNumberSource: {
+    type: String, // 'manual', 'steam', 'official', etc.
+    default: ''
+  },
+  versionNumberLastUpdated: {
+    type: Date
+  },
+  versionNumberVerifiedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
   updateHistory: [{
     version: {
       type: String,

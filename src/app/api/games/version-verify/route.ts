@@ -8,6 +8,7 @@ import { validateVersionNumber, normalizeVersionNumber } from '../../../../utils
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
+    
     if (!user) {
       return NextResponse.json(
         { error: 'Authentication required' },
@@ -39,6 +40,7 @@ export async function POST(request: NextRequest) {
 
     // Find the tracked game
     const trackedGame = await TrackedGame.findOne({ gameId });
+    
     if (!trackedGame) {
       return NextResponse.json(
         { error: 'Tracked game not found' },
@@ -47,7 +49,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Update the game with version number information
-    await TrackedGame.findOneAndUpdate(
+    const updateResult = await TrackedGame.findOneAndUpdate(
       { gameId },
       {
         versionNumberVerified: true,
@@ -55,7 +57,8 @@ export async function POST(request: NextRequest) {
         versionNumberSource: source,
         versionNumberLastUpdated: new Date(),
         versionNumberVerifiedBy: user.id
-      }
+      },
+      { new: true } // Return the updated document
     );
 
     console.log(`📋 Version number verified for "${trackedGame.title}": v${normalizedVersion} (by ${user.name})`);
@@ -64,7 +67,14 @@ export async function POST(request: NextRequest) {
       success: true,
       message: 'Version number verified successfully',
       versionNumber: normalizedVersion,
-      gameTitle: trackedGame.title
+      gameTitle: trackedGame.title,
+      game: {
+        gameId: updateResult.gameId,
+        versionNumberVerified: updateResult.versionNumberVerified,
+        currentVersionNumber: updateResult.currentVersionNumber,
+        versionNumberSource: updateResult.versionNumberSource,
+        versionNumberLastUpdated: updateResult.versionNumberLastUpdated
+      }
     });
 
   } catch (error) {

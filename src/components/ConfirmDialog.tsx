@@ -19,7 +19,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   title,
   message,
   confirmText = 'Confirm',
-  cancelText = 'Cancel',
+  cancelText = 'Close',
   type = 'info'
 }) => {
   if (!isOpen) return null;

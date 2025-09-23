@@ -422,7 +422,7 @@ export default function UserManagePage() {
               className="px-4 py-2 border rounded-md"
               onClick={() => router.push('/')}
             >
-              Cancel
+              Close
             </button>
           </div>
         </form>

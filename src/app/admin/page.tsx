@@ -609,13 +609,20 @@ export default function AdminDashboard() {
                                   </div>
                                 ) : null}
                                 
-                                {/* Show placeholder if neither is verified */}
-                                {(!game.buildNumberVerified || !game.currentBuildNumber) && 
-                                 (!game.versionNumberVerified || !game.currentVersionNumber) && (
+                                {/* Show placeholder with specific info about what's missing */}
+                                {!game.buildNumberVerified && !game.versionNumberVerified ? (
                                   <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200">
-                                    ❌ No version info
+                                    ❌ No version or build info
                                   </span>
-                                )}
+                                ) : !game.buildNumberVerified ? (
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
+                                    ⚠️ Missing build number
+                                  </span>
+                                ) : !game.versionNumberVerified ? (
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
+                                    ⚠️ Missing version number
+                                  </span>
+                                ) : null}
                               </div>
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-900 dark:text-white">

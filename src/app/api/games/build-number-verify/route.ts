@@ -7,6 +7,7 @@ import { getCurrentUser } from '../../../../lib/auth';
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
+    
     if (!user) {
       return NextResponse.json(
         { error: 'Authentication required' },
@@ -35,6 +36,7 @@ export async function POST(request: NextRequest) {
 
     // Find the tracked game
     const trackedGame = await TrackedGame.findOne({ gameId });
+    
     if (!trackedGame) {
       return NextResponse.json(
         { error: 'Tracked game not found' },
@@ -43,7 +45,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Update the game with build number information
-    await TrackedGame.findOneAndUpdate(
+    const updateResult = await TrackedGame.findOneAndUpdate(
       { gameId },
       {
         buildNumberVerified: true,
@@ -51,7 +53,8 @@ export async function POST(request: NextRequest) {
         buildNumberSource: source,
         buildNumberLastUpdated: new Date(),
         buildNumberVerifiedBy: user.id
-      }
+      },
+      { new: true } // Return the updated document
     );
 
     console.log(`🔢 Build number verified for "${trackedGame.title}": ${buildNumber} (by ${user.name})`);
@@ -60,7 +63,14 @@ export async function POST(request: NextRequest) {
       success: true,
       message: 'Build number verified successfully',
       buildNumber: buildNumber.trim(),
-      gameTitle: trackedGame.title
+      gameTitle: trackedGame.title,
+      game: {
+        gameId: updateResult.gameId,
+        buildNumberVerified: updateResult.buildNumberVerified,
+        currentBuildNumber: updateResult.currentBuildNumber,
+        buildNumberSource: updateResult.buildNumberSource,
+        buildNumberLastUpdated: updateResult.buildNumberLastUpdated
+      }
     });
 
   } catch (error) {

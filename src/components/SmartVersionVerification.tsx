@@ -37,7 +37,7 @@ export function SmartVersionVerification({
   const [isLoading, setIsLoading] = useState(false);
   const [analysis, setAnalysis] = useState<ReturnType<typeof analyzeGameTitle> | null>(null);
   const { showSuccess, showError } = useNotification();
-  const { confirm } = useConfirm();
+  const { confirm, ConfirmDialog } = useConfirm();
 
   // Analyze the title when component mounts
   useEffect(() => {
@@ -73,7 +73,7 @@ export function SmartVersionVerification({
       const confirmed = await confirm(
         'Verify Version Number',
         `Are you sure you want to set the version number for "${gameTitle}" to "${normalizedVersion}"?`,
-        { confirmText: 'Verify', cancelText: 'Cancel' }
+        { confirmText: 'Verify', cancelText: 'Close' }
       );
 
       if (!confirmed) return;
@@ -95,6 +95,7 @@ export function SmartVersionVerification({
       if (!response.ok) throw new Error(data.error || 'Failed to verify version');
 
       showSuccess('Version Verified', `Successfully verified version ${normalizedVersion} for "${gameTitle}".`);
+      setIsOpen(false); // Close the editing panel
       onVerified();
     } catch (error) {
       console.error('Version verification error:', error);
@@ -117,7 +118,7 @@ export function SmartVersionVerification({
       const confirmed = await confirm(
         'Verify Build Number',
         `Are you sure you want to set the build number for "${gameTitle}" to "${normalizedBuild}"?`,
-        { confirmText: 'Verify', cancelText: 'Cancel' }
+        { confirmText: 'Verify', cancelText: 'Close' }
       );
 
       if (!confirmed) return;
@@ -139,6 +140,7 @@ export function SmartVersionVerification({
       if (!response.ok) throw new Error(data.error || 'Failed to verify build');
 
       showSuccess('Build Number Verified', `Successfully verified build ${normalizedBuild} for "${gameTitle}".`);
+      setIsOpen(false); // Close the editing panel
       onVerified();
     } catch (error) {
       console.error('Build verification error:', error);
@@ -152,7 +154,7 @@ export function SmartVersionVerification({
     const confirmed = await confirm(
       'Remove Version Verification',
       `Are you sure you want to remove the version number verification for "${gameTitle}"?`,
-      { confirmText: 'Remove', cancelText: 'Cancel', type: 'danger' }
+      { confirmText: 'Remove', cancelText: 'Close', type: 'danger' }
     );
 
     if (!confirmed) return;
@@ -181,7 +183,7 @@ export function SmartVersionVerification({
     const confirmed = await confirm(
       'Remove Build Verification',
       `Are you sure you want to remove the build number verification for "${gameTitle}"?`,
-      { confirmText: 'Remove', cancelText: 'Cancel', type: 'danger' }
+      { confirmText: 'Remove', cancelText: 'Close', type: 'danger' }
     );
 
     if (!confirmed) return;
@@ -255,25 +257,30 @@ export function SmartVersionVerification({
         )}
         
         {/* Show suggestion to add the missing one */}
-        {analysis && (
-          <>
-            {versionNumberVerified && !buildNumberVerified && analysis.suggestions.shouldAskForBuild && (
-              <button
-                onClick={() => { setIsOpen(true); setActiveTab('build'); }}
-                className="inline-flex items-center px-2 py-1 border border-purple-300 dark:border-purple-600 rounded text-xs text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/20 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors"
-              >
-                🔢 Add Build Number
-              </button>
-            )}
-            {buildNumberVerified && !versionNumberVerified && analysis.suggestions.shouldAskForVersion && (
-              <button
-                onClick={() => { setIsOpen(true); setActiveTab('version'); }}
-                className="inline-flex items-center px-2 py-1 border border-green-300 dark:border-green-600 rounded text-xs text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors"
-              >
-                📋 Add Version Number
-              </button>
-            )}
-          </>
+        {/* Always show add buttons for missing verification types */}
+        {versionNumberVerified && !buildNumberVerified && (
+          <button
+            onClick={() => { setIsOpen(true); setActiveTab('build'); }}
+            className="inline-flex items-center px-2 py-1 border border-purple-300 dark:border-purple-600 rounded text-xs text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/20 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors"
+          >
+            🔢 Add Build Number
+          </button>
+        )}
+        {buildNumberVerified && !versionNumberVerified && (
+          <button
+            onClick={() => { setIsOpen(true); setActiveTab('version'); }}
+            className="inline-flex items-center px-2 py-1 border border-green-300 dark:border-green-600 rounded text-xs text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors"
+          >
+            📋 Add Version Number
+          </button>
+        )}
+        {!versionNumberVerified && !buildNumberVerified && (
+          <button
+            onClick={() => setIsOpen(true)}
+            className="inline-flex items-center px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900/20 hover:bg-gray-100 dark:hover:bg-gray-900/40 transition-colors"
+          >
+            🔢📋 Add Version Info
+          </button>
         )}
       </div>
     );
@@ -352,10 +359,12 @@ export function SmartVersionVerification({
       {activeTab === 'version' && (
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label htmlFor={`version-number-${gameId}`} className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
               Version Number
             </label>
             <input
+              id={`version-number-${gameId}`}
+              name={`version-number-${gameId}`}
               type="text"
               value={versionNumber}
               onChange={(e) => setVersionNumber(e.target.value)}
@@ -368,10 +377,12 @@ export function SmartVersionVerification({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label htmlFor={`version-source-${gameId}`} className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
               Source
             </label>
             <select
+              id={`version-source-${gameId}`}
+              name={`version-source-${gameId}`}
               value={versionSource}
               onChange={(e) => setVersionSource(e.target.value)}
               className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
@@ -383,6 +394,21 @@ export function SmartVersionVerification({
               <option value="launcher">Game Launcher</option>
             </select>
           </div>
+
+          {steamAppId && (
+            <div className="p-2 bg-green-50 dark:bg-green-900/20 rounded text-xs">
+              <p className="text-green-700 dark:text-green-300">
+                <strong>Tip:</strong> Visit <a 
+                  href={`https://steamdb.info/app/${steamAppId}/patchnotes/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-green-800 dark:hover:text-green-200"
+                >
+                  steamdb.info/app/{steamAppId}/patchnotes/
+                </a> to find the version and build number that matches your game.
+              </p>
+            </div>
+          )}
 
           <div className="flex gap-2">
             <button
@@ -402,7 +428,7 @@ export function SmartVersionVerification({
               }}
               className="px-3 py-2 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-md hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
             >
-              Cancel
+              Close
             </button>
           </div>
         </div>
@@ -412,10 +438,12 @@ export function SmartVersionVerification({
       {activeTab === 'build' && (
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label htmlFor={`build-number-${gameId}`} className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
               Build Number
             </label>
             <input
+              id={`build-number-${gameId}`}
+              name={`build-number-${gameId}`}
               type="text"
               value={buildNumber}
               onChange={(e) => setBuildNumber(e.target.value)}
@@ -423,7 +451,7 @@ export function SmartVersionVerification({
               className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Find this on SteamDB → App → Patchnotes (latest build ID)
+              Find the build number on SteamDB that matches your game version
             </p>
           </div>
 
@@ -437,7 +465,7 @@ export function SmartVersionVerification({
                   className="underline hover:text-purple-800 dark:hover:text-purple-200"
                 >
                   steamdb.info/app/{steamAppId}/patchnotes/
-                </a> to find the latest build number.
+                </a> to find the build number that matches your game version.
               </p>
             </div>
           )}
@@ -460,11 +488,14 @@ export function SmartVersionVerification({
               }}
               className="px-3 py-2 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-md hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
             >
-              Cancel
+              Close
             </button>
           </div>
         </div>
       )}
+      
+      {/* ConfirmDialog for verification actions */}
+      <ConfirmDialog />
     </div>
   );
 }

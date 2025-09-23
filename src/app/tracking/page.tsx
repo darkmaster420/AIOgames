@@ -9,7 +9,6 @@ import { SteamVerification } from '../../components/SteamVerification';
 import { SmartVersionVerification } from '../../components/SmartVersionVerification';
 import { SequelNotifications } from '../../components/SequelNotifications';
 import { AddCustomGame } from '../../components/AddCustomGame';
-import { useConfirm } from '../../components/ConfirmDialog';
 import { ImageWithFallback } from '../../utils/imageProxy';
 import { cleanGameTitle } from '../../utils/steamApi';
 import { useNotification } from '../../contexts/NotificationContext';
@@ -66,7 +65,6 @@ interface TrackedGame {
 export default function TrackingDashboard() {
   const { status } = useSession();
   const { showSuccess, showError, showInfo } = useNotification();
-  const { confirm, ConfirmDialog } = useConfirm();
   const [trackedGames, setTrackedGames] = useState<TrackedGame[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -105,13 +103,10 @@ export default function TrackingDashboard() {
     try {
       const gameTitle = trackedGames.find(g => g.gameId === gameId)?.title || 'Game';
       
-      const confirmed = await confirm(
-        'Remove Game from Tracking',
-        `Are you sure you want to stop tracking "${gameTitle}"? This action cannot be undone.`,
-        { confirmText: 'Remove', cancelText: 'Cancel', type: 'danger' }
-      );
-
-      if (!confirmed) return;
+      // Simple confirmation using browser confirm
+      if (!window.confirm(`Are you sure you want to stop tracking "${gameTitle}"? This action cannot be undone.`)) {
+        return;
+      }
 
       const response = await fetch(`/api/tracking?gameId=${gameId}`, {
         method: 'DELETE'
@@ -452,9 +447,6 @@ export default function TrackingDashboard() {
         )}
         </div>
       </div>
-      
-      {/* ConfirmDialog for verification actions */}
-      <ConfirmDialog />
     </>
   );
 }
