@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import Image from 'next/image';
 import { Navigation } from '../../components/Navigation';
+import { useNotification } from '../../contexts/NotificationContext';
 
 interface UpdateHistoryItem {
   _id: string;
@@ -62,6 +63,7 @@ interface GameWithPending {
 
 export default function UpdatesPage() {
   const { data: session } = useSession();
+  const { showSuccess, showError } = useNotification();
   const [recentUpdates, setRecentUpdates] = useState<GameWithUpdates[]>([]);
   const [pendingUpdates, setPendingUpdates] = useState<GameWithPending[]>([]);
   const [loading, setLoading] = useState(true);
@@ -107,12 +109,12 @@ export default function UpdatesPage() {
       
       if (response.ok) {
         const result = await response.json();
-        alert(`✅ Update check completed!\n\n📊 Checked: ${result.checked} games\n🆕 Updates found: ${result.updatesFound}\n🎮 Sequels found: ${result.sequelsFound}`);
+        showSuccess('Update Check Complete', `📊 Checked: ${result.checked} games\n🆕 Updates found: ${result.updatesFound}\n🎮 Sequels found: ${result.sequelsFound}`);
         fetchUpdates(); // Refresh the data
       }
     } catch (error) {
       console.error('Failed to check updates:', error);
-      alert('❌ Failed to check for updates. Please try again.');
+      showError('Update Check Failed', 'Failed to check for updates. Please try again.');
     } finally {
       setCheckingUpdates(false);
     }
@@ -128,11 +130,11 @@ export default function UpdatesPage() {
 
       if (response.ok) {
         fetchUpdates(); // Refresh data
-        alert('✅ Update approved and applied!');
+        showSuccess('Update Approved', 'Update approved and applied!');
       }
     } catch (error) {
       console.error('Failed to approve update:', error);
-      alert('❌ Failed to approve update');
+      showError('Approval Failed', 'Failed to approve update');
     }
   };
 
@@ -146,11 +148,11 @@ export default function UpdatesPage() {
 
       if (response.ok) {
         fetchUpdates(); // Refresh data
-        alert('❌ Update rejected');
+        showSuccess('Update Rejected', 'Update rejected');
       }
     } catch (error) {
       console.error('Failed to reject update:', error);
-      alert('❌ Failed to reject update');
+      showError('Rejection Failed', 'Failed to reject update');
     }
   };
 

@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { cleanGameTitle } from '@/utils/steamApi';
+import { useNotification } from '../contexts/NotificationContext';
 
 interface SteamGameResult {
   appid: number;
@@ -33,6 +34,7 @@ export function SteamVerification({
   steamVerified = false, 
   onVerificationUpdate 
 }: SteamVerificationProps) {
+  const { showError } = useNotification();
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<SteamGameResult[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -192,7 +194,7 @@ export function SteamVerification({
       setSearchResults(data.results || []);
     } catch (error) {
       console.error('Steam search error:', error);
-      alert('Failed to search Steam API. Please try again.');
+      showError('Search Failed', 'Failed to search Steam API. Please try again.');
     } finally {
       setIsSearching(false);
     }
@@ -225,7 +227,7 @@ export function SteamVerification({
       setSearchQuery('');
     } catch (error) {
       console.error('Steam link error:', error);
-      alert('Failed to link Steam game. Please try again.');
+      showError('Linking Failed', 'Failed to link Steam game. Please try again.');
     } finally {
       setIsLinking(false);
     }
@@ -246,7 +248,7 @@ export function SteamVerification({
       setIsOpen(false);
     } catch (error) {
       console.error('Steam unlink error:', error);
-      alert('Failed to remove Steam verification. Please try again.');
+      showError('Unlink Failed', 'Failed to remove Steam verification. Please try again.');
     } finally {
       setIsLinking(false);
     }

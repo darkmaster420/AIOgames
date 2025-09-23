@@ -2,8 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useNotification } from '../../../contexts/NotificationContext';
+import { useConfirm } from '../../../components/ConfirmDialog';
 
 export default function UserManagePage() {
+  const { showSuccess, showError } = useNotification();
+  const { confirm, ConfirmDialog } = useConfirm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -338,18 +342,19 @@ export default function UserManagePage() {
               <button
                 type="button"
                 onClick={async () => {
-                  if (!confirm('Are you sure you want to delete your account? This action cannot be undone.')) return;
+                  const confirmed = await confirm('Delete Account', 'Are you sure you want to delete your account? This action cannot be undone.');
+                  if (!confirmed) return;
                   try {
                     const res = await fetch('/api/user/delete', { method: 'DELETE' });
                     const data = await res.json();
                     if (!res.ok) {
-                      alert(data?.error || 'Failed to delete account');
+                      showError('Account Deletion Failed', data?.error || 'Failed to delete account');
                       return;
                     }
                     // Redirect to home after deletion
                     window.location.href = '/';
                   } catch {
-                    alert('Failed to delete account');
+                    showError('Account Deletion Failed', 'Failed to delete account');
                   }
                 }}
                 className="px-4 py-2 bg-red-600 text-white rounded-md"
@@ -378,12 +383,12 @@ export default function UserManagePage() {
                   const res = await fetch('/api/notifications/send-test', { method: 'POST' });
                   const data = await res.json();
                   if (!res.ok) {
-                    alert(data?.error || 'Failed to send test notification');
+                    showError('Test Failed', data?.error || 'Failed to send test notification');
                     return;
                   }
-                  alert('Test notification sent (check your device)');
+                  showSuccess('Test Sent', 'Test notification sent (check your device)');
                 } catch {
-                  alert('Failed to send test notification');
+                  showError('Test Failed', 'Failed to send test notification');
                 }
               }}
             >
@@ -405,12 +410,12 @@ export default function UserManagePage() {
                     });
                     const data = await res.json();
                     if (!res.ok) {
-                      alert(data?.error || 'Failed to send Telegram test');
+                      showError('Telegram Test Failed', data?.error || 'Failed to send Telegram test');
                       return;
                     }
-                    alert('Telegram test message sent successfully!');
+                    showSuccess('Telegram Test Sent', 'Telegram test message sent successfully!');
                   } catch {
-                    alert('Failed to send Telegram test');
+                    showError('Telegram Test Failed', 'Failed to send Telegram test');
                   }
                 }}
               >
@@ -427,6 +432,7 @@ export default function UserManagePage() {
           </div>
         </form>
       </div>
+      <ConfirmDialog />
     </div>
   );
 }
