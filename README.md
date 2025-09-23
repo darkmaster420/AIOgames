@@ -2,6 +2,28 @@
 
 A modern, comprehensive web application for discovering, tracking, and managing game updates. Built with Next.js 15, TypeScript, and MongoDB with full authentication and admin capabilities.
 
+## 🆕 Recent Major Updates (September 2025)
+
+### ✨ Auto Steam Verification System
+- **Automatic Steam verification** for all newly added games
+- **Confidence-based matching** with 85%/80% thresholds
+- **Dual-attempt verification** using original and cleaned game titles
+- **Enhanced compatibility** supporting both "game" and "app" Steam API responses
+
+### 🗑️ Improved Game Management
+- **Proper game deletion** - games are now completely removed from tracking
+- **Fixed duplicate tracking issues** - no more "already tracked" errors
+- **Seamless re-addition** of previously tracked games
+
+### 👑 Enhanced Admin Dashboard
+- **Complete game oversight** - view and manage all tracked games across users
+- **Advanced filtering** by title, source, and Steam verification status
+- **Pagination support** for handling large datasets efficiently
+- **Visual verification indicators** showing Steam integration status
+- **Streamlined deletion** with confirmation dialogs
+
+---
+
 ## ✨ Features
 
 ### 🔐 Authentication & User Management
@@ -17,9 +39,12 @@ A modern, comprehensive web application for discovering, tracking, and managing 
 - Universal download link access for all games
 - Custom game tracking by name input
 - Direct links to download posts
+- **🆕 Automatic Steam verification** for newly added games with confidence-based matching
+- **🆕 Proper game deletion** - no more "already tracked" errors when re-adding games
 
 ### 📊 Advanced Game Tracking
 - Track your favorite games for updates
+- **🆕 Auto Steam verification** with 85%/80% confidence thresholds for all new additions
 - Intelligent ambiguous update detection with multiple matching strategies
 - Automatic update detection and notifications
 - Update history and version tracking
@@ -28,6 +53,9 @@ A modern, comprehensive web application for discovering, tracking, and managing 
 
 ### 👑 Admin Dashboard
 - Comprehensive admin panel with user management
+- **🆕 Complete game management system** with advanced filtering and pagination
+- **🆕 Steam verification status tracking** across all users
+- **🆕 Game deletion capabilities** with confirmation dialogs
 - System statistics and monitoring
 - User oversight with deletion capabilities
 - Game tracking analytics
