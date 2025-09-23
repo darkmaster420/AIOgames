@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
 import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
+import { autoVerifyWithSteam } from '../../../../utils/autoSteamVerification';
+import { cleanGameTitle } from '../../../../utils/steamApi';
 
 // POST: Add a custom game by name to tracking
 export async function POST(req: NextRequest) {
@@ -96,10 +98,44 @@ export async function POST(req: NextRequest) {
         notificationsEnabled: true,
         checkFrequency: 'daily',
         updateHistory: [],
-        isActive: true
+        isActive: true,
+        originalTitle: bestMatch.title,
+        cleanedTitle: cleanGameTitle(bestMatch.title)
       });
 
       await newTrackedGame.save();
+
+      // Attempt automatic Steam verification
+      try {
+        console.log(`🔍 Attempting auto Steam verification for newly added game: "${bestMatch.title}"`);
+        
+        // Try with original title first
+        let autoVerification = await autoVerifyWithSteam(bestMatch.title, 0.85);
+        
+        // If original title fails, try with cleaned title
+        if (!autoVerification.success) {
+          const cleanedTitle = cleanGameTitle(bestMatch.title);
+          if (cleanedTitle !== bestMatch.title.toLowerCase().trim()) {
+            console.log(`🔄 Retrying auto Steam verification with cleaned title: "${cleanedTitle}"`);
+            autoVerification = await autoVerifyWithSteam(cleanedTitle, 0.80); // Slightly lower threshold for cleaned title
+          }
+        }
+        
+        if (autoVerification.success && autoVerification.steamAppId && autoVerification.steamName) {
+          // Update the game with Steam verification data
+          newTrackedGame.steamVerified = true;
+          newTrackedGame.steamAppId = autoVerification.steamAppId;
+          newTrackedGame.steamName = autoVerification.steamName;
+          await newTrackedGame.save();
+          
+          console.log(`✅ Auto Steam verification successful for "${bestMatch.title}": ${autoVerification.steamName} (${autoVerification.steamAppId})`);
+        } else {
+          console.log(`⚠️ Auto Steam verification failed for "${bestMatch.title}": ${autoVerification.reason}`);
+        }
+      } catch (verificationError) {
+        console.error(`❌ Auto Steam verification error for "${bestMatch.title}":`, verificationError);
+        // Don't fail the entire request if Steam verification fails
+      }
 
       return NextResponse.json({
         message: `Successfully added "${bestMatch.title}" to your tracking list`,

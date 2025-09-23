@@ -499,7 +499,7 @@ export function decodeHtmlEntities(text: string): string {
  * Calculate similarity between two game titles
  * Enhanced version with improved normalization for number/word variations
  */
-function calculateGameSimilarity(title1: string, title2: string): number {
+export function calculateGameSimilarity(title1: string, title2: string): number {
   const cleanTitle = cleanGameTitle;
 
   const clean1 = cleanTitle(title1);
