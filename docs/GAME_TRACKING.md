@@ -9,6 +9,29 @@ The game tracking system allows users to track their favorite games and receive 
 - Manual update checks via dashboard button
 - Automatic periodic update checks (requires cron setup)
 - Update history tracking for each game
+- **🆕 Automatic Steam verification** with confidence-based matching
+- **🆕 Proper game deletion** with complete removal from tracking
+- **🆕 Enhanced admin oversight** with comprehensive game management
+
+## Steam Integration
+
+### Auto-Verification System
+When you add a game to tracking, the system automatically attempts to verify it with Steam's database:
+
+- **Confidence-based matching**: Uses 85% and 80% confidence thresholds
+- **Dual-attempt verification**: Tries both original and cleaned game titles
+- **Smart title processing**: Removes common suffixes like "Repack", "CODEX", etc.
+- **Enhanced compatibility**: Supports both "game" and "app" Steam API responses
+- **Metadata enhancement**: Adds Steam images, descriptions, and app IDs when found
+
+### Manual Steam Verification
+Games can also be manually verified through the Steam search modal in the tracking interface.
+
+### Benefits of Steam Verification
+- **Better update detection**: Steam-verified games have more reliable update tracking
+- **Enhanced metadata**: Includes official Steam images and descriptions
+- **Improved notifications**: More accurate game information for notifications
+- **Sequel detection**: Better matching for game series and sequels
 
 ## Automatic Update Checking
 
