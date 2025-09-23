@@ -61,23 +61,25 @@ export function SmartVersionVerification({
   }, [originalTitle, gameTitle, versionNumberVerified, buildNumberVerified]);
 
   const handleVerifyVersion = async () => {
-    const validation = validateVersionNumber(versionNumber);
-    if (!validation.valid) {
-      showError('Validation Error', validation.error || 'Invalid version number');
-      return;
-    }
-
-    const normalizedVersion = normalizeVersionNumber(versionNumber);
-    const confirmed = await confirm(
-      'Verify Version Number',
-      `Are you sure you want to set the version number for "${gameTitle}" to "${normalizedVersion}"?`,
-      { confirmText: 'Verify', cancelText: 'Cancel' }
-    );
-
-    if (!confirmed) return;
-
-    setIsLoading(true);
     try {
+      const validation = validateVersionNumber(versionNumber);
+      if (!validation.valid) {
+        showError('Validation Error', validation.error || 'Invalid version number');
+        return;
+      }
+
+      const normalizedVersion = normalizeVersionNumber(versionNumber);
+      
+      const confirmed = await confirm(
+        'Verify Version Number',
+        `Are you sure you want to set the version number for "${gameTitle}" to "${normalizedVersion}"?`,
+        { confirmText: 'Verify', cancelText: 'Cancel' }
+      );
+
+      if (!confirmed) return;
+
+      setIsLoading(true);
+      
       const response = await fetch('/api/games/version-verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -89,11 +91,13 @@ export function SmartVersionVerification({
       });
 
       const data = await response.json();
+      
       if (!response.ok) throw new Error(data.error || 'Failed to verify version');
 
       showSuccess('Version Verified', `Successfully verified version ${normalizedVersion} for "${gameTitle}".`);
       onVerified();
     } catch (error) {
+      console.error('Version verification error:', error);
       showError('Verification Failed', error instanceof Error ? error.message : 'An unexpected error occurred.');
     } finally {
       setIsLoading(false);
@@ -101,23 +105,25 @@ export function SmartVersionVerification({
   };
 
   const handleVerifyBuild = async () => {
-    const validation = validateBuildNumber(buildNumber);
-    if (!validation.valid) {
-      showError('Validation Error', validation.error || 'Invalid build number');
-      return;
-    }
-
-    const normalizedBuild = normalizeBuildNumber(buildNumber);
-    const confirmed = await confirm(
-      'Verify Build Number',
-      `Are you sure you want to set the build number for "${gameTitle}" to "${normalizedBuild}"?`,
-      { confirmText: 'Verify', cancelText: 'Cancel' }
-    );
-
-    if (!confirmed) return;
-
-    setIsLoading(true);
     try {
+      const validation = validateBuildNumber(buildNumber);
+      if (!validation.valid) {
+        showError('Validation Error', validation.error || 'Invalid build number');
+        return;
+      }
+
+      const normalizedBuild = normalizeBuildNumber(buildNumber);
+      
+      const confirmed = await confirm(
+        'Verify Build Number',
+        `Are you sure you want to set the build number for "${gameTitle}" to "${normalizedBuild}"?`,
+        { confirmText: 'Verify', cancelText: 'Cancel' }
+      );
+
+      if (!confirmed) return;
+
+      setIsLoading(true);
+      
       const response = await fetch('/api/games/build-number-verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -129,11 +135,13 @@ export function SmartVersionVerification({
       });
 
       const data = await response.json();
+      
       if (!response.ok) throw new Error(data.error || 'Failed to verify build');
 
       showSuccess('Build Number Verified', `Successfully verified build ${normalizedBuild} for "${gameTitle}".`);
       onVerified();
     } catch (error) {
+      console.error('Build verification error:', error);
       showError('Verification Failed', error instanceof Error ? error.message : 'An unexpected error occurred.');
     } finally {
       setIsLoading(false);
@@ -378,6 +386,7 @@ export function SmartVersionVerification({
 
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={handleVerifyVersion}
               disabled={isLoading || !versionNumber.trim()}
               className="px-3 py-2 bg-green-600 text-white text-xs font-medium rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -385,6 +394,7 @@ export function SmartVersionVerification({
               {isLoading ? 'Verifying...' : 'Verify Version'}
             </button>
             <button
+              type="button"
               onClick={() => {
                 setIsOpen(false);
                 setVersionNumber(currentVersionNumber || '');
@@ -434,6 +444,7 @@ export function SmartVersionVerification({
 
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={handleVerifyBuild}
               disabled={isLoading || !buildNumber.trim()}
               className="px-3 py-2 bg-purple-600 text-white text-xs font-medium rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -441,6 +452,7 @@ export function SmartVersionVerification({
               {isLoading ? 'Verifying...' : 'Verify Build'}
             </button>
             <button
+              type="button"
               onClick={() => {
                 setIsOpen(false);
                 setVersionNumber(currentVersionNumber || '');
