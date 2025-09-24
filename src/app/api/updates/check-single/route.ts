@@ -21,6 +21,18 @@ interface GameSearchResult {
   }>;
 }
 
+interface PendingUpdate {
+  version: string;
+  gameLink: string;
+  [key: string]: any;
+}
+
+interface SequelNotification {
+  originalGame: string;
+  sequelTitle: string;
+  [key: string]: any;
+}
+
 interface VersionInfo {
   version: string;
   build: string;
@@ -274,7 +286,7 @@ export async function POST(request: Request) {
           console.log(`✨ Potential update found: ${decodedTitle}`);
           
           // Check if we already have this update in pending
-          const existingPending = game.pendingUpdates?.some((pending: any) => 
+          const existingPending = game.pendingUpdates?.some((pending: PendingUpdate) => 
             pending.version === decodedTitle && pending.gameLink === result.link
           );
           
@@ -340,7 +352,7 @@ export async function POST(request: Request) {
           
           // Check if we already have this sequel notification
           const user = await User.findById(game.userId);
-          const existingSequel = user?.sequelNotifications?.some((sequel: any) => 
+          const existingSequel = user?.sequelNotifications?.some((sequel: SequelNotification) => 
             sequel.originalGame === game.title && sequel.sequelTitle === decodedTitle
           );
           
