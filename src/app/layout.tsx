@@ -17,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AIO Games - Unified Game Tracker",
-  description: "All-in-one game tracker",
+  title: "AIO Game Update Tracker",
+  description: "All-in-one game update tracker",
   icons: {
     icon: [
       { url: '/favicon.ico', sizes: '16x16 32x32', type: 'image/x-icon' },

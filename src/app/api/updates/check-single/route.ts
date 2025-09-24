@@ -2,10 +2,9 @@ import { NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
 import { TrackedGame, User } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
-import { detectSequel, getSequelThreshold } from '../../../../utils/sequelDetection';
-import { SITE_VALUES } from '../../../../lib/sites';
+import { detectSequel } from '../../../../utils/sequelDetection';
+import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities } from '../../../../utils/steamApi';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
-import { findSteamMatches, cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities } from '../../../../utils/steamApi';
 
 interface GameSearchResult {
   id: string;
@@ -22,18 +21,6 @@ interface GameSearchResult {
   }>;
 }
 
-interface UpdateDetails {
-  oldVersion: VersionInfo;
-  newVersion: VersionInfo;
-  comparison: { isNewer: boolean; changeType: string; significance: number };
-  reason: string;
-}
-
-interface UpdateResult {
-  isUpdate: boolean;
-  details: UpdateDetails | null;
-}
-
 interface VersionInfo {
   version: string;
   build: string;
@@ -42,11 +29,9 @@ interface VersionInfo {
   baseTitle: string;
   fullVersionString: string;
   confidence: number;
-  sceneGroup: string;
   needsUserConfirmation: boolean;
 }
 
-// Import the helper functions from the main check route
 // Enhanced game matching and update detection
 function calculateGameSimilarity(title1: string, title2: string): number {
   const clean1 = cleanGameTitle(title1).toLowerCase();
@@ -139,7 +124,6 @@ function extractVersionInfo(title: string): VersionInfo {
     baseTitle: cleanTitle,
     fullVersionString: title,
     confidence,
-    sceneGroup: '',
     needsUserConfirmation: confidence < 0.7
   };
 }
@@ -207,7 +191,7 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
   return { isNewer, changeType, significance };
 }
 
-// POST: Check for updates for a specific game
+// POST: Check for updates for a specific game using the search API
 export async function POST(request: Request) {
   try {
     await connectDB();
@@ -249,130 +233,153 @@ export async function POST(request: Request) {
     let sequelsFound = 0;
     const results = [];
 
-    // Get the clean title for searching
+    // Get the clean title for searching (same approach as the search functionality)
     const cleanTitle = cleanGameTitle(game.title);
     const searchTitle = cleanGameTitlePreserveEdition(game.title);
     
     console.log(`🔍 Searching for: "${searchTitle}" (from "${game.title}")`);
 
-    // Use the Game API for searching (same as bulk check)
-    const API_BASE = 'https://gameapi.a7a8524.workers.dev';
+    // Use the same search API that the main search uses
+    const searchResponse = await fetch(`https://gameapi.a7a8524.workers.dev/?search=${encodeURIComponent(searchTitle)}`);
+    
+    if (!searchResponse.ok) {
+      throw new Error(`Search API request failed: ${searchResponse.status}`);
+    }
+    
+    const searchData = await searchResponse.json();
+    
+    // Extract results from API response
+    let games: GameSearchResult[] = [];
+    if (searchData.success && searchData.results && Array.isArray(searchData.results)) {
+      games = searchData.results;
+    }
+    
+    console.log(`📊 Search returned ${games.length} results`);
 
-    // Search across all sites for this specific game
-    for (const site of SITE_VALUES) {
-      try {
-        const searchUrl = `${API_BASE}/search?query=${encodeURIComponent(searchTitle)}&site=${site}&limit=10`;
-        console.log(`🌐 Searching ${site}: ${searchUrl}`);
+    // Process results to find updates and sequels
+    for (const result of games) {
+      const decodedTitle = decodeHtmlEntities(result.title);
+      const similarity = calculateGameSimilarity(cleanTitle, decodedTitle);
+      
+      console.log(`🎯 Comparing "${decodedTitle}" (similarity: ${similarity.toFixed(2)})`);
+      
+      // Check for potential updates (high similarity)
+      if (similarity >= 0.8) {
+        const currentVersionInfo = extractVersionInfo(game.lastKnownVersion || game.title);
+        const newVersionInfo = extractVersionInfo(decodedTitle);
         
-        const response = await fetch(searchUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-          }
-        });
-
-        if (!response.ok) {
-          console.log(`❌ ${site} search failed: ${response.status}`);
-          continue;
-        }
-
-        const data = await response.json();
-        const games = data.results || [];
+        const comparison = compareVersions(currentVersionInfo, newVersionInfo);
         
-        console.log(`📊 ${site} returned ${games.length} results`);
+        if (comparison.isNewer || newVersionInfo.needsUserConfirmation) {
+          console.log(`✨ Potential update found: ${decodedTitle}`);
+          
+          // Check if we already have this update in pending
+          const existingPending = game.pendingUpdates?.some((pending: any) => 
+            pending.version === decodedTitle && pending.gameLink === result.link
+          );
+          
+          if (!existingPending) {
+            const updateData = {
+              version: decodedTitle,
+              build: newVersionInfo.build,
+              releaseType: newVersionInfo.releaseType,
+              updateType: newVersionInfo.updateType,
+              changeType: comparison.changeType,
+              significance: comparison.significance,
+              dateFound: new Date().toISOString(),
+              gameLink: result.link,
+              previousVersion: game.lastKnownVersion || game.title,
+              downloadLinks: result.downloadLinks || [],
+              steamEnhanced: false,
+              steamAppId: game.steamAppId,
+              needsUserConfirmation: newVersionInfo.needsUserConfirmation || comparison.significance < 2
+            };
 
-        for (const result of games) {
-          const decodedTitle = decodeHtmlEntities(result.title);
-          const similarity = calculateGameSimilarity(cleanTitle, decodedTitle);
-          
-          console.log(`🎯 Comparing "${decodedTitle}" (similarity: ${similarity.toFixed(2)})`);
-          
-          // Only consider games with high similarity (80%+)
-          if (similarity >= 0.8) {
-            const currentVersionInfo = extractVersionInfo(game.lastKnownVersion || game.title);
-            const newVersionInfo = extractVersionInfo(decodedTitle);
-            
-            const comparison = compareVersions(currentVersionInfo, newVersionInfo);
-            
-            if (comparison.isNewer || newVersionInfo.needsUserConfirmation) {
-              console.log(`✨ Potential update found: ${decodedTitle}`);
-              
-              // Check if we already have this update in pending
-              const existingPending = game.pendingUpdates?.some((pending: any) => 
-                pending.version === decodedTitle && pending.gameLink === result.link
+            // Add to pending updates
+            await TrackedGame.findByIdAndUpdate(game._id, {
+              $push: { pendingUpdates: updateData },
+              lastChecked: new Date()
+            });
+
+            // Send notification for the update
+            try {
+              const notificationData = createUpdateNotificationData(
+                game.title,
+                {
+                  version: decodedTitle,
+                  gameLink: result.link,
+                  image: result.image
+                },
+                'update'
               );
               
-              if (!existingPending) {
-                const updateData = {
-                  version: decodedTitle,
-                  build: newVersionInfo.build,
-                  releaseType: newVersionInfo.releaseType,
-                  updateType: newVersionInfo.updateType,
-                  changeType: comparison.changeType,
-                  significance: comparison.significance,
-                  dateFound: new Date().toISOString(),
-                  gameLink: result.link,
-                  previousVersion: game.lastKnownVersion || game.title,
-                  downloadLinks: result.downloadLinks || [],
-                  steamEnhanced: false,
-                  steamAppId: game.steamAppId,
-                  needsUserConfirmation: newVersionInfo.needsUserConfirmation || comparison.significance < 2
-                };
-
-                // Add to pending updates
-                await TrackedGame.findByIdAndUpdate(game._id, {
-                  $push: { pendingUpdates: updateData },
-                  lastChecked: new Date()
-                });
-
-                updatesFound++;
-                results.push({
-                  gameTitle: game.title,
-                  update: updateData
-                });
-                
-                console.log(`📝 Added pending update for ${game.title}: ${decodedTitle}`);
-              }
+              await sendUpdateNotification(game.userId.toString(), notificationData);
+              console.log(`📢 Update notification sent for ${game.title} to user ${game.userId}`);
+            } catch (notificationError) {
+              console.error(`Failed to send update notification for ${game.title}:`, notificationError);
+              // Don't fail the whole operation if notification fails
             }
+
+            updatesFound++;
+            results.push({
+              gameTitle: game.title,
+              update: updateData
+            });
+            
+            console.log(`📝 Added pending update for ${game.title}: ${decodedTitle}`);
           }
         }
-
-        // Check for sequels if enabled
-        for (const result of games) {
-          const decodedTitle = decodeHtmlEntities(result.title);
-          const sequelResult = detectSequel(cleanTitle, decodedTitle);
-          
-          if (sequelResult && sequelResult.isSequel) {
-            console.log(`🎬 Potential sequel found: ${decodedTitle}`);
-            
-            // Check if we already have this sequel notification
-            const user = await User.findById(game.userId);
-            const existingSequel = user?.sequelNotifications?.some((sequel: any) => 
-              sequel.originalGame === game.title && sequel.sequelTitle === decodedTitle
-            );
-            
-            if (!existingSequel) {
-              await User.findByIdAndUpdate(game.userId, {
-                $push: {
-                  sequelNotifications: {
-                    originalGame: game.title,
-                    sequelTitle: decodedTitle,
-                    sequelLink: result.link,
-                    confidence: sequelResult.confidence,
-                    dateFound: new Date(),
-                    source: site
-                  }
-                }
-              });
-              
-              sequelsFound++;
-              console.log(`📝 Added sequel notification: ${decodedTitle}`);
-            }
-          }
-        }
+      }
+      
+      // Check for sequels (moderate similarity)
+      else if (similarity >= 0.5) {
+        const sequelResult = detectSequel(cleanTitle, decodedTitle);
         
-      } catch (error) {
-        console.error(`Error searching ${site}:`, error);
-        continue;
+        if (sequelResult && sequelResult.isSequel) {
+          console.log(`🎬 Potential sequel found: ${decodedTitle}`);
+          
+          // Check if we already have this sequel notification
+          const user = await User.findById(game.userId);
+          const existingSequel = user?.sequelNotifications?.some((sequel: any) => 
+            sequel.originalGame === game.title && sequel.sequelTitle === decodedTitle
+          );
+          
+          if (!existingSequel) {
+            await User.findByIdAndUpdate(game.userId, {
+              $push: {
+                sequelNotifications: {
+                  originalGame: game.title,
+                  sequelTitle: decodedTitle,
+                  sequelLink: result.link,
+                  confidence: sequelResult.confidence,
+                  dateFound: new Date(),
+                  source: result.source
+                }
+              }
+            });
+            
+            // Send notification for the sequel
+            try {
+              const notificationData = createUpdateNotificationData(
+                game.title,
+                {
+                  gameLink: result.link,
+                  image: result.image
+                },
+                'sequel'
+              );
+              
+              await sendUpdateNotification(game.userId.toString(), notificationData);
+              console.log(`📢 Sequel notification sent for ${game.title} -> ${decodedTitle} to user ${game.userId}`);
+            } catch (notificationError) {
+              console.error(`Failed to send sequel notification for ${game.title}:`, notificationError);
+              // Don't fail the whole operation if notification fails
+            }
+            
+            sequelsFound++;
+            console.log(`📝 Added sequel notification: ${decodedTitle}`);
+          }
+        }
       }
     }
 
