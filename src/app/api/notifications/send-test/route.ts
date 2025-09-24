@@ -4,14 +4,10 @@ import { authOptions } from '../../auth/[...nextauth]/route';
 import connectDB from '../../../../lib/db';
 import { User } from '../../../../lib/models';
 import webpush from 'web-push';
+import { configureWebPush } from '../../../../utils/vapidKeys';
 
-// Ensure VAPID keys are configured via env
-const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY;
-const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
-
-if (VAPID_PUBLIC && VAPID_PRIVATE) {
-  webpush.setVapidDetails('mailto:admin@example.com', VAPID_PUBLIC, VAPID_PRIVATE);
-}
+// Ensure VAPID keys are configured
+configureWebPush();
 
 export async function POST() {
   try {
@@ -20,10 +16,7 @@ export async function POST() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    if (!VAPID_PUBLIC || !VAPID_PRIVATE) {
-      return NextResponse.json({ error: 'VAPID keys not configured' }, { status: 500 });
-    }
-
+    // VAPID keys are configured by configureWebPush() above
     await connectDB();
     const user = await User.findById(session.user.id);
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });

@@ -19,8 +19,14 @@ function runGenerate() {
   child.execSync(`node "${script}" --write`, { stdio: 'inherit' });
 }
 
-if (!envHas('VAPID_PUBLIC_KEY') || !envHas('VAPID_PRIVATE_KEY')) {
-  runGenerate();
+// Only generate VAPID keys for development environments
+// In production Docker containers, keys will be generated at runtime if not provided
+if (process.env.NODE_ENV !== 'production') {
+  if (!envHas('VAPID_PUBLIC_KEY') || !envHas('VAPID_PRIVATE_KEY')) {
+    runGenerate();
+  } else {
+    console.log('VAPID keys already present. Skipping generation.');
+  }
 } else {
-  console.log('VAPID keys already present. Skipping generation.');
+  console.log('Production build detected. VAPID keys will be handled at runtime.');
 }

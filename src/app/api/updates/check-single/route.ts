@@ -24,13 +24,25 @@ interface GameSearchResult {
 interface PendingUpdate {
   version: string;
   gameLink: string;
-  [key: string]: any;
+  _id?: string;
+  newTitle?: string;
+  detectedVersion?: string;
+  reason?: string;
+  dateFound?: string;
+  downloadLinks?: Array<{
+    service: string;
+    url: string;
+    type: string;
+  }>;
 }
 
 interface SequelNotification {
   originalGame: string;
   sequelTitle: string;
-  [key: string]: any;
+  sequelLink?: string;
+  confidence?: number;
+  dateFound?: Date;
+  source?: string;
 }
 
 interface VersionInfo {

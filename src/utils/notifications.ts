@@ -6,14 +6,10 @@ import {
   formatGameUpdateMessage, 
   formatSequelNotificationMessage 
 } from './telegram';
+import { configureWebPush, getVapidKeys } from './vapidKeys';
 
-// Configure VAPID keys
-const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY;
-const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
-
-if (VAPID_PUBLIC && VAPID_PRIVATE) {
-  webpush.setVapidDetails('mailto:admin@example.com', VAPID_PUBLIC, VAPID_PRIVATE);
-}
+// Configure VAPID keys on module load
+configureWebPush();
 
 interface UpdateNotificationData {
   gameTitle: string;
@@ -119,8 +115,10 @@ export async function sendUpdateNotification(
     }
 
     // Send Web Push notification if enabled or if primary method
-    if ((provider === 'webpush' || notificationPrefs?.webpushEnabled) && VAPID_PUBLIC && VAPID_PRIVATE) {
-      if (user.pushSubscriptions && user.pushSubscriptions.length > 0) {
+    if (provider === 'webpush' || notificationPrefs?.webpushEnabled) {
+      try {
+        getVapidKeys(); // Ensure VAPID keys are available
+        if (user.pushSubscriptions && user.pushSubscriptions.length > 0) {
         // Create notification payload
         const isSequel = updateData.updateType === 'sequel';
         const title = isSequel 
@@ -172,8 +170,9 @@ export async function sendUpdateNotification(
       } else {
         result.methods.webpush.errors.push('No push subscriptions found');
       }
-    } else if (!VAPID_PUBLIC || !VAPID_PRIVATE) {
-      result.methods.webpush.errors.push('VAPID keys not configured');
+      } catch {
+        result.methods.webpush.errors.push('VAPID keys not configured');
+      }
     }
 
     // Consolidate errors
