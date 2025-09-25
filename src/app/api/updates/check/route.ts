@@ -558,15 +558,6 @@ export async function POST() {
           // Collect all candidates for Steam API enhancement
           allCandidates.push(...games);
           
-          // Find the best matching game for updates
-          for (const currentGame of games) {
-            const similarity = calculateGameSimilarity(game.title, currentGame.title);
-            if (similarity > bestSimilarity && similarity > 0.6) {
-              bestMatch = currentGame;
-              bestSimilarity = similarity;
-            }
-          }
-          
           // Check for sequels if enabled
           if (sequelPrefs.enabled) {
             const sequelThreshold = getSequelThreshold(sequelPrefs.sensitivity);
@@ -623,6 +614,72 @@ export async function POST() {
           }
         }
       }
+
+        // Reduce candidates to the most recent posts only:
+        // group by link (fallback to id/title) and keep only the newest entry per group,
+        // then only keep the single newest candidate overall so we check the latest update.
+        if (allCandidates.length > 0) {
+          try {
+            const latestMap = new Map<string, typeof allCandidates[number]>();
+            for (const cand of allCandidates) {
+              const key = cand.link || cand.id || cand.title;
+              const candDate = cand.date ? new Date(cand.date) : new Date(0);
+              const existing = latestMap.get(key);
+              if (!existing) {
+                latestMap.set(key, cand);
+              } else {
+                const existingDate = existing.date ? new Date(existing.date) : new Date(0);
+                if (candDate > existingDate) {
+                  latestMap.set(key, cand);
+                }
+              }
+            }
+
+            const reducedCandidates = Array.from(latestMap.values());
+            // Instead of keeping only one overall newest candidate, keep the newest candidate per source/site.
+            // This helps preserve one recent post from each site while avoiding duplicates from the same source.
+            const perSource = new Map<string, typeof reducedCandidates[number]>();
+            for (const cand of reducedCandidates) {
+              const src = cand.source || 'unknown';
+              const existing = perSource.get(src);
+              const candDate = cand.date ? new Date(cand.date) : new Date(0);
+              // Prefer the candidate with higher similarity for this tracked game
+              const candSim = calculateGameSimilarity(game.title, cand.title);
+              if (!existing) {
+                perSource.set(src, cand);
+              } else {
+                const existingDate = existing.date ? new Date(existing.date) : new Date(0);
+                const existingSim = calculateGameSimilarity(game.title, existing.title);
+                if (candSim > existingSim) {
+                  perSource.set(src, cand);
+                } else if (candSim === existingSim && candDate > existingDate) {
+                  perSource.set(src, cand);
+                }
+              }
+            }
+
+            const kept = Array.from(perSource.values());
+            // Sort by date desc so that higher-confidence flow later can still inspect recency
+            kept.sort((a, b) => (b.date ? new Date(b.date).getTime() : 0) - (a.date ? new Date(a.date).getTime() : 0));
+
+            allCandidates.length = 0;
+            allCandidates.push(...kept);
+          } catch (groupErr) {
+            console.error('Failed to reduce candidates to latest only:', groupErr);
+            // fall back to original allCandidates on error
+          }
+        }
+
+        // Compute best match from the reduced candidate list (only newest candidate present)
+        if (allCandidates.length > 0) {
+          for (const candidate of allCandidates) {
+            const similarity = calculateGameSimilarity(game.title, candidate.title);
+            if (similarity > bestSimilarity && similarity > 0.6) {
+              bestMatch = candidate;
+              bestSimilarity = similarity;
+            }
+          }
+        }
 
         // Enhanced matching with Steam API fallback for low confidence matches
         if (bestSimilarity < 0.8 && allCandidates.length > 0) {
