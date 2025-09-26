@@ -93,14 +93,6 @@ export function Navigation() {
                 {item.label}
               </Link>
             ))}
-            {session && (
-              <button
-                onClick={() => signOut({ callbackUrl: '/' })}
-                className="px-3 py-2 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              >
-                🚪 Logout
-              </button>
-            )}
             {!session && (
               <Link
                 href="/auth/signin"

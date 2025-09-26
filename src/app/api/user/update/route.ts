@@ -18,7 +18,8 @@ export async function PATCH(req: Request) {
     currentPassword, 
     newPassword, 
     provider, 
-    webpushEnabled, 
+    webpushEnabled,
+    notifyImmediately,
     telegramEnabled, 
     telegramBotToken, 
     telegramChatId 
@@ -71,6 +72,13 @@ export async function PATCH(req: Request) {
       user.preferences = user.preferences || {};
       user.preferences.notifications = user.preferences.notifications || {};
       user.preferences.notifications.webpushEnabled = webpushEnabled;
+    }
+
+    // Update immediate notifications setting
+    if (typeof notifyImmediately === 'boolean') {
+      user.preferences = user.preferences || {};
+      user.preferences.notifications = user.preferences.notifications || {};
+      user.preferences.notifications.notifyImmediately = notifyImmediately;
     }
 
     // Update Telegram notification settings

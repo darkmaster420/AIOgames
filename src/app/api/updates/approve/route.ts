@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
-import { TrackedGame } from '../../../../lib/models';
+import { TrackedGame, User } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
+import { sendTelegramMessage, getTelegramConfig, formatGameUpdateMessage } from '../../../../utils/telegram';
 
 // POST: Approve a pending update
 export async function POST(request: NextRequest) {
@@ -70,19 +71,61 @@ export async function POST(request: NextRequest) {
       steamEnhanced: pendingUpdate.steamEnhanced || false,
       steamAppId: pendingUpdate.steamAppId,
       userApproved: true,
-      approvedAt: new Date()
+      approvedAt: new Date(),
+      source: pendingUpdate.source || 'Game Tracker'
     };
 
-    // Remove the pending update and add to updateHistory, update game info
+    // Complete replace the game record with the new update info
     await TrackedGame.findByIdAndUpdate(gameId, {
       $pull: { pendingUpdates: { _id: pendingUpdate._id } },
-      $push: { updateHistory: approvedUpdate },
       lastKnownVersion: versionString,
       lastVersionDate: pendingUpdate.dateFound,
-      title: pendingUpdate.newTitle, // Update to the new title
+      title: pendingUpdate.newTitle,
       gameLink: pendingUpdate.newLink,
-      ...(pendingUpdate.newImage && { image: pendingUpdate.newImage })
+      ...(pendingUpdate.newImage && { image: pendingUpdate.newImage }),
+      // Create new update history entry with current version as the first item
+      updateHistory: [{
+        ...approvedUpdate,
+        isLatest: true
+      }],
+      // Mark this as the latest approved update
+      latestApprovedUpdate: {
+        version: versionString,
+        dateFound: pendingUpdate.dateFound,
+        gameLink: pendingUpdate.newLink,
+        downloadLinks: pendingUpdate.downloadLinks || []
+      }
     });
+
+    // Notify all users tracking this game
+    try {
+      const trackedGames = await TrackedGame.find({ gameId: game.gameId, isActive: true });
+      const userIds = trackedGames.map(g => g.userId.toString());
+            // Create notification data with proper change type
+      const notificationData = {
+        title: game.title,
+        version: versionString, // Using the version string from the approved update
+        previousVersion: game.version,
+        gameLink: pendingUpdate.newLink || game.link,
+        source: pendingUpdate.source || 'Game Tracker',
+        changeType: 'user_approved', // Mark this as an approved update
+        downloadLinks: pendingUpdate.downloadLinks || []
+      };
+
+      // Format the message using the game update formatter
+      const message = formatGameUpdateMessage(notificationData);
+      // Send the notification to all users
+      for (const userId of userIds) {
+        const user = await User.findById(userId);
+        if (!user) continue; // Skip if user not found
+        const telegramConfig = getTelegramConfig(user);
+        if (telegramConfig) { // Only send if we have valid telegram config
+          await sendTelegramMessage(telegramConfig, message);
+        }
+      }
+    } catch (notifyError) {
+      console.error('Failed to send notifications for approved update:', notifyError);
+    }
 
     console.log(`✅ User ${user.id} approved update for "${game.title}": ${versionString}`);
 

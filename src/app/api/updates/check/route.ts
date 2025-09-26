@@ -591,14 +591,12 @@ export async function POST() {
                   
                   // Send sequel notification to the user
                   try {
-                    const notificationData = createUpdateNotificationData(
-                      game.title,
-                      {
-                        gameLink: currentGame.link,
-                        image: currentGame.image
-                      },
-                      'sequel'
-                    );
+                    const notificationData = createUpdateNotificationData({
+                      gameTitle: game.title,
+                      gameLink: currentGame.link,
+                      imageUrl: currentGame.image,
+                      updateType: 'sequel'
+                    });
                     
                     await sendUpdateNotification(game.userId.toString(), notificationData);
                     console.log(`📢 Sequel notification sent for ${game.title} -> ${currentGame.title} to user ${game.userId}`);
@@ -809,6 +807,24 @@ export async function POST() {
                 lastChecked: new Date()
               });
 
+              // Notify all users tracking this game about the pending update
+              try {
+                const { sendUpdateNotificationToMultipleUsers, createUpdateNotificationData } = await import('../../../../utils/notifications');
+                const trackedGames = await TrackedGame.find({ gameId: game.gameId, isActive: true });
+                const userIds = trackedGames.map(g => g.userId.toString());
+                const notificationData = createUpdateNotificationData({
+                  gameTitle: bestMatch.title,
+                  version: versionString,
+                  gameLink: bestMatch.link,
+                  imageUrl: bestMatch.image,
+                  updateType: 'update'
+                });
+                console.log('[NOTIFY][CHECK] userIds:', userIds, 'notificationData:', notificationData);
+                await sendUpdateNotificationToMultipleUsers(userIds, notificationData);
+              } catch (notifyError) {
+                console.error('Failed to send notifications for pending update:', notifyError);
+              }
+
               updateDetails.push({
                 title: game.title,
                 version: versionString,
@@ -866,15 +882,13 @@ export async function POST() {
 
             // Send update notification to the user
             try {
-              const notificationData = createUpdateNotificationData(
-                game.title,
-                {
-                  version: versionString + (isSteamEnhanced ? ' (Steam Enhanced)' : ''),
-                  gameLink: bestMatch.link,
-                  image: bestMatch.image
-                },
-                'update'
-              );
+              const notificationData = createUpdateNotificationData({
+                gameTitle: game.title,
+                version: versionString + (isSteamEnhanced ? ' (Steam Enhanced)' : ''),
+                gameLink: bestMatch.link,
+                imageUrl: bestMatch.image,
+                updateType: 'update'
+              });
               
               await sendUpdateNotification(game.userId.toString(), notificationData);
               console.log(`📢 Update notification sent for ${game.title} to user ${game.userId}${isSteamEnhanced ? ' (Steam Enhanced)' : ''}`);

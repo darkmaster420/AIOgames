@@ -21,6 +21,7 @@ export default function UserManagePage() {
     // notification settings
     notificationsProvider: '',
     webpushEnabled: true,
+    notifyImmediately: true,
     telegramEnabled: false,
     telegramBotToken: '',
     telegramChatId: ''
@@ -44,6 +45,7 @@ export default function UserManagePage() {
             ...f,
             notificationsProvider: data.preferences.notifications.provider || f.notificationsProvider,
             webpushEnabled: typeof data.preferences.notifications.webpushEnabled === 'boolean' ? data.preferences.notifications.webpushEnabled : f.webpushEnabled,
+            notifyImmediately: typeof data.preferences.notifications.notifyImmediately === 'boolean' ? data.preferences.notifications.notifyImmediately : true,
             telegramEnabled: data.preferences.notifications.telegramEnabled || false,
             telegramBotToken: data.preferences.notifications.telegramBotToken || '',
             telegramChatId: data.preferences.notifications.telegramChatId || ''
@@ -149,6 +151,7 @@ export default function UserManagePage() {
         newPassword?: string; 
         provider?: string; 
         webpushEnabled?: boolean;
+        notifyImmediately?: boolean;
         telegramEnabled?: boolean;
         telegramBotToken?: string;
         telegramChatId?: string;
@@ -162,6 +165,7 @@ export default function UserManagePage() {
       // Notification settings
       payload.provider = form.notificationsProvider;
       payload.webpushEnabled = form.webpushEnabled;
+      payload.notifyImmediately = form.notifyImmediately;
       payload.telegramEnabled = form.telegramEnabled;
       payload.telegramBotToken = form.telegramBotToken;
       payload.telegramChatId = form.telegramChatId;
@@ -250,6 +254,18 @@ export default function UserManagePage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notification Settings</label>
             <div className="mt-3 space-y-4">
+              {/* Immediate Notifications */}
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  name="notifyImmediately"
+                  checked={form.notifyImmediately}
+                  onChange={(e) => setForm({ ...form, notifyImmediately: e.target.checked })}
+                  className="w-4 h-4"
+                />
+                <label className="text-sm text-gray-600 dark:text-gray-300">Send notifications immediately when updates are found</label>
+              </div>
+
               {/* Notification Provider */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Provider</label>

@@ -75,3 +75,4 @@ Thumbs.db
 *.bak
 *.backup
 # Trigger commit to ensure GitHub sync
+AIOgames.code-workspace

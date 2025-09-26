@@ -370,15 +370,13 @@ export async function POST(request: Request) {
 
             // Send notification for the update
             try {
-              const notificationData = createUpdateNotificationData(
-                game.title,
-                {
-                  version: decodedTitle,
-                  gameLink: result.link,
-                  image: result.image
-                },
-                'update'
-              );
+              const notificationData = createUpdateNotificationData({
+                gameTitle: game.title,
+                version: decodedTitle,
+                updateType: 'update',
+                gameLink: result.link,
+                imageUrl: result.image
+              });
               
               await sendUpdateNotification(game.userId.toString(), notificationData);
               console.log(`📢 Update notification sent for ${game.title} to user ${game.userId}`);
@@ -427,14 +425,11 @@ export async function POST(request: Request) {
             
             // Send notification for the sequel
             try {
-              const notificationData = createUpdateNotificationData(
-                game.title,
-                {
-                  gameLink: result.link,
-                  image: result.image
-                },
-                'sequel'
-              );
+              const notificationData = createUpdateNotificationData({
+                gameTitle: game.title,
+                gameLink: result.link,
+                updateType: 'sequel'
+              });
               
               await sendUpdateNotification(game.userId.toString(), notificationData);
               console.log(`📢 Sequel notification sent for ${game.title} -> ${decodedTitle} to user ${game.userId}`);

@@ -13,15 +13,13 @@ export async function POST(request: Request) {
     }
 
     // Create test notification data
-    const notificationData = createUpdateNotificationData(
+    const notificationData = createUpdateNotificationData({
       gameTitle,
-      {
-        version: version || 'Test Version',
-        gameLink: 'https://example.com/test-game',
-        image: 'https://example.com/test-image.jpg'
-      },
-      'update'
-    );
+      version: version || 'Test Version',
+      gameLink: 'https://example.com/test-game',
+      imageUrl: 'https://example.com/test-image.jpg',
+      updateType: 'update'
+    });
 
     // Send the notification
     const result = await sendUpdateNotification(userId, notificationData);

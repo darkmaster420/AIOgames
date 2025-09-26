@@ -42,12 +42,23 @@ interface TrackedGame {
     version: string;
     dateFound: string;
     gameLink: string;
+    isLatest?: boolean;
     downloadLinks?: Array<{
       service: string;
       url: string;
       type: string;
     }>;
   }>;
+  latestApprovedUpdate?: {
+    version: string;
+    dateFound: string;
+    gameLink: string;
+    downloadLinks?: Array<{
+      service: string;
+      url: string;
+      type: string;
+    }>;
+  };
   pendingUpdates?: Array<{
     _id: string;
     newTitle: string;
@@ -320,15 +331,20 @@ export default function TrackingDashboard() {
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-4">
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white truncate">
-                          {game.title}
-                        </h3>
-                        <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 space-y-0.5">
-                          <p>Source: {game.source}</p>
+                        <div className="flex flex-col gap-1">
+                          <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white truncate">
+                            {cleanGameTitle(game.title)}
+                          </h3>
                           {game.lastKnownVersion && (
-                            <p>Last Version: {game.lastKnownVersion}</p>
+                            <div className="inline-flex items-center gap-1.5">
+                              <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-xs rounded-full">
+                                {game.lastKnownVersion}
+                              </span>
+                            </div>
                           )}
-                          <p><span className="font-medium">Cleaned:</span> {cleanGameTitle(game.title)}</p>
+                          <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
+                            <p>Source: {game.source}</p>
+                          </div>
                         </div>
                         
                         {/* Steam Verification */}
@@ -408,15 +424,41 @@ export default function TrackingDashboard() {
                       </div>
                     </div>
 
-                    {/* Update History - Mobile optimized */}
-                    {game.updateHistory.length > 0 && (
+                    {/* Latest Update Status - Mobile optimized */}
+                    {game.latestApprovedUpdate && (
+                      <div className="mt-3 sm:mt-4">
+                        <h4 className="text-xs sm:text-sm font-medium text-green-700 dark:text-green-300 mb-2 flex items-center gap-2">
+                          <span>✅</span>
+                          Current Version
+                        </h4>
+                        <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded">
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                            <div className="flex-1">
+                              <span className="font-medium text-sm">v{game.latestApprovedUpdate.version}</span>
+                              <span className="text-gray-500 dark:text-gray-400 text-xs ml-2">
+                                approved {formatDate(game.latestApprovedUpdate.dateFound)}
+                              </span>
+                            </div>
+                            <div className="self-start">
+                              <DownloadLinks 
+                                gameId={game._id} 
+                                className="inline-block"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Previous Updates - Mobile optimized */}
+                    {game.updateHistory && game.updateHistory.length > 1 && (
                       <div className="mt-3 sm:mt-4">
                         <h4 className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Recent Updates ({game.updateHistory.length})
+                          Previous Updates ({game.updateHistory.length - 1})
                         </h4>
                         <div className="space-y-1 sm:space-y-2">
-                          {game.updateHistory.slice(0, 3).map((update, updateIndex) => (
-                            <div key={updateIndex} className="text-xs sm:text-sm bg-blue-50 dark:bg-blue-900/20 p-2 rounded">
+                          {game.updateHistory.filter(update => !update.isLatest).slice(0, 2).map((update, updateIndex) => (
+                            <div key={updateIndex} className="text-xs sm:text-sm bg-gray-50 dark:bg-gray-900/20 p-2 rounded">
                               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2">
                                 <div className="flex-1">
                                   <span className="font-medium">v{update.version}</span>
@@ -427,7 +469,7 @@ export default function TrackingDashboard() {
                                 <div className="self-start sm:ml-2">
                                   <DownloadLinks 
                                     gameId={game._id} 
-                                    updateIndex={game.updateHistory.length - 1 - updateIndex}
+                                    updateIndex={updateIndex + 1}
                                     className="inline-block"
                                   />
                                 </div>
@@ -446,7 +488,7 @@ export default function TrackingDashboard() {
                         rel="noopener noreferrer"
                         className="px-4 py-2 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-sm rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 text-center transition-colors min-h-[40px] flex items-center justify-center w-full sm:w-auto"
                       >
-                        View Original Post
+                        View Latest Post
                       </a>
                       <div className="w-full sm:w-auto">
                         <DownloadLinks 
@@ -454,12 +496,6 @@ export default function TrackingDashboard() {
                           className="w-full sm:w-auto px-4 py-2 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 text-sm rounded-lg hover:bg-green-200 dark:hover:bg-green-800 transition-colors min-h-[40px] flex items-center justify-center" 
                         />
                       </div>
-                      <button
-                        onClick={() => handleUntrack(game.gameId)}
-                        className="px-4 py-2 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 text-sm rounded-lg hover:bg-red-200 dark:hover:bg-red-800 transition-colors min-h-[40px] flex items-center justify-center w-full sm:w-auto"
-                      >
-                        Untrack
-                      </button>
                     </div>
 
                     {/* Pending Updates - Mobile optimized */}

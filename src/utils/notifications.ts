@@ -11,12 +11,31 @@ import { configureWebPush, getVapidKeys } from './vapidKeys';
 // Configure VAPID keys on module load
 configureWebPush();
 
-interface UpdateNotificationData {
+export interface UpdateNotificationData {
   gameTitle: string;
   version?: string;
   updateType: 'update' | 'sequel';
   gameLink?: string;
   imageUrl?: string;
+}
+
+/**
+ * Helper function to create properly formatted notification data
+ */
+export function createUpdateNotificationData(params: {
+  gameTitle: string;
+  version?: string;
+  updateType: 'update' | 'sequel';
+  gameLink?: string;
+  imageUrl?: string;
+}): UpdateNotificationData {
+  return {
+    gameTitle: params.gameTitle,
+    version: params.version,
+    updateType: params.updateType,
+    gameLink: params.gameLink,
+    imageUrl: params.imageUrl,
+  };
 }
 
 interface NotificationResult {
@@ -26,8 +45,8 @@ interface NotificationResult {
   failedCount: number;
   errors: string[];
   methods: {
-    webpush: { sent: number; failed: number; errors: string[] };
-    telegram: { sent: number; failed: number; errors: string[] };
+    webpush: { sent: number; failed: 0, errors: string[] };
+    telegram: { sent: number; failed: 0, errors: string[] };
   };
 }
 
@@ -38,6 +57,12 @@ export async function sendUpdateNotification(
   userId: string, 
   updateData: UpdateNotificationData
 ): Promise<NotificationResult> {
+  console.log(`[Notifications] Starting notification process for user ${userId}`, {
+    gameTitle: updateData.gameTitle,
+    updateType: updateData.updateType,
+    version: updateData.version
+  });
+
   const result: NotificationResult = {
     userId,
     success: false,
@@ -54,23 +79,51 @@ export async function sendUpdateNotification(
     // Get user data
     const user = await User.findById(userId);
     if (!user) {
+      console.error(`[Notifications] User not found: ${userId}`);
       result.errors.push('User not found');
       return result;
     }
 
+    // Default to true for immediate notifications if not set
+    const notifyImmediately = user.preferences?.notifications?.notifyImmediately ?? true;
+    
+    console.log('[Notifications] User preferences:', {
+      email: user.email,
+      provider: user.preferences?.notifications?.provider,
+      telegramEnabled: user.preferences?.notifications?.telegramEnabled,
+      telegramConfigured: !!(user.preferences?.notifications?.telegramBotToken && user.preferences?.notifications?.telegramChatId),
+      notifyImmediately
+    });
+
     // Check if user wants immediate notifications
-    if (!user.preferences?.notifications?.notifyImmediately) {
+    if (!notifyImmediately) {
+      console.log('[Notifications] User has disabled immediate notifications');
       result.errors.push('User has disabled immediate notifications');
       return result;
     }
 
-    const notificationPrefs = user.preferences.notifications;
+    const notificationPrefs = user.preferences?.notifications;
     const provider = notificationPrefs?.provider || 'webpush';
+    
+    console.log(`[Notifications] Processing for user ${user.email}:`, {
+      provider,
+      telegramEnabled: notificationPrefs?.telegramEnabled,
+      hasPreferences: !!user.preferences,
+      hasNotificationPrefs: !!notificationPrefs,
+      game: updateData.gameTitle,
+      version: updateData.version
+    });
     
     // Send Telegram notification if enabled and configured
     if ((provider === 'telegram' || notificationPrefs?.telegramEnabled) && notificationPrefs?.telegramEnabled) {
+      console.log('[Notifications] Telegram conditions met, getting config...');
       const telegramConfig = getTelegramConfig(user);
       if (telegramConfig) {
+        console.log('[Notifications] Got valid Telegram config:', {
+          hasToken: !!telegramConfig.botToken,
+          hasChatId: !!telegramConfig.chatId,
+          tokenLength: telegramConfig.botToken?.length
+        });
         try {
           const isSequel = updateData.updateType === 'sequel';
           const message = isSequel 
@@ -95,12 +148,10 @@ export async function sendUpdateNotification(
           if (telegramResult.success) {
             result.methods.telegram.sent++;
             result.sentCount++;
-            console.log(`✅ Telegram notification sent to ${user.email} for ${updateData.gameTitle}`);
           } else {
             result.methods.telegram.failed++;
             result.failedCount++;
             result.methods.telegram.errors.push(telegramResult.error || 'Unknown Telegram error');
-            console.error(`❌ Telegram notification failed for ${user.email}:`, telegramResult.error);
           }
         } catch (error) {
           result.methods.telegram.failed++;
@@ -111,6 +162,7 @@ export async function sendUpdateNotification(
         }
       } else {
         result.methods.telegram.errors.push('Telegram enabled but not properly configured');
+        console.warn(`⚠️ Telegram config missing for user ${user.email}`);
       }
     }
 
@@ -145,41 +197,37 @@ export async function sendUpdateNotification(
           actions: updateData.gameLink ? [
             {
               action: 'view',
-              title: 'View Game'
+              title: 'View Update'
             }
-          ] : undefined,
-          requireInteraction: true,
-          tag: `game-update-${updateData.gameTitle.replace(/\s+/g, '-').toLowerCase()}`
+          ] : undefined
         });
 
-        // Send to all user's subscriptions
-        for (const subscription of user.pushSubscriptions) {
+        // Send to all subscribed endpoints
+        for (const sub of user.pushSubscriptions) {
           try {
-            await webpush.sendNotification(subscription, payload);
+            await webpush.sendNotification({
+              endpoint: sub.endpoint,
+              keys: {
+                p256dh: sub.keys.p256dh,
+                auth: sub.keys.auth
+              }
+            }, payload);
             result.methods.webpush.sent++;
             result.sentCount++;
-            console.log(`✅ Web Push notification sent to ${user.email} for ${updateData.gameTitle}`);
           } catch (error) {
             result.methods.webpush.failed++;
             result.failedCount++;
             const errorMessage = error instanceof Error ? error.message : String(error);
-            result.methods.webpush.errors.push(`Web Push error: ${errorMessage}`);
-            console.error(`❌ Web Push notification failed for ${user.email}:`, errorMessage);
+            result.methods.webpush.errors.push(`Push error: ${errorMessage}`);
           }
         }
-      } else {
-        result.methods.webpush.errors.push('No push subscriptions found');
       }
-      } catch {
-        result.methods.webpush.errors.push('VAPID keys not configured');
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        result.methods.webpush.errors.push(`Web Push setup error: ${errorMessage}`);
+        console.error('Web Push setup error:', error);
       }
     }
-
-    // Consolidate errors
-    result.errors = [
-      ...result.methods.webpush.errors,
-      ...result.methods.telegram.errors
-    ];
 
     result.success = result.sentCount > 0;
     return result;
@@ -187,7 +235,7 @@ export async function sendUpdateNotification(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     result.errors.push(`Notification error: ${errorMessage}`);
-    console.error('sendUpdateNotification error:', error);
+    console.error('Notification error:', error);
     return result;
   }
 }
@@ -202,60 +250,9 @@ export async function sendUpdateNotificationToMultipleUsers(
   const results: NotificationResult[] = [];
   
   for (const userId of userIds) {
-    try {
-      const result = await sendUpdateNotification(userId, updateData);
-      results.push(result);
-    } catch (error) {
-      results.push({
-        userId,
-        success: false,
-        sentCount: 0,
-        failedCount: 1,
-        errors: [error instanceof Error ? error.message : String(error)],
-        methods: {
-          webpush: { sent: 0, failed: 0, errors: [] },
-          telegram: { sent: 0, failed: 1, errors: [error instanceof Error ? error.message : String(error)] }
-        }
-      });
-    }
+    const result = await sendUpdateNotification(userId, updateData);
+    results.push(result);
   }
-
-  // Log summary
-  const totalSent = results.reduce((sum, r) => sum + r.sentCount, 0);
-  const totalFailed = results.reduce((sum, r) => sum + r.failedCount, 0);
-  const successfulUsers = results.filter(r => r.success).length;
-  const telegramSent = results.reduce((sum, r) => sum + r.methods.telegram.sent, 0);
-  const webpushSent = results.reduce((sum, r) => sum + r.methods.webpush.sent, 0);
   
-  console.log(`📢 Notification Summary for "${updateData.gameTitle}":`);
-  console.log(`   Users notified: ${successfulUsers}/${userIds.length}`);
-  console.log(`   Total notifications sent: ${totalSent}`);
-  console.log(`   ├── Telegram: ${telegramSent}`);
-  console.log(`   ├── Web Push: ${webpushSent}`);
-  console.log(`   Failed attempts: ${totalFailed}`);
-
   return results;
-}
-
-/**
- * Helper to extract notification data from update info
- */
-export function createUpdateNotificationData(
-  gameTitle: string,
-  updateInfo: {
-    version?: string;
-    gameLink?: string;
-    link?: string;
-    image?: string;
-    newImage?: string;
-  },
-  updateType: 'update' | 'sequel' = 'update'
-): UpdateNotificationData {
-  return {
-    gameTitle,
-    version: updateInfo.version,
-    updateType,
-    gameLink: updateInfo.gameLink || updateInfo.link,
-    imageUrl: updateInfo.image || updateInfo.newImage
-  };
 }

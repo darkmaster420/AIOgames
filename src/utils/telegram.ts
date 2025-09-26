@@ -1,6 +1,33 @@
 /**
  * Telegram Bot API utilities for sending notifications
- * Each user can configure their own Telegram bot for personalized notifications
+ * Each user can configure their own Telegram bot for person  let text = '';
+  
+  // Check if this is a user-approved update
+  if (changeType === 'user_approved') {
+    text += `🎯 <b>New Update Approved!</b>\n\n`;
+  } else {
+    text += `🎮 <b>New Pending Update!</b>\n\n`;
+  }
+
+  text += `📍 <b>${title}</b>\n`;
+  
+  if (version) {
+    text += `🆕 <b>New Version:</b> ${version}\n`;
+    if (previousVersion && previousVersion !== version) {
+      text += `🔄 <b>Current Version:</b> ${previousVersion}\n`;
+    }
+  }
+  
+  text += `🌐 <b>Source:</b> ${source || 'Unknown'}\n`;
+  
+  if (changeType && changeType !== 'unknown') {
+    const typeText = changeType === 'user_approved' 
+      ? 'Approved Update'
+      : changeType === 'update' 
+        ? 'Version Update' 
+        : changeType.replace('_', ' ');
+    text += `📝 <b>Type:</b> ${typeText}\n`;
+  }tions
  */
 
 export interface TelegramConfig {
@@ -50,8 +77,7 @@ export async function sendTelegramMessage(
       return { success: false, error: errorMessage };
     }
 
-    const result = await response.json();
-    console.log('✅ Telegram message sent successfully:', result.message_id);
+    await response.json();
     return { success: true };
 
   } catch (error) {
@@ -118,32 +144,58 @@ export function formatGameUpdateMessage(gameData: {
 }): TelegramMessage {
   const { title, version, previousVersion, gameLink, source, changeType, downloadLinks } = gameData;
   
-  let text = `🎮 <b>Game Update Available!</b>\n\n`;
+  // Set message header and icon based on type
+  let text = '';
+  if (changeType === 'user_approved') {
+    text = `✅ <b>Update Approved!</b>\n\n`;
+  } else {
+    text = `🎮 <b>New Pending Update!</b>\n\n`;
+  }
+
+  // Game title and version info
   text += `📍 <b>${title}</b>\n`;
-  
   if (version) {
-    text += `🆕 <b>Version:</b> ${version}\n`;
+    if (changeType === 'user_approved') {
+      text += `🆕 <b>Updated To:</b> ${version}\n`;
+    } else {
+      text += `🆕 <b>New Version:</b> ${version}\n`;
+    }
+    
     if (previousVersion && previousVersion !== version) {
       text += `🔄 <b>Previous:</b> ${previousVersion}\n`;
     }
   }
   
-  text += `🌐 <b>Source:</b> ${source}\n`;
-  
-  if (changeType && changeType !== 'unknown') {
-    text += `📝 <b>Change:</b> ${changeType.replace('_', ' ')}\n`;
+  // Source and status
+  text += `🌐 <b>Source:</b> ${source || 'Unknown'}\n`;
+  if (changeType === 'user_approved') {
+    text += `📥 <b>Status:</b> Ready to Download\n`;
+  } else if (changeType && changeType !== 'unknown') {
+    text += `📝 <b>Type:</b> ${changeType === 'update' ? 'Version Update' : changeType.replace('_', ' ')}\n`;
   }
   
-  text += `\n🔗 <a href="${gameLink}">View Game</a>`;
+  // Customize link text based on update type
+  if (changeType === 'user_approved') {
+    text += `\n🔗 <a href="${gameLink || '/tracking'}">Download Now</a>`;
+  } else {
+    text += `\n🔗 <a href="${gameLink || '/tracking'}">View Pending Update</a>`;
+  }
   
   if (downloadLinks && downloadLinks.length > 0) {
-    text += `\n\n📥 <b>Downloads:</b>\n`;
+    text += `\n\n📥 <b>Download Links:</b>\n`;
     downloadLinks.forEach(link => {
-      text += `• <a href="${link.url}">${link.service}</a>\n`;
+      text += `• <a href="${link.url}">${link.service}${link.type ? ` (${link.type})` : ''}</a>\n`;
     });
   }
   
-  text += `\n⏰ ${new Date().toLocaleString()}`;
+  text += `\n⏰ ${new Date().toLocaleString('en-US', { 
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  })}`;
   
   return {
     text,

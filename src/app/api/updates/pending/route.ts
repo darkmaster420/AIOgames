@@ -130,6 +130,24 @@ export async function POST(req: NextRequest) {
         title: pendingUpdate.newTitle
       });
 
+      // Notify all users tracking this game
+      try {
+        const { sendUpdateNotificationToMultipleUsers, createUpdateNotificationData } = await import('../../../../utils/notifications');
+        const trackedGames = await TrackedGame.find({ gameId: game.gameId, isActive: true });
+        const userIds = trackedGames.map(g => g.userId.toString());
+        const notificationData = createUpdateNotificationData({
+          gameTitle: pendingUpdate.newTitle,
+          version: versionString,
+          gameLink: pendingUpdate.newLink,
+          imageUrl: pendingUpdate.newImage,
+          updateType: 'update'
+        });
+        console.log('[NOTIFY][PENDING] userIds:', userIds, 'notificationData:', notificationData);
+        await sendUpdateNotificationToMultipleUsers(userIds, notificationData);
+      } catch (notifyError) {
+        console.error('Failed to send notifications for confirmed update:', notifyError);
+      }
+
       return NextResponse.json({
         message: 'Update confirmed and added to history',
         confirmedUpdate: {

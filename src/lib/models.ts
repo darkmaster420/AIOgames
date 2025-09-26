@@ -69,6 +69,10 @@ const userSchema = new mongoose.Schema({
         type: String,
         default: ''
       },
+      notifyImmediately: {
+        type: Boolean,
+        default: true
+      },
       updateFrequency: {
         type: String,
         enum: ['immediate', 'daily', 'weekly'],
@@ -221,54 +225,22 @@ const trackedGameSchema = new mongoose.Schema({
       type: String,
       required: true
     },
-    build: {
-      type: String,
-      default: ''
-    },
-    releaseType: {
-      type: String,
-      default: ''
-    },
-    updateType: {
-      type: String,
-      default: ''
-    },
-    changeType: {
-      type: String,
-      enum: ['version', 'build', 'release_type', 'update_type', 'different_link', 'unknown'],
-      default: 'unknown'
-    },
-    significance: {
-      type: Number,
-      min: 0,
-      max: 3,
-      default: 1
-    },
+    build: String,
+    releaseType: String,
+    updateType: String,
+    changeType: String,
+    significance: Number,
     dateFound: {
       type: Date,
-      required: true
+      default: Date.now
     },
-    gameLink: {
-      type: String,
-      required: true
-    },
-    previousVersion: {
-      type: String,
-      default: ''
-    },
-    versionDetails: {
-      old: {
-        version: String,
-        build: String,
-        releaseType: String,
-        updateType: String
-      },
-      new: {
-        version: String,
-        build: String,
-        releaseType: String,
-        updateType: String
-      }
+    gameLink: String,
+    previousVersion: String,
+    confirmedByUser: Boolean,
+    originalReason: String,
+    isLatest: {
+      type: Boolean,
+      default: false
     },
     downloadLinks: [{
       service: {
@@ -285,6 +257,31 @@ const trackedGameSchema = new mongoose.Schema({
       }
     }]
   }],
+  latestApprovedUpdate: {
+    version: {
+      type: String,
+      required: true
+    },
+    dateFound: {
+      type: Date,
+      default: Date.now
+    },
+    gameLink: String,
+    downloadLinks: [{
+      service: {
+        type: String,
+        required: true
+      },
+      url: {
+        type: String,
+        required: true
+      },
+      type: {
+        type: String,
+        default: 'download'
+      }
+    }]
+  },
   pendingUpdates: [{
     detectedVersion: {
       type: String,
