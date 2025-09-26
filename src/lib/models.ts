@@ -258,10 +258,7 @@ const trackedGameSchema = new mongoose.Schema({
     }]
   }],
   latestApprovedUpdate: {
-    version: {
-      type: String,
-      required: true
-    },
+    version: String,
     dateFound: {
       type: Date,
       default: Date.now
