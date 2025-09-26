@@ -75,19 +75,27 @@ export async function POST(request: NextRequest) {
       source: pendingUpdate.source || 'Game Tracker'
     };
 
-    // Complete replace the game record with the new update info
+    // Complete replace the game record with the new update info and update all version-related fields
     await TrackedGame.findByIdAndUpdate(gameId, {
       $pull: { pendingUpdates: { _id: pendingUpdate._id } },
       lastKnownVersion: versionString,
+      currentVersionNumber: versionString,
+      versionNumberVerified: true,
+      versionNumberSource: 'user_approved',
+      versionNumberLastUpdated: new Date(),
       lastVersionDate: pendingUpdate.dateFound,
       title: pendingUpdate.newTitle,
       gameLink: pendingUpdate.newLink,
       ...(pendingUpdate.newImage && { image: pendingUpdate.newImage }),
-      // Create new update history entry with current version as the first item
-      updateHistory: [{
-        ...approvedUpdate,
-        isLatest: true
-      }],
+      $push: {
+        updateHistory: {
+          $each: [{
+            ...approvedUpdate,
+            isLatest: true
+          }],
+          $position: 0
+        }
+      },
       // Mark this as the latest approved update
       latestApprovedUpdate: {
         version: versionString,
