@@ -102,7 +102,10 @@ export async function POST(request: NextRequest) {
         dateFound: pendingUpdate.dateFound,
         gameLink: pendingUpdate.newLink,
         downloadLinks: pendingUpdate.downloadLinks || []
-      }
+      },
+      // Set new update indicator
+      hasNewUpdate: true,
+      newUpdateSeen: false
     });
 
     // Notify all users tracking this game

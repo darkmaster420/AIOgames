@@ -38,6 +38,8 @@ interface TrackedGame {
   lastChecked: string;
   notificationsEnabled: boolean;
   checkFrequency: string;
+  hasNewUpdate?: boolean;
+  newUpdateSeen?: boolean;
   updateHistory: Array<{
     version: string;
     dateFound: string;
@@ -90,6 +92,34 @@ export default function TrackingDashboard() {
         ? { ...game, steamVerified: verified, steamAppId, steamName }
         : game
     ));
+  };
+
+  // Handle marking update as seen
+  const handleMarkUpdateSeen = async (gameId: string) => {
+    try {
+      const response = await fetch('/api/games/mark-seen', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ gameId }),
+      });
+
+      if (response.ok) {
+        // Update the local state
+        setTrackedGames(prev => prev.map(game => 
+          game._id === gameId 
+            ? { ...game, hasNewUpdate: false, newUpdateSeen: true }
+            : game
+        ));
+        showSuccess('Update marked as seen');
+      } else {
+        const error = await response.json();
+        showError(error.error || 'Failed to mark update as seen');
+      }
+    } catch {
+      showError('Failed to mark update as seen');
+    }
   };
 
   // Handle single game update check
@@ -332,9 +362,25 @@ export default function TrackingDashboard() {
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-4">
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-col gap-1">
-                          <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white truncate">
-                            {cleanGameTitle(game.title)}
-                          </h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white truncate">
+                              {cleanGameTitle(game.title)}
+                            </h3>
+                            {game.hasNewUpdate && !game.newUpdateSeen && (
+                              <div className="flex items-center gap-2">
+                                <span className="px-2 py-1 bg-red-500 text-white text-xs font-bold rounded-full animate-pulse">
+                                  NEW
+                                </span>
+                                <button
+                                  onClick={() => handleMarkUpdateSeen(game._id)}
+                                  className="text-xs text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 underline"
+                                  title="Mark as seen"
+                                >
+                                  dismiss
+                                </button>
+                              </div>
+                            )}
+                          </div>
                           {game.lastKnownVersion && (
                             <div className="inline-flex items-center gap-1.5">
                               <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-xs rounded-full">

@@ -405,6 +405,14 @@ const trackedGameSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
+  },
+  hasNewUpdate: {
+    type: Boolean,
+    default: false
+  },
+  newUpdateSeen: {
+    type: Boolean,
+    default: true
   }
 }, {
   timestamps: true
