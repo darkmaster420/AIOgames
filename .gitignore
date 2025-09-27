@@ -59,6 +59,7 @@ next-env.d.ts
 *.swp
 *.swo
 *~
+.vscode/
 
 # OS
 .DS_Store
