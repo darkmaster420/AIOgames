@@ -239,7 +239,8 @@ export default function Dashboard() {
                   </span>
                 )}
               </div>
-            )}\n          </div>
+            )}
+          </div>
           <div className="flex flex-col sm:flex-row gap-2">
             <select
               value={siteFilter}
