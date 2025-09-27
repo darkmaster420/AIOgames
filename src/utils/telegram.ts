@@ -146,7 +146,9 @@ export function formatGameUpdateMessage(gameData: {
   
   // Set message header and icon based on type
   let text = '';
-  if (changeType === 'user_approved') {
+  
+  // Set header based on update status
+  if (changeType === 'user_approved' || changeType === 'automatic') {
     text = `✅ <b>Update Approved!</b>\n\n`;
   } else {
     text = `🎮 <b>New Pending Update!</b>\n\n`;
@@ -155,40 +157,60 @@ export function formatGameUpdateMessage(gameData: {
   // Game title and version info
   text += `📍 <b>${title}</b>\n`;
   if (version) {
-    if (changeType === 'user_approved') {
-      text += `🆕 <b>Updated To:</b> ${version}\n`;
-    } else {
-      text += `🆕 <b>New Version:</b> ${version}\n`;
-    }
-    
     if (previousVersion && previousVersion !== version) {
-      text += `🔄 <b>Previous:</b> ${previousVersion}\n`;
+      // Format version for better display
+      let formattedVersion = version;
+      
+      // Try to format as "Build XXXXX STANDARD (FULL)" if it's a build-based update
+      if (version.includes('Build')) {
+        const buildMatch = version.match(/Build\s*(\d+)/i);
+        const typeMatch = version.match(/(STANDARD|DELUXE|PREMIUM|GOTY|COMPLETE|REPACK|PROPER)/i);
+        const fullMatch = version.match(/(FULL|COMPLETE)/i);
+        
+        if (buildMatch) {
+          formattedVersion = `Build ${buildMatch[1]}`;
+          if (typeMatch) formattedVersion += ` ${typeMatch[1]}`;
+          if (fullMatch) formattedVersion += ` (${fullMatch[1]})`;
+        }
+      }
+      
+      text += `🆕 <b>Updated To:</b> ${formattedVersion}\n`;
+    } else {
+      text += `🆕 <b>Version:</b> ${version}\n`;
     }
   }
   
   // Source and status
-  text += `🌐 <b>Source:</b> ${source || 'Unknown'}\n`;
-  if (changeType === 'user_approved') {
+  text += `🌐 <b>Source:</b> ${source || 'Game Tracker'}\n`;
+  if (changeType === 'user_approved' || changeType === 'automatic') {
     text += `📥 <b>Status:</b> Ready to Download\n`;
+    if (changeType === 'automatic') {
+      text += `🤖 <b>Note:</b> Auto-approved update\n`;
+    }
   } else if (changeType && changeType !== 'unknown') {
     text += `📝 <b>Type:</b> ${changeType === 'update' ? 'Version Update' : changeType.replace('_', ' ')}\n`;
   }
   
   // Customize link text based on update type
-  if (changeType === 'user_approved') {
-    text += `\n🔗 <a href="${gameLink || '/tracking'}">Download Now</a>`;
+  if (changeType === 'user_approved' || changeType === 'automatic') {
+    text += `\n🔗 <b>Download Now</b>`;
   } else {
     text += `\n🔗 <a href="${gameLink || '/tracking'}">View Pending Update</a>`;
   }
   
+  console.log(`📥 Processing download links in Telegram formatter:`, downloadLinks);
   if (downloadLinks && downloadLinks.length > 0) {
     text += `\n\n📥 <b>Download Links:</b>\n`;
     downloadLinks.forEach(link => {
-      text += `• <a href="${link.url}">${link.service}${link.type ? ` (${link.type})` : ''}</a>\n`;
+      text += `• ${link.service}${link.type ? ` (${link.type})` : ' (hosting)'}\n`;
     });
+    console.log(`✅ Added ${downloadLinks.length} download links to Telegram message`);
+  } else {
+    console.log(`❌ No download links found or empty array`);
   }
   
-  text += `\n⏰ ${new Date().toLocaleString('en-US', { 
+  // Add timestamp
+  text += `\n\n⏰ ${new Date().toLocaleString('en-US', { 
     year: 'numeric',
     month: 'short',
     day: 'numeric',

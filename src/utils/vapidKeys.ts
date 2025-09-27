@@ -35,18 +35,15 @@ export function getVapidKeys(): { publicKey: string; privateKey: string } {
           privateKey: privateMatch[1]
         };
       }
-    } catch (error) {
-      console.warn('Could not read .env.local file:', error);
+    } catch {
+      // Could not read .env.local file - continuing with environment variables  
     }
   }
 
   // If still not found, generate keys at runtime and cache them
   if (!generatedKeys) {
-    console.log('🔐 No VAPID keys found in environment or .env.local. Generating runtime keys...');
+    // Generate runtime VAPID keys
     generatedKeys = webpush.generateVAPIDKeys();
-    console.log('✅ VAPID keys generated at runtime');
-    console.log('⚠️  Note: These keys will be regenerated on each container restart.');
-    console.log('⚠️  For production, set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY environment variables.');
   }
 
   return generatedKeys!; // We know it's not null at this point
@@ -64,8 +61,6 @@ export function configureWebPush(): void {
     publicKey,
     privateKey
   );
-  
-  console.log('📧 Web push configured with VAPID keys');
 }
 
 /**

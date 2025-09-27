@@ -819,7 +819,7 @@ export async function POST() {
                   imageUrl: bestMatch.image,
                   updateType: 'update'
                 });
-                console.log('[NOTIFY][CHECK] userIds:', userIds, 'notificationData:', notificationData);
+                // Sending notifications for update check
                 await sendUpdateNotificationToMultipleUsers(userIds, notificationData);
               } catch (notifyError) {
                 console.error('Failed to send notifications for pending update:', notifyError);

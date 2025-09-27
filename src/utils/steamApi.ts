@@ -159,7 +159,6 @@ export async function searchSteamGames(query: string, limit: number = 10): Promi
     const encodedQuery = encodeURIComponent(query.trim());
     const url = `${STEAM_API_BASE}/search?q=${encodedQuery}&limit=${limit}`;
     
-    console.log(`🎮 Searching Steam API for: "${query}"`);
     const response = await steamApiFetch(url) as {
       results?: SteamGameResult[];
       total?: number;
@@ -177,7 +176,6 @@ export async function searchSteamGames(query: string, limit: number = 10): Promi
     // Cache successful responses
     setCacheResult(cacheKey, result);
     
-    console.log(`🎮 Steam API search completed: ${result.results.length} results from ${result.source}`);
     return result;
     
   } catch (error) {
@@ -205,7 +203,6 @@ export async function getSteamGameById(appId: string | number): Promise<SteamGam
   try {
     const url = `${STEAM_API_BASE}/search?q=${appId}`;
     
-    console.log(`🎮 Getting Steam game by ID: ${appId}`);
     const response = await steamApiFetch(url) as {
       results?: SteamGameResult[];
     };
@@ -219,7 +216,6 @@ export async function getSteamGameById(appId: string | number): Promise<SteamGam
     // Cache successful responses
     setCacheResult(cacheKey, game);
     
-    console.log(`🎮 Steam game found: ${game.name} (${game.appid})`);
     return game;
     
   } catch (error) {
@@ -270,7 +266,7 @@ export async function findSteamMatches(
       })
       .slice(0, limit);
 
-    console.log(`🎮 Steam matches for "${gameTitle}": ${matches.length} games above ${threshold} threshold`);
+    // Steam matches found above threshold
     
     return matches;
     
@@ -628,7 +624,6 @@ export function extractSteamAppId(text: string): string | null {
  */
 export function clearSteamCache(): void {
   steamCache.clear();
-  console.log('🎮 Steam API cache cleared');
 }
 
 /**
