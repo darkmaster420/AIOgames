@@ -8,6 +8,7 @@ import { DownloadLinks } from '../../components/DownloadLinks';
 import { SteamVerification } from '../../components/SteamVerification';
 import { SmartVersionVerification } from '../../components/SmartVersionVerification';
 import { SequelNotifications } from '../../components/SequelNotifications';
+import { SchedulerStatus } from '../../components/SchedulerStatus';
 import { AddCustomGame } from '../../components/AddCustomGame';
 import { useConfirm } from '../../components/ConfirmDialog';
 import { ImageWithFallback } from '../../utils/imageProxy';
@@ -281,6 +282,11 @@ export default function TrackingDashboard() {
             </button>
             <SequelNotifications />
           </div>
+
+        {/* Automatic Update Scheduler Status */}
+        <div className="mb-6">
+          <SchedulerStatus />
+        </div>
 
         {/* Summary Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">

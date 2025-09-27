@@ -7,7 +7,8 @@
     "dev": "next dev --turbopack",
     "prebuild": "node scripts/ensure-vapid.js",
     "build": "next build --turbopack",
-    "start": "next start",
+    "start": "node .next/standalone/server.js",
+    "start:next": "next start",
     "lint": "eslint"
   },
   "dependencies": {

@@ -4,6 +4,7 @@ import { TrackedGame } from '../../../lib/models';
 import { getCurrentUser } from '../../../lib/auth';
 import { cleanGameTitle, decodeHtmlEntities } from '../../../utils/steamApi';
 import { autoVerifyWithSteam } from '../../../utils/autoSteamVerification';
+import { updateScheduler } from '../../../lib/scheduler';
 
 // GET - Fetch all tracked games for the current user
 export async function GET() {
@@ -121,6 +122,14 @@ export async function POST(request: NextRequest) {
       // Don't fail the entire request if Steam verification fails
     }
 
+    // Update user's scheduler after adding a game
+    try {
+      await updateScheduler.updateUserSchedule(user.id);
+    } catch (schedulerError) {
+      console.error('Failed to update scheduler:', schedulerError);
+      // Don't fail the request if scheduler update fails
+    }
+
     return NextResponse.json({
       message: 'Game added to tracking',
       game: trackedGame
@@ -172,6 +181,14 @@ export async function DELETE(request: NextRequest) {
     }
 
     console.log(`🗑️ Successfully deleted tracked game: "${result.title}" (${gameId}) for user ${user.id}`);
+
+    // Update user's scheduler after removing a game
+    try {
+      await updateScheduler.updateUserSchedule(user.id);
+    } catch (schedulerError) {
+      console.error('Failed to update scheduler:', schedulerError);
+      // Don't fail the request if scheduler update fails
+    }
 
     return NextResponse.json({
       message: 'Game removed from tracking',

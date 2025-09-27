@@ -5,6 +5,7 @@ import { ThemeProvider } from "../components/ThemeProvider";
 import AuthProvider from "../components/AuthProvider";
 import { NotificationProvider } from "../contexts/NotificationContext";
 import { NotificationContainer } from "../components/NotificationContainer";
+import './init'; // Initialize background services including scheduler
 
 const geistSans = Geist({
   variable: "--font-geist-sans",

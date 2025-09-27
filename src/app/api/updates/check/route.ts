@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
-import { TrackedGame, User } from '../../../../lib/models';
+import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
-import { detectSequel, getSequelThreshold } from '../../../../utils/sequelDetection';
-import { SITE_VALUES } from '../../../../lib/sites';
+import { detectSequel } from '../../../../utils/sequelDetection';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
-import { findSteamMatches, cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities } from '../../../../utils/steamApi';
+import { cleanGameTitle, decodeHtmlEntities } from '../../../../utils/steamApi';
 
 interface GameSearchResult {
   id: string;
@@ -22,18 +21,6 @@ interface GameSearchResult {
   }>;
 }
 
-interface UpdateDetails {
-  oldVersion: VersionInfo;
-  newVersion: VersionInfo;
-  comparison: { isNewer: boolean; changeType: string; significance: number };
-  reason: string;
-}
-
-interface UpdateResult {
-  isUpdate: boolean;
-  details: UpdateDetails | null;
-}
-
 interface VersionInfo {
   version: string;
   build: string;
@@ -42,508 +29,281 @@ interface VersionInfo {
   baseTitle: string;
   fullVersionString: string;
   confidence: number;
-  sceneGroup: string;
   needsUserConfirmation: boolean;
 }
 
-// Enhanced game matching and update detection
+// Helper functions - enhanced for comprehensive piracy tag handling
 function calculateGameSimilarity(title1: string, title2: string): number {
-  // Use the enhanced title cleaning functions that preserve edition information when needed
-  const cleanTitle1 = cleanGameTitlePreserveEdition(title1);
-  const cleanTitle2 = cleanGameTitlePreserveEdition(title2);
+  const clean1 = cleanGameTitle(title1).toLowerCase();
+  const clean2 = cleanGameTitle(title2).toLowerCase();
   
-  // If both titles have edition information, preserve it for more accurate matching
-  const hasEditionInfo = (title: string) => 
-    /\b(deluxe|premium|ultimate|collectors?|gold|standard|definitive|enhanced|complete|special|limited)\b/i.test(title);
+  if (clean1 === clean2) return 1.0;
   
-  let finalTitle1, finalTitle2;
-  
-  if (hasEditionInfo(title1) || hasEditionInfo(title2)) {
-    // Preserve edition information if either title has it
-    finalTitle1 = cleanTitle1;
-    finalTitle2 = cleanTitle2;
-  } else {
-    // Use standard cleaning for basic matching when no edition info is present
-    finalTitle1 = cleanGameTitle(title1);
-    finalTitle2 = cleanGameTitle(title2);
-  }
-
-  if (finalTitle1 === finalTitle2) return 1.0;
-
   // Check for substring matches
-  if (finalTitle1.includes(finalTitle2) || finalTitle2.includes(finalTitle1)) return 0.8;
+  if (clean1.includes(clean2) || clean2.includes(clean1)) return 0.85;
   
   // Split into words and check overlap
-  const words1 = finalTitle1.split(/\s+/);
-  const words2 = finalTitle2.split(/\s+/);
-  const intersection = words1.filter(word => words2.includes(word));
+  const words1 = clean1.split(/\s+/);
+  const words2 = clean2.split(/\s+/);
+  
+  const intersection = words1.filter((word: string) => words2.includes(word));
   const union = [...new Set([...words1, ...words2])];
   
   return intersection.length / union.length;
 }
 
+// Enhanced version extraction with comprehensive piracy release support
 function extractVersionInfo(title: string): VersionInfo {
-  const result: VersionInfo = {
-    version: '',
-    build: '',
-    releaseType: '',
-    updateType: '',
-    baseTitle: title,
-    fullVersionString: '',
-    confidence: 0,
-    sceneGroup: '',
-    needsUserConfirmation: false
-  };
-
-  // Scene group patterns (TENOKE, CODEX, etc.)
-  const sceneGroupPattern = /-([A-Z0-9]{3,})\b/;
-  const sceneMatch = title.match(sceneGroupPattern);
-  if (sceneMatch) {
-    result.sceneGroup = sceneMatch[1];
-    // Remove scene group from title for cleaner processing
-    result.baseTitle = title.replace(sceneMatch[0], '').trim();
-  }
-
-  // Version patterns (in order of priority)
+  const originalTitle = title;
+  const cleanTitle = cleanGameTitle(title);
+  
+  // Extract version patterns - comprehensive coverage for piracy releases
   const versionPatterns = [
-    // Semantic version patterns
-    { pattern: /v?(\d+\.\d+\.\d+(?:\.\d+)?)/i, type: 'semantic', confidence: 0.9 },
-    { pattern: /version\s*(\d+\.\d+(?:\.\d+)?)/i, type: 'semantic', confidence: 0.9 },
-    { pattern: /ver\s*(\d+\.\d+(?:\.\d+)?)/i, type: 'semantic', confidence: 0.8 },
-    
-    // Build patterns
-    { pattern: /build\s*(\d+)/i, type: 'build', confidence: 0.8 },
-    { pattern: /b(\d+)/i, type: 'build', confidence: 0.7 },
-    { pattern: /#(\d+)/i, type: 'build', confidence: 0.6 },
-    
-    // Date-based versions
-    { pattern: /(\d{4}[-.]?\d{2}[-.]?\d{2})/i, type: 'date', confidence: 0.7 },
-    { pattern: /(\d{8})/i, type: 'date', confidence: 0.6 },
-    
-    // Simple version patterns
-    { pattern: /v(\d+)/i, type: 'major', confidence: 0.6 },
-    { pattern: /(\d+\.\d+)/i, type: 'simple', confidence: 0.7 },
+    /v(\d+\.\d+\.\d+\.\d+)/i,              // v1.2.3.4
+    /v(\d{4}[-.]?\d{2}[-.]?\d{2})/i,        // v2024-01-15, v20240115
+    /v(\d{8})/i,                            // v20240115
+    /v(\d+(?:\.\d+)+)/i,                   // v1.2.3
+    /version\s*(\d+(?:\.\d+)+)/i,           // version 1.2.3
+    /ver\.?\s*(\d+(?:\.\d+)+)/i,            // ver 1.2, ver. 1.2
+    /(\d+\.\d+(?:\.\d+)*)/,               // 1.2.3 (standalone)
+    /\[(\d+\.\d+(?:\.\d+)*)\]/i,          // [1.2.3] (bracketed)
+    /\-(\d+\.\d+(?:\.\d+)*)\-/i,          // -1.2.3- (dashed)
+    /update\s*(\d+(?:\.\d+)*)/i,           // update 1.5
+    /patch\s*(\d+(?:\.\d+)*)/i,            // patch 1.2
+    /hotfix\s*(\d+(?:\.\d+)*)/i,           // hotfix 1.1
+    /rev\s*(\d+(?:\.\d+)*)/i,              // rev 2.1
+    /r(\d+(?:\.\d+)*)/i                    // r1.5
   ];
-
-  // Release type patterns
+  
+  // Extract build patterns - enhanced for scene releases
+  const buildPatterns = [
+    /build\s*#?(\d+)/i,     // build 12345, build #12345
+    /b(\d{4,})/i,           // b12345
+    /#(\d{4,})/i,           // #12345
+    /rev\s*(\d+)/i,         // rev 123, revision 123
+    /r(\d{3,})/i,           // r123
+    /release\s*(\d+)/i,     // release 1
+    /\.(\d{8})\./i,         // .20240115. (date builds)
+    /\-(\d{6,})\-/i,        // -123456- (build in dashes)
+    /\[(\d{5,})\]/i          // [12345] (bracketed builds)
+  ];
+  
   const releaseTypes = [
-    { pattern: /\b(alpha|α)\b/i, type: 'Alpha', priority: 1 },
-    { pattern: /\b(beta|β)\b/i, type: 'Beta', priority: 2 },
-    { pattern: /\b(rc|release\s*candidate)\b/i, type: 'RC', priority: 3 },
-    { pattern: /\b(pre-?release|preview)\b/i, type: 'Preview', priority: 2 },
-    { pattern: /\b(final|gold|rtm|release)\b/i, type: 'Final', priority: 4 },
-    { pattern: /\b(stable)\b/i, type: 'Stable', priority: 4 },
-    { pattern: /\b(nightly|dev|development)\b/i, type: 'Dev', priority: 0 }
+    // Quality/Edition indicators
+    'REPACK', 'PROPER', 'REAL PROPER', 'UNCUT', 'EXTENDED', 'DIRECTORS CUT', 'COMPLETE', 'GOTY', 'DEFINITIVE', 'ENHANCED',
+    'DELUXE', 'ULTIMATE', 'PREMIUM', 'COLLECTORS', 'SPECIAL EDITION', 'LIMITED EDITION', 'ANNIVERSARY',
+    
+    // Scene release indicators
+    'CRACKED', 'DENUVOLESS', 'DRM FREE', 'UNLOCKED', 'ACTIVATED', 'FULL UNLOCKED',
+    
+    // Content indicators
+    'ALL DLC', 'COMPLETE PACK', 'SEASON PASS', 'GOLD EDITION', 'GAME OF THE YEAR',
+    
+    // Technical indicators
+    'MULTI LANG', 'ENGLISH', 'MULTILANGUAGE', 'RUS ENG', 'MULTI13', 'MULTI12',
+    'STEAM RIP', 'GOG RIP', 'EPIC RIP', 'ORIGIN RIP',
+    
+    // Format indicators
+    'PORTABLE', 'STANDALONE', 'PREINSTALLED', 'PRE INSTALLED', 'READY TO PLAY'
   ];
-
-  // Update type patterns
+  
   const updateTypes = [
-    { pattern: /\b(hotfix|hot-fix)\b/i, type: 'Hotfix' },
-    { pattern: /\b(patch)\b/i, type: 'Patch' },
-    { pattern: /\b(update)\b/i, type: 'Update' },
-    { pattern: /\b(dlc|downloadable\s*content)\b/i, type: 'DLC' },
-    { pattern: /\b(expansion|addon|add-on)\b/i, type: 'Expansion' },
-    { pattern: /\b(repack|re-pack)\b/i, type: 'Repack' },
-    { pattern: /\b(remake|remaster)\b/i, type: 'Remake' },
-    { pattern: /\b(goty|game\s*of\s*the\s*year)\b/i, type: 'GOTY' },
-    { pattern: /\b(definitive|ultimate|enhanced|complete|deluxe|premium)\b/i, type: 'Enhanced' }
+    'UPDATE', 'HOTFIX', 'PATCH', 'DLC', 'EXPANSION', 
+    'BUGFIX', 'CRITICAL UPDATE', 'SECURITY UPDATE', 'CONTENT UPDATE',
+    'DAY ONE PATCH', 'POST LAUNCH', 'ANNIVERSARY UPDATE'
   ];
-
-  // Extract version/build numbers
-  let bestMatch = null;
-  let highestConfidence = 0;
-
-  for (const versionPattern of versionPatterns) {
-    const match = title.match(versionPattern.pattern);
-    if (match && versionPattern.confidence > highestConfidence) {
-      bestMatch = {
-        value: match[1],
-        type: versionPattern.type,
-        confidence: versionPattern.confidence,
-        fullMatch: match[0]
-      };
-      highestConfidence = versionPattern.confidence;
-    }
-  }
-
-  if (bestMatch) {
-    if (bestMatch.type === 'build') {
-      result.build = bestMatch.value;
-    } else {
-      result.version = bestMatch.value;
-    }
-    result.fullVersionString = bestMatch.fullMatch;
-    result.confidence = bestMatch.confidence;
-    result.baseTitle = title.replace(bestMatch.fullMatch, '').trim();
-  }
-
-  // Extract release type
-  let highestPriority = -1;
-  for (const releaseType of releaseTypes) {
-    const match = title.match(releaseType.pattern);
-    if (match && releaseType.priority > highestPriority) {
-      result.releaseType = releaseType.type;
-      highestPriority = releaseType.priority;
-    }
-  }
-
-  // Extract update type
-  for (const updateType of updateTypes) {
-    const match = title.match(updateType.pattern);
-    if (match) {
-      result.updateType = updateType.type;
-      break; // Take the first match
-    }
-  }
-
-  // Clean up base title using improved algorithm that handles ZERO vs 0
-  result.baseTitle = result.baseTitle
-    // Remove common piracy/release tags first
-    .replace(/\b(denuvoless|cracked|repack|fitgirl|dodi|empress|codex|skidrow|plaza)\b/gi, '')
-    .replace(/\b(free download|full version|complete edition)\b/gi, '')
-    .replace(/\b(all dlc|with dlc|dlc included)\b/gi, '')
-    .replace(/\b(pre-installed|preinstalled)\b/gi, '')
-    .replace(/\b(update \d+|hotfix|patch)\b/gi, '')
-    // Remove common edition tags that don't affect core identity
-    .replace(/\b(deluxe|digital deluxe|premium|ultimate|collectors?)\s+edition\b/gi, '')
-    .replace(/\b(goty|game of the year)\s+edition\b/gi, '')
-    // Remove year tags like (2023), (2024) etc
-    .replace(/\(\d{4}\)/g, '')
-    // Remove scene groups and release info
-    .replace(/-[A-Z0-9]{3,}$/g, '') // Scene groups at end
-    // Remove bracketed/parenthetical content
-    .replace(/\[[^\]]*\]/g, '')    
-    .replace(/\([^)]*\)/g, '')     
-    // Remove trademark symbols
-    .replace(/[®™©]/g, '')         
-    // Normalize number words - key improvement for ZERO vs 0
-    .replace(/\bzero\b/gi, '0')
-    .replace(/\bone\b/gi, '1')
-    .replace(/\btwo\b/gi, '2')
-    .replace(/\bthree\b/gi, '3')
-    .replace(/\bfour\b/gi, '4')
-    .replace(/\bfive\b/gi, '5')
-    .replace(/\bsix\b/gi, '6')
-    .replace(/\bseven\b/gi, '7')
-    .replace(/\beight\b/gi, '8')
-    .replace(/\bnine\b/gi, '9')
-    // Normalize roman numerals to numbers
-    .replace(/\bii\b/gi, '2')
-    .replace(/\biii\b/gi, '3')
-    .replace(/\biv\b/gi, '4')
-    .replace(/\bv\b(?!\w)/gi, '5') // \b at end to avoid matching "vs"
-    .replace(/\bvi\b/gi, '6')
-    .replace(/\bvii\b/gi, '7')
-    .replace(/\bviii\b/gi, '8')
-    .replace(/\bix\b/gi, '9')
-    .replace(/\bx\b(?!\w)/gi, '10')
-    // Normalize common variations
-    .replace(/\band\b/gi, '&')
-    .replace(/\bvs\.?\b/gi, 'vs')
-    .replace(/\bof the\b/gi, 'of')
-    // Normalize apostrophes and dashes
-    .replace(/[']/g, '')           // Remove apostrophes (Assassin's -> Assassins)
-    .replace(/[-:]/g, ' ')         // Convert dashes/colons to spaces
-    // Remove special characters and normalize
-    .replace(/[^\w\s&]/g, ' ')       
-    .replace(/\s+/g, ' ')          
-    .trim();
-
-  // If no version info found, mark for user confirmation
-  if (!result.version && !result.build && !result.updateType && result.confidence < 0.5) {
-    result.needsUserConfirmation = true;
-  }
-
-  return result;
-}
-
-function compareVersions(oldInfo: VersionInfo, newInfo: VersionInfo): { isNewer: boolean, changeType: string, significance: number } {
-  // If no version info available, compare by other means
-  if (!oldInfo.version && !oldInfo.build && !newInfo.version && !newInfo.build) {
-    return { isNewer: false, changeType: 'unknown', significance: 0 };
-  }
-
-  // Compare semantic versions
-  if (oldInfo.version && newInfo.version) {
-    // Check if these are date-based versions (8 digits or YYYY-MM-DD format)
-    const isDateVersion = (version: string) => {
-      return /^\d{8}$/.test(version) || /^\d{4}[-.]\d{2}[-.]\d{2}$/.test(version);
-    };
-    
-    const oldIsDate = isDateVersion(oldInfo.version);
-    const newIsDate = isDateVersion(newInfo.version);
-    
-    // If both are date versions, compare them as dates
-    if (oldIsDate && newIsDate) {
-      const normalizeDate = (dateStr: string) => {
-        // Convert YYYY-MM-DD or YYYY.MM.DD to YYYYMMDD
-        return dateStr.replace(/[-\.]/g, '');
-      };
-      
-      const oldDate = normalizeDate(oldInfo.version);
-      const newDate = normalizeDate(newInfo.version);
-      
-      if (newDate > oldDate) {
-        return { isNewer: true, changeType: 'date_version', significance: 2 };
-      } else if (newDate < oldDate) {
-        return { isNewer: false, changeType: 'date_version', significance: 0 };
-      }
-    }
-    // If mixing date and semantic versions, treat as incompatible but still try numeric comparison
-    else if (oldIsDate || newIsDate) {
-      const oldNum = parseInt(oldInfo.version.replace(/[^\d]/g, ''));
-      const newNum = parseInt(newInfo.version.replace(/[^\d]/g, ''));
-      
-      if (newNum > oldNum) {
-        return { isNewer: true, changeType: 'mixed_version', significance: 2 };
-      } else if (newNum < oldNum) {
-        return { isNewer: false, changeType: 'mixed_version', significance: 0 };
-      }
-    }
-    // Standard semantic version comparison
-    else {
-      const oldParts = oldInfo.version.split('.').map(Number);
-      const newParts = newInfo.version.split('.').map(Number);
-      
-      for (let i = 0; i < Math.max(oldParts.length, newParts.length); i++) {
-        const oldPart = oldParts[i] || 0;
-        const newPart = newParts[i] || 0;
-        
-        if (newPart > oldPart) {
-          const significance = i === 0 ? 3 : i === 1 ? 2 : 1; // Major.Minor.Patch significance
-          return { isNewer: true, changeType: 'version', significance };
-        } else if (newPart < oldPart) {
-          return { isNewer: false, changeType: 'version', significance: 0 };
-        }
-      }
-    }
-  }
-
-  // Compare build numbers
-  if (oldInfo.build && newInfo.build) {
-    const oldBuild = parseInt(oldInfo.build);
-    const newBuild = parseInt(newInfo.build);
-    
-    if (newBuild > oldBuild) {
-      return { isNewer: true, changeType: 'build', significance: 1 };
-    } else if (newBuild < oldBuild) {
-      return { isNewer: false, changeType: 'build', significance: 0 };
-    }
-  }
-
-  // Compare release types (Alpha < Beta < RC < Final)
-  const releaseTypePriority = { 'Dev': 0, 'Alpha': 1, 'Beta': 2, 'Preview': 2, 'RC': 3, 'Final': 4, 'Stable': 4 };
-  const oldPriority = releaseTypePriority[oldInfo.releaseType as keyof typeof releaseTypePriority] || 4;
-  const newPriority = releaseTypePriority[newInfo.releaseType as keyof typeof releaseTypePriority] || 4;
   
-  if (newPriority > oldPriority) {
-    return { isNewer: true, changeType: 'release_type', significance: 2 };
-  }
-
-  // Check for new update types
-  if (newInfo.updateType && newInfo.updateType !== oldInfo.updateType) {
-    const updateSignificance = newInfo.updateType === 'Hotfix' ? 2 : 
-                              newInfo.updateType === 'DLC' || newInfo.updateType === 'Expansion' ? 3 : 1;
-    return { isNewer: true, changeType: 'update_type', significance: updateSignificance };
-  }
-
-  return { isNewer: false, changeType: 'none', significance: 0 };
-}
-
-function isSignificantUpdate(oldTitle: string, newTitle: string, oldLink: string, newLink: string): UpdateResult {
-  // Different links usually mean different posts/versions
-  if (oldLink !== newLink) {
-    const oldInfo = extractVersionInfo(oldTitle);
-    const newInfo = extractVersionInfo(newTitle);
-    const comparison = compareVersions(oldInfo, newInfo);
-    
-    return {
-      isUpdate: comparison.isNewer || comparison.significance > 0,
-      details: {
-        oldVersion: oldInfo,
-        newVersion: newInfo,
-        comparison,
-        reason: oldLink !== newLink ? 'different_link' : comparison.changeType
-      }
-    };
-  }
-
-  return { isUpdate: false, details: null };
-}
-
-// Enhanced game matching with Steam API fallback for low confidence matches
-async function enhanceGameMatchingWithSteam(
-  originalTitle: string, 
-  candidates: GameSearchResult[], 
-  minConfidence: number = 0.8
-): Promise<Array<GameSearchResult & { steamEnhanced?: boolean; steamConfidence?: number }>> {
-  const enhancedCandidates = [...candidates];
+  let version = '';
+  let build = '';
+  let releaseType = '';
+  let updateType = '';
+  let confidence = 1.0;
   
-  // Check if we have any high-confidence matches
-  const highConfidenceMatch = candidates.find(candidate => 
-    calculateGameSimilarity(originalTitle, candidate.title) >= minConfidence
+  // Detect scene groups for confidence adjustment
+  const sceneGroups = [
+    'CODEX', 'PLAZA', 'SKIDROW', 'EMPRESS', 'FITGIRL', 'DODI', 'RUNE', 'TENOKE', 'CPY',
+    'ALI213', '3DM', 'RELOADED', 'RAZOR1911', 'PROPHET', 'HOODLUM', 'FAIRLIGHT',
+    'SIMPLEX', 'DARKZER0', 'CHRONOS', 'FLT', 'UNLEASHED', 'DEVIANCE', 'VITALITY',
+    'OUTLAWS', 'TINYISO', 'STEAMPUNKS', 'DARKSIDERS', 'MASQUERADE', 'GOLDBERG', 'OVA GAMES'
+  ];
+  
+  const hasSceneGroup = sceneGroups.some(group => 
+    originalTitle.toUpperCase().includes(group) || originalTitle.toUpperCase().includes(`-${group}`)
   );
   
-  // If we have high confidence matches, no need for Steam API fallback
-  if (highConfidenceMatch) {
-    console.log(`🎮 High confidence match found for "${originalTitle}", skipping Steam API`);
-    return enhancedCandidates;
+  if (hasSceneGroup) {
+    confidence *= 0.95; // High confidence for known scene groups
+  }
+
+  // Extract version number
+  for (const pattern of versionPatterns) {
+    const match = originalTitle.match(pattern);
+    if (match) {
+      version = match[1];
+      confidence *= 0.9;
+      break;
+    }
   }
   
-  try {
-    console.log(`🎮 Low confidence matches for "${originalTitle}", trying Steam API fallback...`);
+  if (!version) {
+    for (const pattern of versionPatterns) {
+      const match = cleanTitle.match(pattern);
+      if (match) {
+        version = match[1];
+        confidence *= 0.8;
+        break;
+      }
+    }
+  }
+  
+  // Extract build number
+  for (const pattern of buildPatterns) {
+    const match = originalTitle.match(pattern);
+    if (match) {
+      build = match[1];
+      confidence *= 0.85;
+      break;
+    }
+  }
+  
+  // Extract types
+  for (const type of releaseTypes) {
+    if (cleanTitle.includes(type)) {
+      releaseType = type;
+      confidence *= 0.95;
+      break;
+    }
+  }
+  
+  for (const type of updateTypes) {
+    if (cleanTitle.includes(type)) {
+      updateType = type;
+      confidence *= 0.9;
+      break;
+    }
+  }
+  
+  // Additional confidence adjustments for piracy releases
+  const piracyIndicators = ['cracked', 'repack', 'denuvoless', 'drm free', 'pre installed'];
+  const hasPiracyIndicators = piracyIndicators.some(indicator => 
+    originalTitle.toLowerCase().includes(indicator)
+  );
+  
+  if (hasPiracyIndicators) {
+    confidence *= 0.9; // Still high confidence but slightly lower
+  }
+  
+  // Boost confidence if we have clear version and/or build info
+  if (version && build) {
+    confidence *= 1.1; // Both version and build found
+  } else if (version || build) {
+    confidence *= 1.05; // At least one found
+  }
+  
+  return {
+    version,
+    build,
+    releaseType,
+    updateType,
+    baseTitle: cleanTitle,
+    fullVersionString: `${version}${build ? ` Build ${build}` : ''}${releaseType ? ` ${releaseType}` : ''}`,
+    confidence: Math.min(confidence, 1.0), // Cap at 1.0
+    needsUserConfirmation: confidence < 0.7
+  };
+}
+
+function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { isNewer: boolean; changeType: string; significance: number } {
+  let isNewer = false;
+  let changeType = 'unknown';
+  let significance = 0;
+  
+  if (oldVersion.version && newVersion.version) {
+    const oldParts = oldVersion.version.split('.').map(Number);
+    const newParts = newVersion.version.split('.').map(Number);
     
-    // Extract base title for better Steam matching
-    const baseTitle = extractVersionInfo(originalTitle).baseTitle;
-    const searchTitle = baseTitle || originalTitle;
+    const maxLength = Math.max(oldParts.length, newParts.length);
     
-    // Try to find matches using Steam API
-    const steamMatches = await findSteamMatches(searchTitle, 0.6, 3);
-    
-    if (steamMatches.length > 0) {
-      console.log(`🎮 Steam API found ${steamMatches.length} potential matches for "${searchTitle}"`);
+    for (let i = 0; i < maxLength; i++) {
+      const oldPart = oldParts[i] || 0;
+      const newPart = newParts[i] || 0;
       
-      // Convert Steam matches to GameSearchResult format and add to candidates
-      for (const steamMatch of steamMatches) {
-        // Check if we already have this game in candidates
-        const existingMatch = enhancedCandidates.find(candidate => 
-          calculateGameSimilarity(candidate.title, steamMatch.name) > 0.9
-        );
-        
-        if (!existingMatch && steamMatch.confidence > 0.7) {
-          // Add Steam match as a new candidate
-          const steamCandidate: GameSearchResult & { steamEnhanced?: boolean; steamConfidence?: number } = {
-            id: steamMatch.appid,
-            title: steamMatch.name,
-            link: `https://store.steampowered.com/app/${steamMatch.appid}`,
-            date: steamMatch.release_date?.date || new Date().toISOString(),
-            image: steamMatch.header_image,
-            description: decodeHtmlEntities(steamMatch.short_description || steamMatch.detailed_description || ''),
-            source: 'steam',
-            downloadLinks: [], // Steam doesn't provide direct download links
-            steamEnhanced: true,
-            steamConfidence: steamMatch.confidence
-          };
-          
-          enhancedCandidates.push(steamCandidate);
-          console.log(`🎮 Added Steam match: "${steamMatch.name}" (confidence: ${steamMatch.confidence.toFixed(2)})`);
+      if (newPart > oldPart) {
+        isNewer = true;
+        if (i === 0) {
+          changeType = 'major';
+          significance = 10;
+        } else if (i === 1) {
+          changeType = 'minor';
+          significance = 5;
+        } else if (i === 2) {
+          changeType = 'patch';
+          significance = 3;
+        } else {
+          changeType = 'build';
+          significance = 2;
+        }
+        break;
+      } else if (newPart < oldPart) {
+        break;
+      }
+    }
+  }
+  
+  if (oldVersion.build && newVersion.build) {
+    const oldBuild = parseInt(oldVersion.build);
+    const newBuild = parseInt(newVersion.build);
+    
+    if (!isNaN(oldBuild) && !isNaN(newBuild)) {
+      if (newBuild > oldBuild) {
+        if (!isNewer || (newBuild - oldBuild) > 100) {
+          isNewer = true;
+          changeType = 'build';
+          significance = Math.min(10, Math.max(2, Math.floor(Math.log10(newBuild - oldBuild))));
         }
       }
-      
-      // Re-sort candidates by Steam confidence and similarity
-      enhancedCandidates.sort((a, b) => {
-        const aConfidence = ('steamConfidence' in a && typeof a.steamConfidence === 'number') ? a.steamConfidence : 0;
-        const bConfidence = ('steamConfidence' in b && typeof b.steamConfidence === 'number') ? b.steamConfidence : 0;
-        const aSimilarity = calculateGameSimilarity(originalTitle, a.title);
-        const bSimilarity = calculateGameSimilarity(originalTitle, b.title);
-        
-        // Prioritize Steam-enhanced matches with high confidence
-        if ('steamEnhanced' in a && aConfidence > 0.8) return -1;
-        if ('steamEnhanced' in b && bConfidence > 0.8) return 1;
-        
-        // Then sort by similarity
-        return bSimilarity - aSimilarity;
-      });
-      
-    } else {
-      console.log(`🎮 Steam API found no suitable matches for "${searchTitle}"`);
     }
-    
-  } catch (error) {
-    console.error(`🎮 Steam API fallback failed for "${originalTitle}":`, error);
-    // Continue with original candidates if Steam API fails
   }
+
+  return { isNewer, changeType, significance };
+}
+
+// Main update check using recent feed approach
+export async function POST(request: Request) {
+  const startTime = Date.now();
+  console.log('🎮 Starting improved update check using recent feed...');
   
-  return enhancedCandidates;
-}
-
-/**
- * Validate an update using stored Steam verification data
- * This cross-checks potential updates against verified Steam game information
- */
-async function validateUpdateWithSteamData(
-  trackedGame: { steamVerified?: boolean; steamAppId?: number; steamName?: string; title: string },
-  potentialUpdate: GameSearchResult,
-  confidence: number
-): Promise<{ isValidated: boolean; confidence: number; reason: string }> {
-  // Only use Steam validation if the game has been Steam-verified
-  if (!trackedGame.steamVerified || !trackedGame.steamAppId || !trackedGame.steamName) {
-    return {
-      isValidated: false,
-      confidence,
-      reason: 'No Steam verification data available'
-    };
-  }
-
   try {
-    const updateTitleCleaned = cleanGameTitle(potentialUpdate.title);
-    const storedSteamNameCleaned = cleanGameTitle(trackedGame.steamName);
+    // Check if this is an internal scheduler call
+    const headers = request.headers;
+    const schedulerUserId = headers.get('User-Id');
     
-    // Calculate similarity between potential update and verified Steam name
-    const steamSimilarity = calculateGameSimilarity(updateTitleCleaned, storedSteamNameCleaned);
+    let user: { id: string; email: string; name: string } | null = null;
     
-    console.log(`🎮 Steam Validation: "${potentialUpdate.title}" vs stored "${trackedGame.steamName}" = ${Math.round(steamSimilarity * 100)}%`);
-    
-    if (steamSimilarity >= 0.8) {
-      // High similarity with Steam-verified name - boost confidence significantly
-      const boostedConfidence = Math.min(0.95, confidence + 0.3);
-      return {
-        isValidated: true,
-        confidence: boostedConfidence,
-        reason: `Validated against Steam: "${trackedGame.steamName}" (${Math.round(steamSimilarity * 100)}% match)`
-      };
-    } else if (steamSimilarity >= 0.6) {
-      // Moderate similarity - provide some confidence boost but still flag for review
-      const moderateBoost = Math.min(0.85, confidence + 0.15);
-      return {
-        isValidated: true,
-        confidence: moderateBoost,
-        reason: `Partial Steam validation: "${trackedGame.steamName}" (${Math.round(steamSimilarity * 100)}% match) - review recommended`
-      };
+    if (schedulerUserId) {
+      // Internal call from scheduler - use provided user ID
+      user = { id: schedulerUserId, email: '', name: 'Scheduler' };
+      console.log(`📅 Scheduled update check for user: ${schedulerUserId}`);
     } else {
-      // Low similarity with Steam data - this might not be a valid update
-      return {
-        isValidated: false,
-        confidence: Math.max(0.2, confidence - 0.2), // Reduce confidence
-        reason: `Steam validation failed: Low similarity with verified name "${trackedGame.steamName}" (${Math.round(steamSimilarity * 100)}%)`
-      };
-    }
-    
-  } catch (error) {
-    console.error(`Steam validation error for ${trackedGame.title}:`, error);
-    return {
-      isValidated: false,
-      confidence,
-      reason: 'Steam validation error occurred'
-    };
-  }
-}
-
-export async function POST() {
-  try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      // Regular API call - get current user
+      user = await getCurrentUser();
+      if (!user) {
+        return NextResponse.json(
+          { error: 'Unauthorized' },
+          { status: 401 }
+        );
+      }
+      console.log(`👤 Manual update check for user: ${user.id}`);
     }
 
     await connectDB();
-
-    // Get user with sequel preferences
-    const userWithPrefs = await User.findById(user.id);
-    const sequelPrefs = userWithPrefs?.preferences?.sequelDetection || {
-      enabled: true,
-      sensitivity: 'moderate',
-      notifyImmediately: true
-    };
 
     // Get all active tracked games for this user
     const trackedGames = await TrackedGame.find({ 
       userId: user.id,
       isActive: true 
     });
+    
+    console.log(`📊 Found ${trackedGames.length} games to check for user ${user.id}`);
     
     if (trackedGames.length === 0) {
       return NextResponse.json({ 
@@ -554,412 +314,395 @@ export async function POST() {
       });
     }
 
+    // First clear the cache to get fresh results
+    console.log('🔄 Clearing API cache for fresh results...');
+    try {
+      const clearCacheResponse = await fetch('https://gameapi.a7a8524.workers.dev/clearcache', {
+        method: 'POST'
+      });
+      if (clearCacheResponse.ok) {
+        console.log('✅ Cache cleared successfully');
+      } else {
+        console.log('⚠️ Cache clear failed, continuing with potentially cached results');
+      }
+    } catch (cacheError) {
+      console.log('⚠️ Cache clear error, continuing:', cacheError instanceof Error ? cacheError.message : 'Unknown error');
+    }
+
+    // Fetch recent games from the API (same as homepage)
+    console.log('📡 Fetching fresh recent games from feed...');
+    let recentGames: GameSearchResult[] = [];
+    
+    try {
+      const recentResponse = await fetch('https://gameapi.a7a8524.workers.dev/recent?limit=100');
+      if (recentResponse.ok) {
+        const recentData = await recentResponse.json();
+        recentGames = recentData.results || [];
+        console.log(`📦 Retrieved ${recentGames.length} fresh recent games from feed`);
+      } else {
+        throw new Error(`Recent API failed: ${recentResponse.status}`);
+      }
+    } catch (fetchError) {
+      console.error('❌ Failed to fetch recent games:', fetchError);
+      return NextResponse.json({
+        error: 'Failed to fetch recent games from API',
+        checked: 0,
+        updatesFound: 0,
+        sequelsFound: 0,
+        errors: 1
+      });
+    }
+
     let updatesFound = 0;
     let sequelsFound = 0;
     let errors = 0;
-    const API_BASE = 'https://gameapi.a7a8524.workers.dev';
-    const updateDetails: Array<{ 
-      title: string; 
-      version: string; 
-      changeType: string;
-      significance: number;
-      updateType: string;
-      link: string;
-      details: string;
-    }> = [];
 
+    // Check each tracked game against the recent feed
     for (const game of trackedGames) {
+      const gameStartTime = Date.now();
+      console.log(`🔍 Checking: ${game.title}`);
+      
       try {
-        // Enhanced search with multiple strategies
-        const searchQueries = [
-          game.title,
-          extractVersionInfo(game.title).baseTitle,
-          game.originalTitle || game.title
-        ].filter((query, index, array) => array.indexOf(query) === index);
-
+        const cleanTitle = cleanGameTitle(game.title);
+        
+        // Find all potential matches first, then pick the best version
+        const potentialMatches: Array<{game: GameSearchResult, similarity: number, versionInfo: VersionInfo}> = [];
         let bestMatch: GameSearchResult | null = null;
         let bestSimilarity = 0;
-        const allCandidates: GameSearchResult[] = [];
-
-        // Search across all sites for comprehensive update checking
-        for (const site of SITE_VALUES) {
-          for (const query of searchQueries) {
-            const searchResponse = await fetch(
-              `${API_BASE}/search?query=${encodeURIComponent(query)}&site=${site}&limit=10`
-            );
+        
+        for (const recentGame of recentGames) {
+          const decodedTitle = decodeHtmlEntities(recentGame.title);
+          const similarity = calculateGameSimilarity(cleanTitle, decodedTitle);
           
-          if (!searchResponse.ok) continue;
+          // Only consider games with high similarity as potential matches
+          if (similarity >= 0.8) {
+            const versionInfo = extractVersionInfo(decodedTitle);
+            potentialMatches.push({ game: recentGame, similarity, versionInfo });
+          }
           
-          const searchData = await searchResponse.json();
-          const games = searchData.results || [];
-          
-          // Collect all candidates for Steam API enhancement
-          allCandidates.push(...games);
-          
-          // Check for sequels if enabled
-          if (sequelPrefs.enabled) {
-            const sequelThreshold = getSequelThreshold(sequelPrefs.sensitivity);
-            
-            for (const currentGame of games) {
-              const sequelResult = detectSequel(game.title, currentGame.title);
+          // Also check for sequels (moderate similarity)
+          if (similarity >= 0.5 && similarity < 0.8) {
+            const sequelResult = detectSequel(game.title, decodedTitle);
+            if (sequelResult && sequelResult.isSequel) {
+              // Check if we already have this sequel notification
+              const existingSequel = game.sequelNotifications?.some((sequel: { detectedTitle: string; gameLink: string }) => 
+                sequel.detectedTitle === decodedTitle && sequel.gameLink === recentGame.link
+              );
               
-              if (sequelResult && sequelResult.isSequel && sequelResult.confidence >= sequelThreshold) {
-                // Check if we already have this sequel notification
-                const existingSequel = game.sequelNotifications?.find((notification: { gameId: string }) => 
-                  notification.gameId === currentGame.id
-                );
+              if (!existingSequel) {
+                await TrackedGame.findByIdAndUpdate(game._id, {
+                  $push: { 
+                    sequelNotifications: {
+                      detectedTitle: decodedTitle,
+                      gameId: recentGame.id,
+                      gameLink: recentGame.link,
+                      image: recentGame.image || '',
+                      description: recentGame.description || '',
+                      source: recentGame.source,
+                      similarity,
+                      sequelType: sequelResult.sequelType,
+                      dateFound: new Date(),
+                      downloadLinks: recentGame.downloadLinks || []
+                    }
+                  }
+                });
                 
-                if (!existingSequel) {
-                  const sequelNotification = {
-                    detectedTitle: currentGame.title,
-                    gameId: currentGame.id,
-                    gameLink: currentGame.link,
-                    image: currentGame.image || '',
-                    description: currentGame.description || '',
-                    source: currentGame.source,
-                    similarity: sequelResult.similarity,
-                    sequelType: sequelResult.sequelType,
-                    dateFound: new Date(),
-                    downloadLinks: currentGame.downloadLinks || []
-                  };
-                  
-                  await TrackedGame.findByIdAndUpdate(game._id, {
-                    $push: { sequelNotifications: sequelNotification }
+                // Send sequel notification
+                try {
+                  const notificationData = createUpdateNotificationData({
+                    gameTitle: game.title,
+                    gameLink: recentGame.link,
+                    imageUrl: recentGame.image,
+                    updateType: 'sequel'
                   });
                   
-                  // Send sequel notification to the user
-                  try {
-                    const notificationData = createUpdateNotificationData({
-                      gameTitle: game.title,
-                      gameLink: currentGame.link,
-                      imageUrl: currentGame.image,
-                      updateType: 'sequel'
-                    });
-                    
-                    await sendUpdateNotification(game.userId.toString(), notificationData);
-                    console.log(`📢 Sequel notification sent for ${game.title} -> ${currentGame.title} to user ${game.userId}`);
-                  } catch (notificationError) {
-                    console.error(`Failed to send sequel notification for ${game.title}:`, notificationError);
-                    // Don't fail the whole operation if notification fails
-                  }
-                  
-                  sequelsFound++;
+                  await sendUpdateNotification(game.userId.toString(), notificationData);
+                  console.log(`📢 Sequel found: ${game.title} -> ${decodedTitle}`);
+                } catch (notificationError) {
+                  console.error(`Failed to send sequel notification:`, notificationError);
                 }
+                
+                sequelsFound++;
               }
             }
           }
         }
-      }
-
-        // Reduce candidates to the most recent posts only:
-        // group by link (fallback to id/title) and keep only the newest entry per group,
-        // then only keep the single newest candidate overall so we check the latest update.
-        if (allCandidates.length > 0) {
-          try {
-            const latestMap = new Map<string, typeof allCandidates[number]>();
-            for (const cand of allCandidates) {
-              const key = cand.link || cand.id || cand.title;
-              const candDate = cand.date ? new Date(cand.date) : new Date(0);
-              const existing = latestMap.get(key);
-              if (!existing) {
-                latestMap.set(key, cand);
-              } else {
-                const existingDate = existing.date ? new Date(existing.date) : new Date(0);
-                if (candDate > existingDate) {
-                  latestMap.set(key, cand);
-                }
-              }
-            }
-
-            const reducedCandidates = Array.from(latestMap.values());
-            // Instead of keeping only one overall newest candidate, keep the newest candidate per source/site.
-            // This helps preserve one recent post from each site while avoiding duplicates from the same source.
-            const perSource = new Map<string, typeof reducedCandidates[number]>();
-            for (const cand of reducedCandidates) {
-              const src = cand.source || 'unknown';
-              const existing = perSource.get(src);
-              const candDate = cand.date ? new Date(cand.date) : new Date(0);
-              // Prefer the candidate with higher similarity for this tracked game
-              const candSim = calculateGameSimilarity(game.title, cand.title);
-              if (!existing) {
-                perSource.set(src, cand);
-              } else {
-                const existingDate = existing.date ? new Date(existing.date) : new Date(0);
-                const existingSim = calculateGameSimilarity(game.title, existing.title);
-                if (candSim > existingSim) {
-                  perSource.set(src, cand);
-                } else if (candSim === existingSim && candDate > existingDate) {
-                  perSource.set(src, cand);
-                }
-              }
-            }
-
-            const kept = Array.from(perSource.values());
-            // Sort by date desc so that higher-confidence flow later can still inspect recency
-            kept.sort((a, b) => (b.date ? new Date(b.date).getTime() : 0) - (a.date ? new Date(a.date).getTime() : 0));
-
-            allCandidates.length = 0;
-            allCandidates.push(...kept);
-          } catch (groupErr) {
-            console.error('Failed to reduce candidates to latest only:', groupErr);
-            // fall back to original allCandidates on error
-          }
-        }
-
-        // Compute best match from the reduced candidate list (only newest candidate present)
-        if (allCandidates.length > 0) {
-          for (const candidate of allCandidates) {
-            const similarity = calculateGameSimilarity(game.title, candidate.title);
-            if (similarity > bestSimilarity && similarity > 0.6) {
-              bestMatch = candidate;
-              bestSimilarity = similarity;
-            }
-          }
-        }
-
-        // Enhanced matching with Steam API fallback for low confidence matches
-        if (bestSimilarity < 0.8 && allCandidates.length > 0) {
-          console.log(`🎮 Low confidence match (${bestSimilarity.toFixed(2)}) for "${game.title}", enhancing with Steam API...`);
+        
+        // Now select the best match based on what the tracked game has verified
+        console.log(`🔍 Found ${potentialMatches.length} potential matches for "${game.title}"`);
+        
+        if (potentialMatches.length > 0) {
+          // Sort matches by version priority based on what's verified for this game
+          let sortedMatches = [...potentialMatches];
           
-          try {
-            const enhancedCandidates = await enhanceGameMatchingWithSteam(
-              game.title, 
-              allCandidates, 
-              0.8
+          // Get what verification info this game has
+          const hasVerifiedVersion = game.versionNumberVerified && game.currentVersionNumber;
+          const hasVerifiedBuild = game.buildNumberVerified && game.currentBuildNumber;
+          
+          console.log(`📋 Game verification status: Version=${hasVerifiedVersion ? game.currentVersionNumber : 'No'}, Build=${hasVerifiedBuild ? game.currentBuildNumber : 'No'}`);
+          
+          if (hasVerifiedVersion && hasVerifiedBuild) {
+            // Game has both verified - compare both version and build numbers
+            console.log('🎯 Using both version and build number comparison');
+            sortedMatches.sort((a, b) => {
+              const aVersion = parseFloat(a.versionInfo.version || '0');
+              const bVersion = parseFloat(b.versionInfo.version || '0');
+              const aBuild = parseInt(a.versionInfo.build || '0');
+              const bBuild = parseInt(b.versionInfo.build || '0');
+              
+              // First compare versions, then builds
+              if (bVersion !== aVersion) return bVersion - aVersion;
+              return bBuild - aBuild;
+            });
+          } else if (hasVerifiedVersion) {
+            // Game has verified version - only check version numbers
+            console.log('🎯 Using version number comparison only');
+            sortedMatches = sortedMatches.filter(m => m.versionInfo.version);
+            sortedMatches.sort((a, b) => {
+              const aVersion = parseFloat(a.versionInfo.version || '0');
+              const bVersion = parseFloat(b.versionInfo.version || '0');
+              return bVersion - aVersion;
+            });
+          } else if (hasVerifiedBuild) {
+            // Game has verified build - only check build numbers
+            console.log('🎯 Using build number comparison only');
+            sortedMatches = sortedMatches.filter(m => m.versionInfo.build);
+            sortedMatches.sort((a, b) => {
+              const aBuild = parseInt(a.versionInfo.build || '0');
+              const bBuild = parseInt(b.versionInfo.build || '0');
+              return bBuild - aBuild;
+            });
+          } else {
+            // No verification - use similarity and general version detection
+            console.log('🎯 Using similarity-based comparison (no verification)');
+            sortedMatches.sort((a, b) => {
+              // First by similarity, then by version/build if available
+              if (b.similarity !== a.similarity) return b.similarity - a.similarity;
+              
+              const aVersion = parseFloat(a.versionInfo.version || '0');
+              const bVersion = parseFloat(b.versionInfo.version || '0');
+              const aBuild = parseInt(a.versionInfo.build || '0');
+              const bBuild = parseInt(b.versionInfo.build || '0');
+              
+              if (bVersion !== aVersion) return bVersion - aVersion;
+              return bBuild - aBuild;
+            });
+          }
+          
+          // Take the highest version match
+          bestMatch = sortedMatches[0]?.game || null;
+          bestSimilarity = sortedMatches[0]?.similarity || 0;
+          
+          if (bestMatch) {
+            console.log(`🎯 Selected best match: "${bestMatch.title}" (similarity: ${bestSimilarity.toFixed(2)})`);
+          }
+        }
+        
+        // Process the selected best match
+        if (bestMatch) {
+          const decodedTitle = decodeHtmlEntities(bestMatch.title);
+          
+          // Get verification status for this game
+          const hasVerifiedVersion = game.versionNumberVerified && game.currentVersionNumber;
+          const hasVerifiedBuild = game.buildNumberVerified && game.currentBuildNumber;
+          
+          // Get current version info based on verification status
+          let currentVersionInfo = null;
+          
+          if (hasVerifiedVersion && game.currentVersionNumber) {
+            console.log(`📊 Using verified version number: ${game.currentVersionNumber}`);
+            currentVersionInfo = extractVersionInfo(game.currentVersionNumber);
+          } else if (hasVerifiedBuild && game.currentBuildNumber) {
+            console.log(`📊 Using verified build number: ${game.currentBuildNumber}`);
+            currentVersionInfo = { 
+              version: '', 
+              build: game.currentBuildNumber, 
+              releaseType: '', 
+              updateType: '', 
+              baseTitle: '', 
+              fullVersionString: '', 
+              confidence: 1.0, 
+              needsUserConfirmation: false 
+            };
+          } else {
+            // Fall back to extracting from titles
+            const titleSources = [
+              game.originalTitle,
+              game.lastKnownVersion,
+              game.title
+            ].filter(Boolean);
+
+            for (const sourceTitle of titleSources) {
+              const info = extractVersionInfo(sourceTitle);
+              if (info.version || info.build) {
+                currentVersionInfo = info;
+                break;
+              }
+            }
+            
+            if (!currentVersionInfo) {
+              currentVersionInfo = extractVersionInfo(game.title);
+            }
+          }
+
+          const newVersionInfo = extractVersionInfo(decodedTitle);
+          
+          // Enhanced comparison that respects verification preferences
+          let isActuallyNewer = false;
+          let comparisonReason = '';
+          
+          if (hasVerifiedVersion && hasVerifiedBuild) {
+            // Compare both version and build
+            const currentVersion = parseFloat(currentVersionInfo.version || '0');
+            const newVersion = parseFloat(newVersionInfo.version || '0');
+            const currentBuild = parseInt(currentVersionInfo.build || '0');
+            const newBuild = parseInt(newVersionInfo.build || '0');
+            
+            if (newVersion > currentVersion || (newVersion === currentVersion && newBuild > currentBuild)) {
+              isActuallyNewer = true;
+              comparisonReason = `Version/Build: ${currentVersionInfo.version || '0'}/${currentVersionInfo.build || '0'} → ${newVersionInfo.version || '0'}/${newVersionInfo.build || '0'}`;
+            }
+          } else if (hasVerifiedVersion) {
+            // Only compare versions
+            const currentVersion = parseFloat(game.currentVersionNumber || '0');
+            const newVersion = parseFloat(newVersionInfo.version || '0');
+            
+            if (newVersion > currentVersion) {
+              isActuallyNewer = true;
+              comparisonReason = `Version: ${currentVersion} → ${newVersion}`;
+            }
+          } else if (hasVerifiedBuild) {
+            // Only compare builds
+            const currentBuild = parseInt(game.currentBuildNumber || '0');
+            const newBuild = parseInt(newVersionInfo.build || '0');
+            
+            if (newBuild > currentBuild) {
+              isActuallyNewer = true;
+              comparisonReason = `Build: ${currentBuild} → ${newBuild}`;
+            }
+          } else {
+            // Fall back to general comparison
+            const comparison = compareVersions(currentVersionInfo, newVersionInfo);
+            isActuallyNewer = comparison.isNewer && comparison.significance >= 2;
+            comparisonReason = `General comparison: ${comparison.changeType} (significance: ${comparison.significance})`;
+          }
+          
+          // Check if it's different content (different link) or actually newer
+          const isDifferentLink = game.gameLink !== bestMatch.link;
+          
+          console.log(`🔍 Update analysis: Different link=${isDifferentLink}, Newer version=${isActuallyNewer}, Reason=${comparisonReason}`);
+          
+          if (isDifferentLink || isActuallyNewer) {
+            console.log(`✨ Update found: ${decodedTitle} (different link: ${isDifferentLink}, newer version: ${isActuallyNewer})`);
+            
+            // Check if we already have this update
+            const existingUpdate = game.updateHistory?.some((update: { gameLink: string }) => 
+              update.gameLink === bestMatch.link
             );
             
-            // Re-evaluate best match after Steam enhancement
-            for (const candidate of enhancedCandidates) {
-              const similarity = calculateGameSimilarity(game.title, candidate.title);
-              const steamConfidence = ('steamConfidence' in candidate && typeof candidate.steamConfidence === 'number') ? candidate.steamConfidence : 0;
-              
-              // Boost similarity score for Steam-enhanced matches
-              const adjustedSimilarity = ('steamEnhanced' in candidate && candidate.steamEnhanced)
-                ? Math.max(similarity, steamConfidence * 0.9)
-                : similarity;
-              
-              if (adjustedSimilarity > bestSimilarity && adjustedSimilarity > 0.6) {
-                bestMatch = candidate;
-                bestSimilarity = adjustedSimilarity;
-                
-                if ('steamEnhanced' in candidate && candidate.steamEnhanced) {
-                  console.log(`🎮 Using Steam-enhanced match: "${candidate.title}" (similarity: ${adjustedSimilarity.toFixed(2)})`);
-                }
+            const existingPending = game.pendingUpdates?.some((pending: { newLink: string }) => 
+              pending.newLink === bestMatch.link
+            );
+            
+            if (!existingUpdate && !existingPending) {
+              // Create version string
+              let versionString = decodedTitle;
+              if (newVersionInfo.version) {
+                versionString = `v${newVersionInfo.version}`;
+                if (newVersionInfo.build) versionString += ` Build ${newVersionInfo.build}`;
+                if (newVersionInfo.releaseType) versionString += ` ${newVersionInfo.releaseType}`;
               }
-            }
-          } catch (steamError) {
-            console.error(`Steam API enhancement failed for ${game.title}:`, steamError);
-            // Continue with original best match
-          }
-        }
+              
+              // Auto-approve if we have verified info and it's clearly higher, or high similarity
+              const shouldAutoApprove = (hasVerifiedVersion || hasVerifiedBuild) && isActuallyNewer && bestSimilarity >= 0.85;
+              
+              if (shouldAutoApprove) {
+                // Auto-approve high confidence updates
+                const approvedUpdate = {
+                  version: versionString,
+                  build: newVersionInfo.build || '',
+                  releaseType: newVersionInfo.releaseType || '',
+                  updateType: newVersionInfo.updateType || '',
+                  changeType: 'verified_update',
+                  significance: 5,
+                  dateFound: new Date(),
+                  gameLink: bestMatch.link,
+                  previousVersion: game.lastKnownVersion || game.title,
+                  downloadLinks: bestMatch.downloadLinks || [],
+                  autoApproved: true,
+                  verificationReason: comparisonReason
+                };
 
-        if (!bestMatch) {
-          // Update last checked even if no match found
-          await TrackedGame.findByIdAndUpdate(game._id, {
-            lastChecked: new Date()
-          });
-          continue;
-        }
+                await TrackedGame.findByIdAndUpdate(game._id, {
+                  $push: { updateHistory: approvedUpdate },
+                  lastKnownVersion: versionString,
+                  lastVersionDate: bestMatch.date || new Date().toISOString(),
+                  lastChecked: new Date(),
+                  gameLink: bestMatch.link,
+                  title: decodedTitle,
+                  hasNewUpdate: true,
+                  newUpdateSeen: false
+                });
+                
+                console.log(`✅ Auto-approved verified update for ${game.title}: ${versionString}`);
+                updatesFound++;
+              } else {
+                // Add to pending updates
+                const pendingUpdate = {
+                  detectedVersion: newVersionInfo.version || '',
+                  build: newVersionInfo.build || '',
+                  releaseType: newVersionInfo.releaseType || '',
+                  updateType: newVersionInfo.updateType || '',
+                  newTitle: decodedTitle,
+                  newLink: bestMatch.link,
+                  newImage: bestMatch.image || '',
+                  dateFound: new Date(),
+                  confidence: bestSimilarity,
+                  reason: `${comparisonReason} | Similarity: ${Math.round(bestSimilarity * 100)}%`,
+                  downloadLinks: bestMatch.downloadLinks || []
+                };
 
-        // Enhanced update detection
-        const updateResult = isSignificantUpdate(
-          game.title, 
-          bestMatch.title, 
-          game.gameLink, 
-          bestMatch.link
-        );
-
-        if (updateResult.isUpdate) {
-          const versionInfo = extractVersionInfo(bestMatch.title);
-          const oldVersionInfo = extractVersionInfo(game.title);
-          
-          // Create detailed version string
-          let versionString = '';
-          if (versionInfo.version) versionString += `v${versionInfo.version}`;
-          if (versionInfo.build) versionString += (versionString ? ' ' : '') + `Build ${versionInfo.build}`;
-          if (versionInfo.releaseType) versionString += (versionString ? ' ' : '') + versionInfo.releaseType;
-          if (versionInfo.updateType) versionString += (versionString ? ' ' : '') + `(${versionInfo.updateType})`;
-          if (!versionString) versionString = 'New Version';
-          
-          // Check if this needs user confirmation (ambiguous update)
-          let finalSimilarity = bestSimilarity;
-          let finalReason = '';
-          let steamValidation = null;
-          
-          // Use Steam validation if available and confidence is low
-          if (bestSimilarity < 0.8 || versionInfo.needsUserConfirmation) {
-            steamValidation = await validateUpdateWithSteamData(game, bestMatch, bestSimilarity);
-            finalSimilarity = steamValidation.confidence;
-            
-            console.log(`🎮 Steam validation result for "${game.title}": ${steamValidation.isValidated ? 'VALIDATED' : 'NOT VALIDATED'} (${Math.round(steamValidation.confidence * 100)}%)`);
-          }
-          
-          if (versionInfo.needsUserConfirmation || finalSimilarity < 0.8 || !versionInfo.version) {
-            // Determine reason for pending status
-            if (versionInfo.needsUserConfirmation) {
-              finalReason = 'No clear version info - needs manual confirmation';
-            } else if (finalSimilarity < 0.8) {
-              finalReason = `Low similarity match (${Math.round(finalSimilarity * 100)}%)`;
-            } else {
-              finalReason = 'Ambiguous update - manual review recommended';
-            }
-            
-            // Add Steam validation information to the reason
-            if (steamValidation) {
-              finalReason = `${finalReason} | ${steamValidation.reason}`;
-            }
-            
-            // Check if this was enhanced by Steam API
-            const isSteamEnhanced = bestMatch && 'steamEnhanced' in bestMatch && bestMatch.steamEnhanced;
-            if (isSteamEnhanced) {
-              const steamConfidence = ('steamConfidence' in bestMatch && typeof bestMatch.steamConfidence === 'number') ? bestMatch.steamConfidence : 0;
-              finalReason += ` | Enhanced by Steam API (confidence: ${Math.round(steamConfidence * 100)}%)`;
-            }
-            
-            // Check if Steam validation boosted confidence enough for auto-approval
-            if (steamValidation && steamValidation.isValidated && finalSimilarity >= 0.8 && versionInfo.version) {
-              console.log(`🎮 Steam validation boosted confidence for "${game.title}" - auto-approving update`);
-              // Proceed with auto-approval instead of pending
-            } else {
-              // Store as pending update for user confirmation
-              const pendingUpdate = {
-                detectedVersion: versionInfo.version || '',
-                build: versionInfo.build || '',
-                releaseType: versionInfo.releaseType || '',
-                updateType: versionInfo.updateType || '',
-                sceneGroup: versionInfo.sceneGroup || '',
-                newTitle: bestMatch.title,
-                newLink: bestMatch.link,
-                newImage: bestMatch.image || '',
-                dateFound: new Date(),
-                confidence: finalSimilarity,
-                reason: finalReason,
-                downloadLinks: bestMatch.downloadLinks || [],
-                steamEnhanced: isSteamEnhanced || false,
-                steamAppId: isSteamEnhanced ? bestMatch.id : undefined,
-                steamValidated: steamValidation?.isValidated || false
-              };
-
-              await TrackedGame.findByIdAndUpdate(game._id, {
-                $push: { pendingUpdates: pendingUpdate },
-                lastChecked: new Date()
-              });
-
-              // Notify all users tracking this game about the pending update
+                await TrackedGame.findByIdAndUpdate(game._id, {
+                  $push: { pendingUpdates: pendingUpdate },
+                  lastChecked: new Date()
+                });
+                
+                console.log(`📝 Added pending update for ${game.title}: ${versionString}`);
+                updatesFound++;
+              }
+              
+              // Send notification
               try {
-                const { sendUpdateNotificationToMultipleUsers, createUpdateNotificationData } = await import('../../../../utils/notifications');
-                const trackedGames = await TrackedGame.find({ gameId: game.gameId, isActive: true });
-                const userIds = trackedGames.map(g => g.userId.toString());
                 const notificationData = createUpdateNotificationData({
-                  gameTitle: bestMatch.title,
+                  gameTitle: game.title,
                   version: versionString,
                   gameLink: bestMatch.link,
                   imageUrl: bestMatch.image,
                   updateType: 'update'
                 });
-                // Sending notifications for update check
-                await sendUpdateNotificationToMultipleUsers(userIds, notificationData);
-              } catch (notifyError) {
-                console.error('Failed to send notifications for pending update:', notifyError);
+                
+                await sendUpdateNotification(game.userId.toString(), notificationData);
+                console.log(`📢 Update notification sent for ${game.title}`);
+              } catch (notificationError) {
+                console.error(`Failed to send update notification:`, notificationError);
               }
-
-              updateDetails.push({
-                title: game.title,
-                version: versionString,
-                changeType: 'pending_confirmation',
-                significance: 0,
-                updateType: 'Pending Confirmation',
-                link: bestMatch.link,
-                details: finalReason
-              });
-
-              console.log(`⏳ Found pending update for "${game.title}": ${bestMatch.title} (confidence: ${Math.round(finalSimilarity * 100)}%)`);
-              continue; // Skip to next game
             }
           }
-          
-          // Auto-approve confident updates or Steam-validated updates
-          const updateResult = isSignificantUpdate(
-            game.lastKnownVersion || game.title,
-            bestMatch.title,
-            game.gameLink,
-            bestMatch.link
-          );
-
-          if (updateResult.isUpdate) {
-            // Auto-confirm update with high confidence or Steam validation
-            const isSteamEnhanced = bestMatch && 'steamEnhanced' in bestMatch && bestMatch.steamEnhanced;
-            
-            const newUpdate = {
-              version: versionString,
-              build: versionInfo.build || '',
-              releaseType: versionInfo.releaseType || '',
-              updateType: versionInfo.updateType || '',
-              changeType: updateResult.details?.comparison?.changeType || 'unknown',
-              significance: updateResult.details?.comparison?.significance || 1,
-              dateFound: new Date(),
-              gameLink: bestMatch.link,
-              previousVersion: game.lastKnownVersion || 'Unknown',
-              versionDetails: {
-                old: oldVersionInfo,
-                new: versionInfo
-              },
-              downloadLinks: bestMatch.downloadLinks || [],
-              steamEnhanced: isSteamEnhanced || false,
-              steamAppId: isSteamEnhanced ? bestMatch.id : undefined
-            };
-
-            await TrackedGame.findByIdAndUpdate(game._id, {
-              $push: { updateHistory: newUpdate },
-              lastKnownVersion: versionString,
-              lastVersionDate: bestMatch.date || new Date().toISOString(),
-              lastChecked: new Date(),
-              gameLink: bestMatch.link,
-              title: bestMatch.title // Update title if it's more current
-            });
-
-            // Send update notification to the user
-            try {
-              const notificationData = createUpdateNotificationData({
-                gameTitle: game.title,
-                version: versionString + (isSteamEnhanced ? ' (Steam Enhanced)' : ''),
-                gameLink: bestMatch.link,
-                imageUrl: bestMatch.image,
-                updateType: 'update'
-              });
-              
-              await sendUpdateNotification(game.userId.toString(), notificationData);
-              console.log(`📢 Update notification sent for ${game.title} to user ${game.userId}${isSteamEnhanced ? ' (Steam Enhanced)' : ''}`);
-            } catch (notificationError) {
-              console.error(`Failed to send update notification for ${game.title}:`, notificationError);
-              // Don't fail the whole operation if notification fails
-            }
-
-            updateDetails.push({
-              title: game.title,
-              version: versionString + (isSteamEnhanced ? ' (Steam)' : ''),
-              changeType: newUpdate.changeType,
-              significance: newUpdate.significance,
-              updateType: versionInfo.updateType || 'Update',
-              link: bestMatch.link,
-              details: `${oldVersionInfo.version || 'Unknown'} → ${versionInfo.version || versionInfo.build || 'New'}${isSteamEnhanced ? ' (Steam Enhanced)' : ''}`
-            });
-          }
-
-          updatesFound++;
-        } else {
-          // Just update last checked
-          await TrackedGame.findByIdAndUpdate(game._id, {
-            lastChecked: new Date()
-          });
         }
-
-        // Respectful rate limiting
-        await new Promise(resolve => setTimeout(resolve, 250));
+        
+        // Update last checked for all games
+        await TrackedGame.findByIdAndUpdate(game._id, {
+          lastChecked: new Date()
+        });
+        
+        const gameEndTime = Date.now();
+        console.log(`✅ Completed ${game.title} in ${gameEndTime - gameStartTime}ms`);
 
       } catch (error) {
-        console.error(`Error checking game ${game.title}:`, error);
+        const gameEndTime = Date.now();
+        console.error(`❌ Error checking ${game.title} after ${gameEndTime - gameStartTime}ms:`, error);
         errors++;
+        
         // Update last checked even on error
         await TrackedGame.findByIdAndUpdate(game._id, {
           lastChecked: new Date()
@@ -967,16 +710,19 @@ export async function POST() {
       }
     }
 
+    const endTime = Date.now();
+    const totalMs = endTime - startTime;
+    console.log(`🎯 Update check completed in ${totalMs}ms: ${updatesFound} updates, ${sequelsFound} sequels, ${errors} errors`);
+
     return NextResponse.json({
-      message: 'Update check completed',
+      message: `Update check completed in ${totalMs}ms using recent feed`,
       checked: trackedGames.length,
       updatesFound,
       sequelsFound,
       errors,
-      updateDetails: updateDetails.slice(0, 5), // Limit response size
-      sequelDetectionEnabled: sequelPrefs.enabled,
-      steamApiUsed: true,
-      steamApiNote: 'Steam API used for enhanced game matching when confidence is low'
+      totalTimeMs: totalMs,
+      method: 'recent_feed',
+      recentGamesProcessed: recentGames.length
     });
 
   } catch (error) {

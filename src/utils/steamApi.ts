@@ -284,12 +284,35 @@ export async function findSteamMatches(
 export function cleanGameTitle(title: string): string {
   return title
     .toLowerCase()
-    // Remove common piracy/release tags first
+    // Remove comprehensive piracy/release tags first - most common scene groups
     .replace(/\b(denuvoless|cracked|repack|fitgirl|dodi|empress|codex|skidrow|plaza|rune|tenoke|p2p)\b/gi, '')
-    .replace(/\b(free download|full version|complete edition)\b/gi, '')
-    .replace(/\b(all dlc|with dlc|dlc included)\b/gi, '')
-    .replace(/\b(pre-installed|preinstalled)\b/gi, '')
-    .replace(/\b(update \d+|hotfix|patch)\b/gi, '')
+    .replace(/\b(cpy|steampunks|ali213|3dm|reloaded|razor1911|prophet|hoodlum|fairlight)\b/gi, '')
+    .replace(/\b(darksiders|masquerade|goldberg|ova\sgames|simplex|darkzer0)\b/gi, '')
+    .replace(/\b(chronos|flt|unleashed|deviance|vitality|outlaws|tinyiso)\b/gi, '')
+    
+    // Remove release format indicators
+    .replace(/\b(free download|full version|complete edition|full game)\b/gi, '')
+    .replace(/\b(portable|standalone|multilanguage|multi\slang|english only)\b/gi, '')
+    .replace(/\b(gog\sversion|steam\sversion|epic\sversion|origin\sversion)\b/gi, '')
+    .replace(/\b(drm\sfree|no\sdrm|steam\srip|gog\srip)\b/gi, '')
+    
+    // Remove DLC and content indicators  
+    .replace(/\b(all dlc|with dlc|dlc included|\+\s*dlc|dlc pack)\b/gi, '')
+    .replace(/\b(season pass|deluxe content|bonus content|soundtrack included)\b/gi, '')
+    
+    // Remove installation and format tags
+    .replace(/\b(pre-installed|preinstalled|pre\sinstalled)\b/gi, '')
+    .replace(/\b(setup|installer|direct\splay|ready\sto\splay)\b/gi, '')
+    .replace(/\b(compressed|highly compressed|small size)\b/gi, '')
+    .replace(/\b(update \d+|hotfix|patch|day\s?\d+\s?patch)\b/gi, '')
+    
+    // Remove quality and source indicators
+    .replace(/\b(hd|4k|uhd|full\shd|1080p|720p|480p)\b/gi, '')
+    .replace(/\b(bluray|blu\sray|dvd\srip|web\srip|cam\srip)\b/gi, '')
+    
+    // Remove size and format info
+    .replace(/\b\d+(\.\d+)?\s?(gb|mb|tb)\b/gi, '') // Remove size info like "5.2 GB"
+    .replace(/\b(iso|rar|zip|7z|part\d+)\b/gi, '') // Remove archive formats
     
     // Remove release status and development stage indicators that can mess up matching
     .replace(/\b(early access|early-access)\b/gi, '')
@@ -309,24 +332,32 @@ export function cleanGameTitle(title: string): string {
     .replace(/\b(\+\s*all dlc|\+ dlc|with all dlc)\b/gi, '')
     .replace(/\b(season pass|dlc bundle)\b/gi, '')
     
-    // Remove complex version patterns - improved to catch more cases
+    // Remove complex version patterns - comprehensive coverage
     .replace(/v\d+(\.\d+){3,}-[A-Z0-9]+/gi, '') // v2013.012.003.008.007-P2P
     .replace(/v\d+(\.\d+){1,}-[A-Z0-9]+/gi, '') // v1.2-PLAZA, v1.2.3-CODEX
     .replace(/v\d+(\.\d+){2,}/gi, '') // v1.2.3.4 or longer
     .replace(/v\d+\.\d+/gi, '') // v1.2, v2.5 etc
     .replace(/\bversion\s*\d+(\.\d+)*/gi, '') // version 1.2.3
     .replace(/\bver\.?\s*\d+(\.\d+)*/gi, '') // ver 1.2 or ver. 1.2
-    .replace(/\bbuild\s*\d+/gi, '') // build 20035145
+    .replace(/\bbuild\s*#?\d+/gi, '') // build 20035145, build #123
     .replace(/\bb\d{4,}/gi, '') // b20035145 (build numbers)
     .replace(/\bupdate\s*\d+(\.\d+)*/gi, '') // update 1.5
+    .replace(/\brev\s*\d+/gi, '') // rev 123, revision numbers
+    .replace(/\brelease\s*\d+/gi, '') // release 1, release 2
+    .replace(/\br\d+/gi, '') // r123 (revision format)
+    .replace(/\b20\d{2}[-\.]\d{1,2}[-\.]\d{1,2}/gi, '') // Date formats 2024-01-15, 2024.1.15
+    .replace(/\b\d{8}/gi, '') // Date formats 20240115
     
     // Remove year tags like (2025), [2024] etc - but preserve years that are part of game names
     .replace(/\(20\d{2}\)/g, '') // (2025)
     .replace(/\[20\d{2}\]/g, '') // [2024]
     
-    // Remove scene groups - improved to catch more patterns
+    // Remove scene groups - comprehensive pattern matching
     .replace(/-[A-Z0-9]{3,}$/gi, '') // Scene groups at end like -RUNE, -TENOKE
     .replace(/-[A-Z0-9]{3,}\s/gi, ' ') // Scene groups in middle
+    .replace(/\b[A-Z0-9]{3,}-$/gi, '') // Alternative scene group format
+    .replace(/\[(CODEX|PLAZA|SKIDROW|EMPRESS|FITGIRL|DODI|RUNE|TENOKE|CPY|ALI213|3DM|RELOADED|RAZOR1911|PROPHET|HOODLUM|FAIRLIGHT|SIMPLEX|DARKZER0|CHRONOS|FLT|UNLEASHED|DEVIANCE|VITALITY|OUTLAWS|TINYISO)\]/gi, '') // Bracketed scene groups
+    .replace(/\([A-Z0-9]{3,}\)/gi, '') // Parenthetical scene groups
     
     // Remove bracketed/parenthetical content (after year removal to avoid conflicts)
     .replace(/\[[^\]]*\]/g, '')    
@@ -384,12 +415,35 @@ export function cleanGameTitle(title: string): string {
 export function cleanGameTitlePreserveEdition(title: string): string {
   return title
     .toLowerCase()
-    // Remove common piracy/release tags first
+    // Remove comprehensive piracy/release tags first - most common scene groups
     .replace(/\b(denuvoless|cracked|repack|fitgirl|dodi|empress|codex|skidrow|plaza|rune|tenoke|p2p)\b/gi, '')
-    .replace(/\b(free download|full version|complete edition)\b/gi, '')
-    .replace(/\b(all dlc|with dlc|dlc included)\b/gi, '')
-    .replace(/\b(pre-installed|preinstalled)\b/gi, '')
-    .replace(/\b(update \d+|hotfix|patch)\b/gi, '')
+    .replace(/\b(cpy|steampunks|ali213|3dm|reloaded|razor1911|prophet|hoodlum|fairlight)\b/gi, '')
+    .replace(/\b(darksiders|masquerade|goldberg|ova\sgames|simplex|darkzer0)\b/gi, '')
+    .replace(/\b(chronos|flt|unleashed|deviance|vitality|outlaws|tinyiso)\b/gi, '')
+    
+    // Remove release format indicators
+    .replace(/\b(free download|full version|complete edition|full game)\b/gi, '')
+    .replace(/\b(portable|standalone|multilanguage|multi\slang|english only)\b/gi, '')
+    .replace(/\b(gog\sversion|steam\sversion|epic\sversion|origin\sversion)\b/gi, '')
+    .replace(/\b(drm\sfree|no\sdrm|steam\srip|gog\srip)\b/gi, '')
+    
+    // Remove DLC and content indicators  
+    .replace(/\b(all dlc|with dlc|dlc included|\+\s*dlc|dlc pack)\b/gi, '')
+    .replace(/\b(season pass|deluxe content|bonus content|soundtrack included)\b/gi, '')
+    
+    // Remove installation and format tags
+    .replace(/\b(pre-installed|preinstalled|pre\sinstalled)\b/gi, '')
+    .replace(/\b(setup|installer|direct\splay|ready\sto\splay)\b/gi, '')
+    .replace(/\b(compressed|highly compressed|small size)\b/gi, '')
+    .replace(/\b(update \d+|hotfix|patch|day\s?\d+\s?patch)\b/gi, '')
+    
+    // Remove quality and source indicators
+    .replace(/\b(hd|4k|uhd|full\shd|1080p|720p|480p)\b/gi, '')
+    .replace(/\b(bluray|blu\sray|dvd\srip|web\srip|cam\srip)\b/gi, '')
+    
+    // Remove size and format info
+    .replace(/\b\d+(\.\d+)?\s?(gb|mb|tb)\b/gi, '') // Remove size info like "5.2 GB"
+    .replace(/\b(iso|rar|zip|7z|part\d+)\b/gi, '') // Remove archive formats
     
     // Remove release status and development stage indicators that can mess up matching
     .replace(/\b(early access|early-access)\b/gi, '')
