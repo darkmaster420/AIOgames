@@ -51,8 +51,8 @@ interface NotificationResult {
   failedCount: number;
   errors: string[];
   methods: {
-    webpush: { sent: number; failed: 0, errors: string[] };
-    telegram: { sent: number; failed: 0, errors: string[] };
+    webpush: { sent: number; failed: number, errors: string[] };
+    telegram: { sent: number; failed: number, errors: string[] };
   };
 }
 
@@ -91,8 +91,8 @@ export async function sendUpdateNotification(
     }
 
     // Check user preferences - check if user wants immediate notifications
-    if (!user.immediateNotifications) {
-      // User has disabled immediate notifications
+    if (!user.preferences?.notifications?.notifyImmediately) {
+      console.log(`[Notifications] User ${userId} has disabled immediate notifications`);
       return result;
     }
 
@@ -103,11 +103,12 @@ export async function sendUpdateNotification(
     // Processing notifications for user    // Send Telegram notification if enabled and configured
     if ((provider === 'telegram' || notificationPrefs?.telegramEnabled) && notificationPrefs?.telegramEnabled) {
       // Telegram conditions met, getting config
-      const telegramConfig = await getTelegramConfig(user._id);
+      const telegramConfig = getTelegramConfig(user);
       if (telegramConfig) {
         // Got valid Telegram config
         try {
-              const isSequel = updateData.updateType === 'sequel';
+          console.log(`[Notifications] Sending Telegram notification for ${updateData.gameTitle} to user ${userId}`);
+          const isSequel = updateData.updateType === 'sequel';
           const message = isSequel 
             ? formatSequelNotificationMessage({
                 originalTitle: updateData.gameTitle,
@@ -123,14 +124,16 @@ export async function sendUpdateNotification(
                 previousVersion: updateData.previousVersion,
                 gameLink: updateData.gameLink || '/tracking',
                 source: 'Game Tracker',
-                changeType: 'user_approved', // Change to user_approved when auto-approved
+                changeType: 'automatic', // Auto-approved updates
                 downloadLinks: updateData.downloadLinks
               });          const telegramResult = await sendTelegramMessage(telegramConfig, message);
           
           if (telegramResult.success) {
+            console.log(`[Notifications] Telegram message sent successfully to user ${userId}`);
             result.methods.telegram.sent++;
             result.sentCount++;
           } else {
+            console.error(`[Notifications] Telegram failed for user ${userId}:`, telegramResult.error);
             result.methods.telegram.failed++;
             result.failedCount++;
             result.methods.telegram.errors.push(telegramResult.error || 'Unknown Telegram error');
@@ -143,8 +146,8 @@ export async function sendUpdateNotification(
           console.error('❌ Telegram notification error:', error);
         }
       } else {
+        console.log(`[Notifications] Telegram config missing for user ${userId} - enabled: ${notificationPrefs?.telegramEnabled}, botToken: ${!!notificationPrefs?.telegramBotToken}, chatId: ${!!notificationPrefs?.telegramChatId}`);
         result.methods.telegram.errors.push('Telegram enabled but not properly configured');
-        // Telegram config missing for user
       }
     }
 

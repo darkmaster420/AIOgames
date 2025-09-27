@@ -19,6 +19,10 @@ export interface VersionDetection {
  */
 export function detectVersionNumber(title: string): { found: boolean; version?: string } {
   const versionPatterns = [
+    // Date-based versions like v20250922, v2025.09.22 (prioritize these)
+    /\bv(\d{4}[-.]?\d{2}[-.]?\d{2})\b/i,
+    // Date-based versions - 8 digits like v20250922
+    /\bv(\d{8})\b/i,
     // v1.2.3, v1.2, v1.0.0
     /\bv(\d+(?:\.\d+){0,3})\b/i,
     // Version 1.2.3, Ver 1.2
@@ -117,7 +121,7 @@ export function validateVersionNumber(version: string): { valid: boolean; error?
 
   const trimmedVersion = version.trim();
 
-  // Allow various version formats
+  // Allow various version formats including date-based versions
   const validPatterns = [
     /^\d+$/, // 1
     /^\d+\.\d+$/, // 1.2
@@ -125,7 +129,11 @@ export function validateVersionNumber(version: string): { valid: boolean; error?
     /^\d+\.\d+\.\d+\.\d+$/, // 1.2.3.4
     /^v\d+(?:\.\d+)*$/, // v1.2.3
     /^\d+(?:\.\d+)*[a-z]$/, // 1.2a
-    /^\d+(?:\.\d+)*\-(?:alpha|beta|rc|final|release)$/ // 1.2-beta
+    /^\d+(?:\.\d+)*\-(?:alpha|beta|rc|final|release)$/, // 1.2-beta
+    /^\d{8}$/, // 20250922 (date-based)
+    /^\d{4}[-\.]\d{2}[-\.]\d{2}$/, // 2025-09-22 or 2025.09.22 (date-based)
+    /^v\d{8}$/, // v20250922 (date-based with v prefix)
+    /^v\d{4}[-\.]\d{2}[-\.]\d{2}$/ // v2025-09-22 or v2025.09.22
   ];
 
   const isValid = validPatterns.some(pattern => pattern.test(trimmedVersion));
@@ -133,7 +141,7 @@ export function validateVersionNumber(version: string): { valid: boolean; error?
   if (!isValid) {
     return { 
       valid: false, 
-      error: 'Invalid version format. Examples: 1.2, v1.2.3, 2.0.1, 1.5a, 2.0-beta' 
+      error: 'Invalid version format. Examples: 1.2, v1.2.3, 2.0.1, 1.5a, 2.0-beta, 20250922, v20250922' 
     };
   }
 
@@ -170,7 +178,15 @@ export function validateBuildNumber(build: string): { valid: boolean; error?: st
  * Clean and normalize version number
  */
 export function normalizeVersionNumber(version: string): string {
-  return version.trim().toLowerCase().replace(/^v/, '');
+  const normalized = version.trim().toLowerCase().replace(/^v/, '');
+  
+  // For date-based versions, ensure consistent format
+  if (/^\d{4}[-\.]\d{2}[-\.]\d{2}$/.test(normalized)) {
+    // Convert YYYY-MM-DD or YYYY.MM.DD to YYYYMMDD
+    return normalized.replace(/[-\.]/g, '');
+  }
+  
+  return normalized;
 }
 
 /**

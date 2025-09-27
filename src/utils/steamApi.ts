@@ -291,6 +291,18 @@ export function cleanGameTitle(title: string): string {
     .replace(/\b(pre-installed|preinstalled)\b/gi, '')
     .replace(/\b(update \d+|hotfix|patch)\b/gi, '')
     
+    // Remove release status and development stage indicators that can mess up matching
+    .replace(/\b(early access|early-access)\b/gi, '')
+    .replace(/\b(beta|alpha|preview|demo|prototype)\b/gi, '')
+    .replace(/\b(early release|early version)\b/gi, '')
+    .replace(/\b(closed beta|open beta|public beta)\b/gi, '')
+    .replace(/\b(test build|test version|testing)\b/gi, '')
+    .replace(/\b(pre-alpha|pre-beta|pre-release)\b/gi, '')
+    .replace(/\b(developer build|dev build|internal)\b/gi, '')
+    .replace(/\b(work in progress|wip)\b/gi, '')
+    .replace(/\b(coming soon|unreleased)\b/gi, '')
+    .replace(/\b(steam deck verified|deck verified)\b/gi, '')
+    
     // Remove DLC, add-on content, and bonus material indicators
     .replace(/\b(character pack \d*|dlc pack \d*|expansion pack \d*)\b/gi, '')
     .replace(/\b(pre-purchase bonus|pre-order bonus|bonus content)\b/gi, '')
@@ -378,6 +390,18 @@ export function cleanGameTitlePreserveEdition(title: string): string {
     .replace(/\b(all dlc|with dlc|dlc included)\b/gi, '')
     .replace(/\b(pre-installed|preinstalled)\b/gi, '')
     .replace(/\b(update \d+|hotfix|patch)\b/gi, '')
+    
+    // Remove release status and development stage indicators that can mess up matching
+    .replace(/\b(early access|early-access)\b/gi, '')
+    .replace(/\b(beta|alpha|preview|demo|prototype)\b/gi, '')
+    .replace(/\b(early release|early version)\b/gi, '')
+    .replace(/\b(closed beta|open beta|public beta)\b/gi, '')
+    .replace(/\b(test build|test version|testing)\b/gi, '')
+    .replace(/\b(pre-alpha|pre-beta|pre-release)\b/gi, '')
+    .replace(/\b(developer build|dev build|internal)\b/gi, '')
+    .replace(/\b(work in progress|wip)\b/gi, '')
+    .replace(/\b(coming soon|unreleased)\b/gi, '')
+    .replace(/\b(steam deck verified|deck verified)\b/gi, '')
     
     // Remove DLC, add-on content, and bonus material indicators
     .replace(/\b(character pack \d*|dlc pack \d*|expansion pack \d*)\b/gi, '')

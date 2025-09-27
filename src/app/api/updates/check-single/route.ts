@@ -215,6 +215,10 @@ function extractVersionInfo(title: string): VersionInfo {
   const versionPatterns = [
     // v1.2.3.45678 - Full version with build (most specific first)
     /v(\d+\.\d+\.\d+\.\d+)/i,
+    // Date-based versions like v20250922, v2025.09.22
+    /v(\d{4}[-.]?\d{2}[-.]?\d{2})/i,
+    // Date-based versions - 8 digits like v20250922
+    /v(\d{8})/i,
     // v1.2.3 - Standard version format
     /v(\d+(?:\.\d+)+)/i,
     // Version 1.2.3
@@ -615,7 +619,10 @@ export async function POST(request: Request) {
                   dateFound: new Date().toISOString(),
                   gameLink: result.link,
                   downloadLinks: result.downloadLinks || []
-                }
+                },
+                // Set new update indicator for auto-approved updates
+                hasNewUpdate: true,
+                newUpdateSeen: false
               });
             } else {
               // Add to pending updates if can't auto-approve

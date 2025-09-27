@@ -265,18 +265,56 @@ function compareVersions(oldInfo: VersionInfo, newInfo: VersionInfo): { isNewer:
 
   // Compare semantic versions
   if (oldInfo.version && newInfo.version) {
-    const oldParts = oldInfo.version.split('.').map(Number);
-    const newParts = newInfo.version.split('.').map(Number);
+    // Check if these are date-based versions (8 digits or YYYY-MM-DD format)
+    const isDateVersion = (version: string) => {
+      return /^\d{8}$/.test(version) || /^\d{4}[-.]\d{2}[-.]\d{2}$/.test(version);
+    };
     
-    for (let i = 0; i < Math.max(oldParts.length, newParts.length); i++) {
-      const oldPart = oldParts[i] || 0;
-      const newPart = newParts[i] || 0;
+    const oldIsDate = isDateVersion(oldInfo.version);
+    const newIsDate = isDateVersion(newInfo.version);
+    
+    // If both are date versions, compare them as dates
+    if (oldIsDate && newIsDate) {
+      const normalizeDate = (dateStr: string) => {
+        // Convert YYYY-MM-DD or YYYY.MM.DD to YYYYMMDD
+        return dateStr.replace(/[-\.]/g, '');
+      };
       
-      if (newPart > oldPart) {
-        const significance = i === 0 ? 3 : i === 1 ? 2 : 1; // Major.Minor.Patch significance
-        return { isNewer: true, changeType: 'version', significance };
-      } else if (newPart < oldPart) {
-        return { isNewer: false, changeType: 'version', significance: 0 };
+      const oldDate = normalizeDate(oldInfo.version);
+      const newDate = normalizeDate(newInfo.version);
+      
+      if (newDate > oldDate) {
+        return { isNewer: true, changeType: 'date_version', significance: 2 };
+      } else if (newDate < oldDate) {
+        return { isNewer: false, changeType: 'date_version', significance: 0 };
+      }
+    }
+    // If mixing date and semantic versions, treat as incompatible but still try numeric comparison
+    else if (oldIsDate || newIsDate) {
+      const oldNum = parseInt(oldInfo.version.replace(/[^\d]/g, ''));
+      const newNum = parseInt(newInfo.version.replace(/[^\d]/g, ''));
+      
+      if (newNum > oldNum) {
+        return { isNewer: true, changeType: 'mixed_version', significance: 2 };
+      } else if (newNum < oldNum) {
+        return { isNewer: false, changeType: 'mixed_version', significance: 0 };
+      }
+    }
+    // Standard semantic version comparison
+    else {
+      const oldParts = oldInfo.version.split('.').map(Number);
+      const newParts = newInfo.version.split('.').map(Number);
+      
+      for (let i = 0; i < Math.max(oldParts.length, newParts.length); i++) {
+        const oldPart = oldParts[i] || 0;
+        const newPart = newParts[i] || 0;
+        
+        if (newPart > oldPart) {
+          const significance = i === 0 ? 3 : i === 1 ? 2 : 1; // Major.Minor.Patch significance
+          return { isNewer: true, changeType: 'version', significance };
+        } else if (newPart < oldPart) {
+          return { isNewer: false, changeType: 'version', significance: 0 };
+        }
       }
     }
   }
