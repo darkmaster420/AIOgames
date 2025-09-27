@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
           imageUrl: pendingUpdate.newImage,
           updateType: 'update'
         });
-        console.log('[NOTIFY][PENDING] userIds:', userIds, 'notificationData:', notificationData);
+        // Sending notifications for pending update
         await sendUpdateNotificationToMultipleUsers(userIds, notificationData);
       } catch (notifyError) {
         console.error('Failed to send notifications for confirmed update:', notifyError);

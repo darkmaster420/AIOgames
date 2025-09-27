@@ -17,6 +17,8 @@ export interface UpdateNotificationData {
   updateType: 'update' | 'sequel';
   gameLink?: string;
   imageUrl?: string;
+  downloadLinks?: Array<{ service: string; url: string; type?: string }>;
+  previousVersion?: string;
 }
 
 /**
@@ -28,6 +30,8 @@ export function createUpdateNotificationData(params: {
   updateType: 'update' | 'sequel';
   gameLink?: string;
   imageUrl?: string;
+  downloadLinks?: Array<{ service: string; url: string; type?: string }>;
+  previousVersion?: string;
 }): UpdateNotificationData {
   return {
     gameTitle: params.gameTitle,
@@ -35,6 +39,8 @@ export function createUpdateNotificationData(params: {
     updateType: params.updateType,
     gameLink: params.gameLink,
     imageUrl: params.imageUrl,
+    downloadLinks: params.downloadLinks,
+    previousVersion: params.previousVersion,
   };
 }
 
@@ -84,48 +90,24 @@ export async function sendUpdateNotification(
       return result;
     }
 
-    // Default to true for immediate notifications if not set
-    const notifyImmediately = user.preferences?.notifications?.notifyImmediately ?? true;
-    
-    console.log('[Notifications] User preferences:', {
-      email: user.email,
-      provider: user.preferences?.notifications?.provider,
-      telegramEnabled: user.preferences?.notifications?.telegramEnabled,
-      telegramConfigured: !!(user.preferences?.notifications?.telegramBotToken && user.preferences?.notifications?.telegramChatId),
-      notifyImmediately
-    });
-
-    // Check if user wants immediate notifications
-    if (!notifyImmediately) {
-      console.log('[Notifications] User has disabled immediate notifications');
-      result.errors.push('User has disabled immediate notifications');
+    // Check user preferences - check if user wants immediate notifications
+    if (!user.immediateNotifications) {
+      // User has disabled immediate notifications
       return result;
     }
 
     const notificationPrefs = user.preferences?.notifications;
     const provider = notificationPrefs?.provider || 'webpush';
     
-    console.log(`[Notifications] Processing for user ${user.email}:`, {
-      provider,
-      telegramEnabled: notificationPrefs?.telegramEnabled,
-      hasPreferences: !!user.preferences,
-      hasNotificationPrefs: !!notificationPrefs,
-      game: updateData.gameTitle,
-      version: updateData.version
-    });
     
-    // Send Telegram notification if enabled and configured
+    // Processing notifications for user    // Send Telegram notification if enabled and configured
     if ((provider === 'telegram' || notificationPrefs?.telegramEnabled) && notificationPrefs?.telegramEnabled) {
-      console.log('[Notifications] Telegram conditions met, getting config...');
-      const telegramConfig = getTelegramConfig(user);
+      // Telegram conditions met, getting config
+      const telegramConfig = await getTelegramConfig(user._id);
       if (telegramConfig) {
-        console.log('[Notifications] Got valid Telegram config:', {
-          hasToken: !!telegramConfig.botToken,
-          hasChatId: !!telegramConfig.chatId,
-          tokenLength: telegramConfig.botToken?.length
-        });
+        // Got valid Telegram config
         try {
-          const isSequel = updateData.updateType === 'sequel';
+              const isSequel = updateData.updateType === 'sequel';
           const message = isSequel 
             ? formatSequelNotificationMessage({
                 originalTitle: updateData.gameTitle,
@@ -138,12 +120,12 @@ export async function sendUpdateNotification(
             : formatGameUpdateMessage({
                 title: updateData.gameTitle,
                 version: updateData.version,
+                previousVersion: updateData.previousVersion,
                 gameLink: updateData.gameLink || '/tracking',
                 source: 'Game Tracker',
-                changeType: 'update'
-              });
-
-          const telegramResult = await sendTelegramMessage(telegramConfig, message);
+                changeType: 'user_approved', // Change to user_approved when auto-approved
+                downloadLinks: updateData.downloadLinks
+              });          const telegramResult = await sendTelegramMessage(telegramConfig, message);
           
           if (telegramResult.success) {
             result.methods.telegram.sent++;
@@ -158,11 +140,11 @@ export async function sendUpdateNotification(
           result.failedCount++;
           const errorMessage = error instanceof Error ? error.message : String(error);
           result.methods.telegram.errors.push(`Telegram error: ${errorMessage}`);
-          console.error(`❌ Telegram notification error for ${user.email}:`, error);
+          console.error('❌ Telegram notification error:', error);
         }
       } else {
         result.methods.telegram.errors.push('Telegram enabled but not properly configured');
-        console.warn(`⚠️ Telegram config missing for user ${user.email}`);
+        // Telegram config missing for user
       }
     }
 

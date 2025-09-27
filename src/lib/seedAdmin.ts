@@ -10,7 +10,7 @@ export async function seedAdminUser() {
     const adminName = process.env.ADMIN_NAME;
 
     if (!adminEmail || !adminPassword || !adminName) {
-      console.log('⚠️  Admin user environment variables not set, skipping admin seeding');
+      // Admin user environment variables not set, skipping admin seeding
       return false;
     }
 
@@ -23,10 +23,10 @@ export async function seedAdminUser() {
       if (existingAdmin.role !== 'admin') {
         existingAdmin.role = 'admin';
         await existingAdmin.save();
-        console.log(`✅ Promoted existing user ${adminEmail} to admin`);
+        // Promoted existing user to admin
         return true;
       } else {
-        console.log(`ℹ️  Admin user ${adminEmail} already exists`);
+        // Admin user already exists
         return true;
       }
     }
@@ -51,11 +51,7 @@ export async function seedAdminUser() {
     });
 
     await adminUser.save();
-    console.log(`🎉 Created admin user: ${adminEmail}`);
-    console.log(`🔑 Admin login credentials:`);
-    console.log(`   Email: ${adminEmail}`);
-    console.log(`   Password: ${adminPassword}`);
-    console.log(`🌐 Admin dashboard: ${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/admin`);
+    // Admin user created successfully
     
     return true;
   } catch (error) {
@@ -72,7 +68,7 @@ export async function ensureAdminExists() {
     const adminCount = await User.countDocuments({ role: 'admin' });
     
     if (adminCount === 0) {
-      console.log('🚨 No admin users found, attempting to seed admin user...');
+      // No admin users found, attempting to seed admin user
       return await seedAdminUser();
     }
     

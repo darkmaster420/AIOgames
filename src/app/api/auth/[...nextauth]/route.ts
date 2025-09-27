@@ -19,7 +19,11 @@ export const authOptions: AuthOptions = {
         }
 
         try {
-          await connectDB();
+          const db = await connectDB();
+          if (!db) {
+            console.error('Database connection failed');
+            throw new Error('Database connection failed');
+          }
           
           const user = await User.findOne({ 
             email: credentials.email.toLowerCase() 

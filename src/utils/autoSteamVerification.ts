@@ -32,7 +32,7 @@ export async function autoVerifyWithSteam(
   confidenceThreshold: number = 0.85
 ): Promise<AutoVerificationResult> {
   try {
-    console.log(`🔍 Attempting auto Steam verification for: "${gameTitle}"`);
+    // Attempting auto Steam verification
     
     // Search Steam API with the game title
     const searchResponse = await searchSteamGames(gameTitle, 5);
@@ -69,7 +69,7 @@ export async function autoVerifyWithSteam(
     }
     
     if (bestMatch && bestConfidence >= confidenceThreshold) {
-      console.log(`✅ Auto Steam verification successful: "${bestMatch.name}" (${bestMatch.appid}) with confidence ${bestConfidence.toFixed(2)}`);
+      // Auto Steam verification successful
       
       return {
         success: true,
@@ -79,8 +79,7 @@ export async function autoVerifyWithSteam(
         reason: `High confidence match found (${(bestConfidence * 100).toFixed(1)}%)`
       };
     } else {
-      const topMatch = searchResponse.results[0];
-      console.log(`⚠️ Auto Steam verification failed: Best match "${topMatch?.name}" had confidence ${bestConfidence.toFixed(2)}, threshold is ${confidenceThreshold}`);
+      // Auto Steam verification failed - confidence below threshold
       
       return {
         success: false,
