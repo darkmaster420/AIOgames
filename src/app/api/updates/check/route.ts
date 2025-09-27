@@ -361,101 +361,103 @@ export async function POST(request: Request) {
     for (const game of trackedGames) {
       const gameStartTime = Date.now();
       console.log(`🔍 Checking: ${game.title}`);
-      
+
       try {
+        // --- Robust filter gate matching ---
+        // 1. Cleaned name
+        // 2. Steam enhanced name (if available)
+        // 3. Original title
         const cleanTitle = cleanGameTitle(game.title);
-        
-        // Find all potential matches first, then pick the best version
-        const potentialMatches: Array<{game: GameSearchResult, similarity: number, versionInfo: VersionInfo}> = [];
+        const steamName = game.steamName ? game.steamName.trim() : null;
+        const originalTitle = game.originalTitle ? game.originalTitle.trim() : null;
+
+        // Find all potential matches for each gate
+        const gates = [
+          { label: 'cleaned', value: cleanTitle },
+          ...(steamName ? [{ label: 'steam', value: steamName }] : []),
+          ...(originalTitle ? [{ label: 'original', value: originalTitle }] : [])
+        ];
+
+  const potentialMatches: Array<{game: GameSearchResult, similarity: number, versionInfo: VersionInfo, gate: string}> = [];
         let bestMatch: GameSearchResult | null = null;
         let bestSimilarity = 0;
-        
-        for (const recentGame of recentGames) {
-          const decodedTitle = decodeHtmlEntities(recentGame.title);
-          const similarity = calculateGameSimilarity(cleanTitle, decodedTitle);
-          
-          // Only consider games with high similarity as potential matches
-          if (similarity >= 0.8) {
-            const versionInfo = extractVersionInfo(decodedTitle);
-            potentialMatches.push({ game: recentGame, similarity, versionInfo });
-          }
-          
-          // Also check for sequels (moderate similarity)
-          if (similarity >= 0.5 && similarity < 0.8) {
-            const sequelResult = detectSequel(game.title, decodedTitle);
-            if (sequelResult && sequelResult.isSequel) {
-              // Check if we already have this sequel notification
-              const existingSequel = game.sequelNotifications?.some((sequel: { detectedTitle: string; gameLink: string }) => 
-                sequel.detectedTitle === decodedTitle && sequel.gameLink === recentGame.link
-              );
-              
-              if (!existingSequel) {
-                await TrackedGame.findByIdAndUpdate(game._id, {
-                  $push: { 
-                    sequelNotifications: {
-                      detectedTitle: decodedTitle,
-                      gameId: recentGame.id,
-                      gameLink: recentGame.link,
-                      image: recentGame.image || '',
-                      description: recentGame.description || '',
-                      source: recentGame.source,
-                      similarity,
-                      sequelType: sequelResult.sequelType,
-                      dateFound: new Date(),
-                      downloadLinks: recentGame.downloadLinks || []
+        let bestGate = '';
+
+        for (const gate of gates) {
+          for (const recentGame of recentGames) {
+            const decodedTitle = decodeHtmlEntities(recentGame.title);
+            const similarity = calculateGameSimilarity(gate.value, decodedTitle);
+            if (similarity >= 0.8) {
+              const versionInfo = extractVersionInfo(decodedTitle);
+              potentialMatches.push({ game: recentGame, similarity, versionInfo, gate: gate.label });
+            }
+            // Also check for sequels (moderate similarity)
+            if (similarity >= 0.5 && similarity < 0.8 && gate.label === 'cleaned') {
+              const sequelResult = detectSequel(game.title, decodedTitle);
+              if (sequelResult && sequelResult.isSequel) {
+                const existingSequel = game.sequelNotifications?.some((sequel: { detectedTitle: string; gameLink: string }) =>
+                  sequel.detectedTitle === decodedTitle && sequel.gameLink === recentGame.link
+                );
+                if (!existingSequel) {
+                  await TrackedGame.findByIdAndUpdate(game._id, {
+                    $push: {
+                      sequelNotifications: {
+                        detectedTitle: decodedTitle,
+                        gameId: recentGame.id,
+                        gameLink: recentGame.link,
+                        image: recentGame.image || '',
+                        description: recentGame.description || '',
+                        source: recentGame.source,
+                        similarity,
+                        sequelType: sequelResult.sequelType,
+                        dateFound: new Date(),
+                        downloadLinks: recentGame.downloadLinks || []
+                      }
                     }
-                  }
-                });
-                
-                // Send sequel notification
-                try {
-                  const notificationData = createUpdateNotificationData({
-                    gameTitle: game.title,
-                    gameLink: recentGame.link,
-                    imageUrl: recentGame.image,
-                    updateType: 'sequel'
                   });
-                  
-                  await sendUpdateNotification(game.userId.toString(), notificationData);
-                  console.log(`📢 Sequel found: ${game.title} -> ${decodedTitle}`);
-                } catch (notificationError) {
-                  console.error(`Failed to send sequel notification:`, notificationError);
+                  try {
+                    const notificationData = createUpdateNotificationData({
+                      gameTitle: game.title,
+                      gameLink: recentGame.link,
+                      imageUrl: recentGame.image,
+                      updateType: 'sequel'
+                    });
+                    await sendUpdateNotification(game.userId.toString(), notificationData);
+                    console.log(`📢 Sequel found: ${game.title} -> ${decodedTitle}`);
+                  } catch (notificationError) {
+                    console.error(`Failed to send sequel notification:`, notificationError);
+                  }
+                  sequelsFound++;
                 }
-                
-                sequelsFound++;
               }
             }
           }
+          // If we found matches in this gate, stop and use only these
+          if (potentialMatches.length > 0) {
+            bestGate = gate.label;
+            break;
+          }
         }
-        
+
         // Now select the best match based on what the tracked game has verified
-        console.log(`🔍 Found ${potentialMatches.length} potential matches for "${game.title}"`);
-        
+        console.log(`🔍 Found ${potentialMatches.length} potential matches for "${game.title}" (gate: ${bestGate})`);
+
         if (potentialMatches.length > 0) {
-          // Sort matches by version priority based on what's verified for this game
           let sortedMatches = [...potentialMatches];
-          
-          // Get what verification info this game has
           const hasVerifiedVersion = game.versionNumberVerified && game.currentVersionNumber;
           const hasVerifiedBuild = game.buildNumberVerified && game.currentBuildNumber;
-          
           console.log(`📋 Game verification status: Version=${hasVerifiedVersion ? game.currentVersionNumber : 'No'}, Build=${hasVerifiedBuild ? game.currentBuildNumber : 'No'}`);
-          
           if (hasVerifiedVersion && hasVerifiedBuild) {
-            // Game has both verified - compare both version and build numbers
             console.log('🎯 Using both version and build number comparison');
             sortedMatches.sort((a, b) => {
               const aVersion = parseFloat(a.versionInfo.version || '0');
               const bVersion = parseFloat(b.versionInfo.version || '0');
               const aBuild = parseInt(a.versionInfo.build || '0');
               const bBuild = parseInt(b.versionInfo.build || '0');
-              
-              // First compare versions, then builds
               if (bVersion !== aVersion) return bVersion - aVersion;
               return bBuild - aBuild;
             });
           } else if (hasVerifiedVersion) {
-            // Game has verified version - only check version numbers
             console.log('🎯 Using version number comparison only');
             sortedMatches = sortedMatches.filter(m => m.versionInfo.version);
             sortedMatches.sort((a, b) => {
@@ -464,7 +466,6 @@ export async function POST(request: Request) {
               return bVersion - aVersion;
             });
           } else if (hasVerifiedBuild) {
-            // Game has verified build - only check build numbers
             console.log('🎯 Using build number comparison only');
             sortedMatches = sortedMatches.filter(m => m.versionInfo.build);
             sortedMatches.sort((a, b) => {
@@ -473,28 +474,21 @@ export async function POST(request: Request) {
               return bBuild - aBuild;
             });
           } else {
-            // No verification - use similarity and general version detection
             console.log('🎯 Using similarity-based comparison (no verification)');
             sortedMatches.sort((a, b) => {
-              // First by similarity, then by version/build if available
               if (b.similarity !== a.similarity) return b.similarity - a.similarity;
-              
               const aVersion = parseFloat(a.versionInfo.version || '0');
               const bVersion = parseFloat(b.versionInfo.version || '0');
               const aBuild = parseInt(a.versionInfo.build || '0');
               const bBuild = parseInt(b.versionInfo.build || '0');
-              
               if (bVersion !== aVersion) return bVersion - aVersion;
               return bBuild - aBuild;
             });
           }
-          
-          // Take the highest version match
           bestMatch = sortedMatches[0]?.game || null;
           bestSimilarity = sortedMatches[0]?.similarity || 0;
-          
           if (bestMatch) {
-            console.log(`🎯 Selected best match: "${bestMatch.title}" (similarity: ${bestSimilarity.toFixed(2)})`);
+            console.log(`🎯 Selected best match: "${bestMatch.title}" (similarity: ${bestSimilarity.toFixed(2)}, gate: ${bestGate})`);
           }
         }
         
@@ -613,9 +607,15 @@ export async function POST(request: Request) {
                 if (newVersionInfo.releaseType) versionString += ` ${newVersionInfo.releaseType}`;
               }
               
-              // Auto-approve if we have verified info and it's clearly higher, or high similarity
-              const shouldAutoApprove = (hasVerifiedVersion || hasVerifiedBuild) && isActuallyNewer && bestSimilarity >= 0.85;
-              
+
+              // Auto-approve if:
+              // - We have verified info and it's clearly higher, or
+              // - Similarity is 100% and significance >= 2 (robust match)
+              const shouldAutoApprove = (
+                ((hasVerifiedVersion || hasVerifiedBuild) && isActuallyNewer && bestSimilarity >= 0.85) ||
+                (bestSimilarity === 1.0 && isActuallyNewer)
+              );
+
               if (shouldAutoApprove) {
                 // Auto-approve high confidence updates
                 const approvedUpdate = {
@@ -623,7 +623,7 @@ export async function POST(request: Request) {
                   build: newVersionInfo.build || '',
                   releaseType: newVersionInfo.releaseType || '',
                   updateType: newVersionInfo.updateType || '',
-                  changeType: 'verified_update',
+                  changeType: 'auto_approved',
                   significance: 5,
                   dateFound: new Date(),
                   gameLink: bestMatch.link,
@@ -643,8 +643,8 @@ export async function POST(request: Request) {
                   hasNewUpdate: true,
                   newUpdateSeen: false
                 });
-                
-                console.log(`✅ Auto-approved verified update for ${game.title}: ${versionString}`);
+
+                console.log(`✅ Auto-approved update for ${game.title}: ${versionString}`);
                 updatesFound++;
               } else {
                 // Add to pending updates
@@ -666,7 +666,7 @@ export async function POST(request: Request) {
                   $push: { pendingUpdates: pendingUpdate },
                   lastChecked: new Date()
                 });
-                
+
                 console.log(`📝 Added pending update for ${game.title}: ${versionString}`);
                 updatesFound++;
               }
