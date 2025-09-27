@@ -54,6 +54,43 @@ export default function Dashboard() {
     }
   }, [siteFilter]);
 
+  const searchGames = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+
+    try {
+      setLoading(true);
+      setError('');
+      const response = await fetch(`/api/games/search?search=${encodeURIComponent(searchQuery)}${siteFilter && siteFilter !== 'all' ? `&site=${encodeURIComponent(siteFilter)}` : ''}`);
+      if (!response.ok) throw new Error('Search failed');
+      const data = await response.json();
+      
+      // Ensure data is an array before setting it
+      if (Array.isArray(data)) {
+        setGames(data);
+      } else {
+        console.error('Search API returned non-array data:', data);
+        setError('Invalid search results format');
+        setGames([]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Search failed');
+      setGames([]); // Set to empty array on error
+    } finally {
+      setLoading(false);
+    }
+  }, [searchQuery, siteFilter]);
+
+  const applyCurrentFilter = useCallback(async () => {
+    if (searchQuery.trim()) {
+      // If we have a search query, perform search with current filter
+      await searchGames({ preventDefault: () => {} } as React.FormEvent);
+    } else {
+      // If no search query, load recent games with current filter
+      await loadRecentGames();
+    }
+  }, [searchQuery, searchGames, loadRecentGames]);
+
   useEffect(() => {
     if (status === 'authenticated') {
       loadRecentGames();
@@ -71,33 +108,6 @@ export default function Dashboard() {
       }
     } catch (err) {
       console.error('Failed to load tracked games:', err);
-    }
-  };
-
-  const searchGames = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!searchQuery.trim()) return;
-
-    try {
-      setLoading(true);
-      setError('');
-  const response = await fetch(`/api/games/search?search=${encodeURIComponent(searchQuery)}${siteFilter && siteFilter !== 'all' ? `&site=${encodeURIComponent(siteFilter)}` : ''}`);
-      if (!response.ok) throw new Error('Search failed');
-      const data = await response.json();
-      
-      // Ensure data is an array before setting it
-      if (Array.isArray(data)) {
-        setGames(data);
-      } else {
-        console.error('Search API returned non-array data:', data);
-        setError('Invalid search results format');
-        setGames([]);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Search failed');
-      setGames([]); // Set to empty array on error
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -181,13 +191,27 @@ export default function Dashboard() {
         {/* Mobile-optimized Search */}
         <form onSubmit={searchGames} className="mb-4 sm:mb-6">
           <div className="flex flex-col sm:flex-row gap-2">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search for games..."
-              className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-            />
+            <div className="relative flex-1">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search for games..."
+                className="w-full px-3 py-2 pr-10 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    loadRecentGames();
+                  }}
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
             <button
               type="submit"
               disabled={loading}
@@ -200,7 +224,22 @@ export default function Dashboard() {
 
         {/* Site Filter */}
         <div className="mb-4 sm:mb-6">
-          <label className="block text-sm text-gray-700 dark:text-gray-300 mb-2">Filter by Site</label>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm text-gray-700 dark:text-gray-300">Filter by Site</label>
+            {(searchQuery || siteFilter !== 'all') && (
+              <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                {searchQuery && (
+                  <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-full">
+                    Search: &ldquo;{searchQuery}&rdquo;
+                  </span>
+                )}
+                {siteFilter !== 'all' && (
+                  <span className="px-2 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded-full">
+                    Site: {SITES.find(site => site.value === siteFilter)?.label || siteFilter}
+                  </span>
+                )}
+              </div>
+            )}\n          </div>
           <div className="flex flex-col sm:flex-row gap-2">
             <select
               value={siteFilter}
@@ -213,11 +252,24 @@ export default function Dashboard() {
               ))}
             </select>
             <button
-              onClick={(e) => { e.preventDefault(); loadRecentGames(); }}
-              className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
+              onClick={(e) => { e.preventDefault(); applyCurrentFilter(); }}
+              className="px-4 py-2 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors text-sm font-medium"
             >
-              Apply
+              Apply Filter
             </button>
+            {(searchQuery || siteFilter !== 'all') && (
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  setSearchQuery('');
+                  setSiteFilter('all');
+                  loadRecentGames();
+                }}
+                className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
+              >
+                Clear All
+              </button>
+            )}
           </div>
         </div>
 
