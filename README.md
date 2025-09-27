@@ -56,8 +56,6 @@ MONGODB_URI=mongodb://localhost:27017/aiogames
 # Authentication
 NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=your-secret-key
-GITHUB_CLIENT_ID=your-github-id
-GITHUB_CLIENT_SECRET=your-github-secret
 
 # APIs
 GAME_API_URL=https://gameapi.a7a8524.workers.dev
