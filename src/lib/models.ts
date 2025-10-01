@@ -425,6 +425,62 @@ trackedGameSchema.index({ source: 1, isActive: 1 });
 trackedGameSchema.index({ lastChecked: 1 });
 trackedGameSchema.index({ title: 'text', originalTitle: 'text' });
 
+// Release Group Variants Schema - For collecting multiple release groups of the same game
+const releaseGroupVariantSchema = new mongoose.Schema({
+  trackedGameId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'TrackedGame',
+    required: true,
+    index: true
+  },
+  gameId: {
+    type: String,
+    required: true // Original gameId from the source site
+  },
+  releaseGroup: {
+    type: String,
+    required: true // e.g., 'GOG', 'P2P', 'CODEX', 'SKIDROW', 'REPACK'
+  },
+  source: {
+    type: String,
+    required: true // e.g., 'skidrow', 'gamedrive'
+  },
+  title: {
+    type: String,
+    required: true
+  },
+  gameLink: {
+    type: String,
+    required: true
+  },
+  version: {
+    type: String // Detected version for this release group
+  },
+  buildNumber: {
+    type: String // Detected build number for this release group
+  },
+  dateFound: {
+    type: Date,
+    default: Date.now
+  },
+  lastSeen: {
+    type: Date,
+    default: Date.now
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  }
+}, {
+  timestamps: true
+});
+
+// Indexes for release group variants
+releaseGroupVariantSchema.index({ trackedGameId: 1, releaseGroup: 1 });
+releaseGroupVariantSchema.index({ gameId: 1 });
+releaseGroupVariantSchema.index({ source: 1, isActive: 1 });
+
 // Create and export models
 export const User = mongoose.models.User || mongoose.model('User', userSchema);
 export const TrackedGame = mongoose.models.TrackedGame || mongoose.model('TrackedGame', trackedGameSchema);
+export const ReleaseGroupVariant = mongoose.models.ReleaseGroupVariant || mongoose.model('ReleaseGroupVariant', releaseGroupVariantSchema);

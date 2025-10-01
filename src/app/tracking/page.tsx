@@ -6,6 +6,7 @@ import { useSession } from 'next-auth/react';
 import { DownloadLinks } from '../../components/DownloadLinks';
 import { SteamVerification } from '../../components/SteamVerification';
 import { SmartVersionVerification } from '../../components/SmartVersionVerification';
+import { ReleaseGroupSelector } from '../../components/ReleaseGroupSelector';
 import { SequelNotifications } from '../../components/SequelNotifications';
 import { AddCustomGame } from '../../components/AddCustomGame';
 import { useConfirm } from '../../components/ConfirmDialog';
@@ -448,6 +449,18 @@ export default function TrackingDashboard() {
                             currentVersionNumber={game.currentVersionNumber}
                             versionNumberVerified={game.versionNumberVerified || false}
                             onVerified={loadTrackedGames}
+                          />
+                        </div>
+
+                        {/* Release Group Selector */}
+                        <div className="mt-2">
+                          <ReleaseGroupSelector
+                            gameId={game._id}
+                            gameTitle={game.title}
+                            onReleaseGroupChange={(group) => {
+                              console.log('Selected release group:', group);
+                              // You can add logic here to handle release group changes
+                            }}
                           />
                         </div>
                       </div>

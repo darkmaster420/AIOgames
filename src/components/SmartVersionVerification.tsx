@@ -32,7 +32,6 @@ export function SmartVersionVerification({
   const [activeTab, setActiveTab] = useState<'version' | 'build'>('version');
   const [versionNumber, setVersionNumber] = useState(currentVersionNumber || '');
   const [buildNumber, setBuildNumber] = useState(currentBuildNumber || '');
-  const [versionSource, setVersionSource] = useState('manual');
   const [buildSource] = useState('steamdb');
   const [isLoading, setIsLoading] = useState(false);
   const [analysis, setAnalysis] = useState<ReturnType<typeof analyzeGameTitle> | null>(null);
@@ -58,7 +57,7 @@ export function SmartVersionVerification({
     } else if (titleAnalysis.suggestions.shouldAskForBuild && !titleAnalysis.suggestions.shouldAskForVersion) {
       setActiveTab('build');
     }
-  }, [originalTitle, gameTitle, versionNumber, buildNumber]);
+  }, [originalTitle, gameTitle]); // Remove versionNumber and buildNumber from deps
 
   const handleVerifyVersion = async () => {
     try {
@@ -86,7 +85,7 @@ export function SmartVersionVerification({
         body: JSON.stringify({
           gameId,
           versionNumber: normalizedVersion,
-          source: versionSource
+          source: 'manual'
         }),
       });
 
@@ -216,11 +215,19 @@ export function SmartVersionVerification({
         {versionNumberVerified && currentVersionNumber && (
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-              📋 v{currentVersionNumber}
+              ✅ v{currentVersionNumber}
+            </span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {analysis?.detectedVersion && (
+                analysis.detectedVersion === currentVersionNumber || 
+                analysis.detectedVersion === `v${currentVersionNumber}` ||
+                `v${analysis.detectedVersion}` === currentVersionNumber
+              ) ? '(Auto-detected)' : '(Manual)'}
             </span>
             <button
               onClick={() => { setIsOpen(true); setActiveTab('version'); }}
               className="text-blue-600 dark:text-blue-400 hover:underline text-xs"
+              title="Edit version number"
             >
               Edit
             </button>
@@ -228,6 +235,7 @@ export function SmartVersionVerification({
               onClick={handleRemoveVersion}
               disabled={isLoading}
               className="text-red-600 dark:text-red-400 hover:underline text-xs disabled:opacity-50"
+              title="Remove version verification"
             >
               Remove
             </button>
@@ -238,11 +246,19 @@ export function SmartVersionVerification({
         {buildNumberVerified && currentBuildNumber && (
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
-              🔢 Build #{currentBuildNumber}
+              🏗️ Build #{currentBuildNumber}
+            </span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {analysis?.detectedBuild && (
+                analysis.detectedBuild === currentBuildNumber ||
+                analysis.detectedBuild === `#${currentBuildNumber}` ||
+                `#${analysis.detectedBuild}` === currentBuildNumber
+              ) ? '(Auto-detected)' : '(Manual)'}
             </span>
             <button
               onClick={() => { setIsOpen(true); setActiveTab('build'); }}
               className="text-blue-600 dark:text-blue-400 hover:underline text-xs"
+              title="Edit build number"
             >
               Edit
             </button>
@@ -250,6 +266,7 @@ export function SmartVersionVerification({
               onClick={handleRemoveBuild}
               disabled={isLoading}
               className="text-red-600 dark:text-red-400 hover:underline text-xs disabled:opacity-50"
+              title="Remove build verification"
             >
               Remove
             </button>
@@ -374,25 +391,6 @@ export function SmartVersionVerification({
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               Examples: 1.2.3, v2.0, 1.5a, 2.0-beta
             </p>
-          </div>
-
-          <div>
-            <label htmlFor={`version-source-${gameId}`} className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Source
-            </label>
-            <select
-              id={`version-source-${gameId}`}
-              name={`version-source-${gameId}`}
-              value={versionSource}
-              onChange={(e) => setVersionSource(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            >
-              <option value="manual">Manual Entry</option>
-              <option value="steam">Steam Store</option>
-              <option value="official">Official Website</option>
-              <option value="game">In-Game Version</option>
-              <option value="launcher">Game Launcher</option>
-            </select>
           </div>
 
           {steamAppId && (

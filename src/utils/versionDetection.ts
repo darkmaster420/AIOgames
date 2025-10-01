@@ -1,4 +1,35 @@
 /**
+ * Extract release group from game title
+ */
+export function extractReleaseGroup(title: string): { releaseGroup: string; cleanTitle: string } {
+  const releaseGroupPatterns = [
+    // Common release groups (case insensitive)
+    /[-\s]*(GOG|P2P|CODEX|SKIDROW|REPACK|FITGIRL|DODI|EMPRESS|RUNE|PLAZA|HOODLUM|RAZOR1911|STEAMPUNKS|DARKSiDERS|GOLDBERG|ALI213|3DM|PROPHET|CPY|SCENE|CRACKED|FULL|UNLOCKED)[-\s]*$/i,
+    // Version with release group like v1.0-GOG
+    /[-\s]+(GOG|P2P|CODEX|SKIDROW|REPACK|FITGIRL|DODI|EMPRESS|RUNE|PLAZA|HOODLUM|RAZOR1911|STEAMPUNKS|DARKSiDERS|GOLDBERG|ALI213|3DM|PROPHET|CPY|SCENE|CRACKED|FULL|UNLOCKED)$/i
+  ];
+
+  for (const pattern of releaseGroupPatterns) {
+    const match = title.match(pattern);
+    if (match) {
+      const releaseGroup = match[1].toUpperCase();
+      const cleanTitle = title.replace(pattern, '').trim();
+      return { releaseGroup, cleanTitle };
+    }
+  }
+
+  // Default to source-based classification if no explicit release group
+  if (title.toLowerCase().includes('gog')) {
+    return { releaseGroup: 'GOG', cleanTitle: title.replace(/[-\s]*gog[-\s]*/i, '').trim() };
+  }
+  if (title.toLowerCase().includes('p2p')) {
+    return { releaseGroup: 'P2P', cleanTitle: title.replace(/[-\s]*p2p[-\s]*/i, '').trim() };
+  }
+
+  return { releaseGroup: 'UNKNOWN', cleanTitle: title };
+}
+
+/**
  * Utility functions for detecting and parsing version and build numbers from game titles
  */
 
@@ -25,14 +56,14 @@ export function detectVersionNumber(title: string): { found: boolean; version?: 
     /\bv(\d{8})\b/i, // vYYYYMMDD
     /\bv(\d{2})[-\.]?(\d{2})[-\.]?(\d{2})\b/i, // vYY.MM.DD or vYYMMDD
     /\bv(\d{6})\b/i, // vYYMMDD
-    // v1.2.3, v1.2, v1.0.0
+    // Special patterns like v1.0a, v2.1b, v1.5-beta, v1.0alpha (check these BEFORE simple patterns)
+    /\bv(\d+(?:\.\d+)*(?:[a-z]|(?:\-?(?:alpha|beta|rc|final|release))))\b/i,
+    // v1.2.3, v1.2, v1.0.0 (simple numeric patterns)
     /\bv(\d+(?:\.\d+){0,3})\b/i,
     // Version 1.2.3, Ver 1.2
     /\b(?:version|ver)[\s\-\.]?(\d+(?:\.\d+){0,3})\b/i,
     // 1.2.3 (standalone version numbers)
-    /\b(\d+\.\d+(?:\.\d+)*)\b/,
-    // Special patterns like v1.0a, v2.1b, v1.5-beta
-    /\bv?(\d+(?:\.\d+){0,2}[a-z]?(?:\-(?:alpha|beta|rc|final|release))?)\b/i
+    /\b(\d+\.\d+(?:\.\d+)*)\b/
   ];
 
   // vYYYYMMDD or vYYYY.MM.DD or vYYYY-MM-DD

@@ -5,6 +5,8 @@ import { getCurrentUser } from '../../../lib/auth';
 import { cleanGameTitle, decodeHtmlEntities } from '../../../utils/steamApi';
 import { autoVerifyWithSteam } from '../../../utils/autoSteamVerification';
 import { updateScheduler } from '../../../lib/scheduler';
+import { analyzeGameTitle, extractReleaseGroup } from '../../../utils/versionDetection';
+import { ReleaseGroupVariant } from '../../../lib/models';
 
 // GET - Fetch all tracked games for the current user
 export async function GET() {
@@ -120,6 +122,76 @@ export async function POST(request: NextRequest) {
     } catch (verificationError) {
       console.error(`❌ Auto Steam verification error for "${title}":`, verificationError);
       // Don't fail the entire request if Steam verification fails
+    }
+
+    // Attempt automatic version detection and verification
+    try {
+      console.log(`🔍 Attempting auto version detection for newly added game: "${title}"`);
+      
+      const versionAnalysis = analyzeGameTitle(title);
+      
+      if (versionAnalysis.detectedVersion) {
+        // Auto-verify the detected version
+        trackedGame.currentVersionNumber = versionAnalysis.detectedVersion;
+        trackedGame.versionNumberVerified = true;
+        trackedGame.versionNumberSource = 'auto-detected';
+        console.log(`✅ Auto-detected and verified version for "${title}": v${versionAnalysis.detectedVersion}`);
+      }
+      
+      if (versionAnalysis.detectedBuild) {
+        // Auto-verify the detected build number
+        trackedGame.currentBuildNumber = versionAnalysis.detectedBuild;
+        trackedGame.buildNumberVerified = true;
+        trackedGame.buildNumberSource = 'auto-detected';
+        console.log(`✅ Auto-detected and verified build for "${title}": Build #${versionAnalysis.detectedBuild}`);
+      }
+      
+      // Save the version/build updates
+      if (versionAnalysis.detectedVersion || versionAnalysis.detectedBuild) {
+        await trackedGame.save();
+      }
+      
+    } catch (versionError) {
+      console.error(`❌ Auto version detection error for "${title}":`, versionError);
+      // Don't fail the entire request if version detection fails
+    }
+
+    // Attempt to extract and store release group information
+    try {
+      console.log(`🔍 Attempting release group extraction for newly added game: "${title}"`);
+      
+      const releaseGroup = extractReleaseGroup(title);
+      
+      if (releaseGroup) {
+        console.log(`✅ Detected release group: ${releaseGroup}`);
+        
+        // Check if this release group variant already exists for this game
+        const existingVariant = await ReleaseGroupVariant.findOne({
+          gameId: trackedGame._id,
+          releaseGroup: releaseGroup
+        });
+
+        if (!existingVariant) {
+          const variant = new ReleaseGroupVariant({
+            gameId: trackedGame._id,
+            releaseGroup: releaseGroup,
+            title: title,
+            version: trackedGame.currentVersionNumber || "",
+            buildNumber: trackedGame.currentBuildNumber || "",
+            detectedAt: new Date()
+          });
+          await variant.save();
+          console.log(`✅ Stored release group variant: ${releaseGroup} for game "${title}"`);
+        } else {
+          console.log(`ℹ️ Release group variant ${releaseGroup} already exists for this game`);
+        }
+      } else {
+        console.log(`ℹ️ No release group detected in title: "${title}"`);
+      }
+      
+    } catch (releaseGroupError) {
+      console.error(`❌ Release group extraction error for "${title}":`, releaseGroupError);
+      // Don't fail the entire request if release group extraction fails
     }
 
     // Update user's scheduler after adding a game
