@@ -17,12 +17,14 @@ export interface VersionDetection {
 /**
  * Detect version numbers in title (e.g., v1.2.3, 1.0, 2.5.1, etc.)
  */
-export function detectVersionNumber(title: string): { found: boolean; version?: string } {
+
+export function detectVersionNumber(title: string): { found: boolean; version?: string; isDateVersion?: boolean; isStaleDateVersion?: boolean; dateValue?: Date } {
   const versionPatterns = [
-    // Date-based versions like v20250922, v2025.09.22 (prioritize these)
-    /\bv(\d{4}[-.]?\d{2}[-.]?\d{2})\b/i,
-    // Date-based versions - 8 digits like v20250922
-    /\bv(\d{8})\b/i,
+    // Date-based versions like v20250922, v2025.09.22, v27.08.25, v270825 (prioritize these)
+    /\bv(\d{4})[-\.]?(\d{2})[-\.]?(\d{2})\b/i, // vYYYYMMDD or vYYYY.MM.DD or vYYYY-MM-DD
+    /\bv(\d{8})\b/i, // vYYYYMMDD
+    /\bv(\d{2})[-\.]?(\d{2})[-\.]?(\d{2})\b/i, // vYY.MM.DD or vYYMMDD
+    /\bv(\d{6})\b/i, // vYYMMDD
     // v1.2.3, v1.2, v1.0.0
     /\bv(\d+(?:\.\d+){0,3})\b/i,
     // Version 1.2.3, Ver 1.2
@@ -33,10 +35,82 @@ export function detectVersionNumber(title: string): { found: boolean; version?: 
     /\bv?(\d+(?:\.\d+){0,2}[a-z]?(?:\-(?:alpha|beta|rc|final|release))?)\b/i
   ];
 
-  for (const pattern of versionPatterns) {
+  // vYYYYMMDD or vYYYY.MM.DD or vYYYY-MM-DD
+  let match = title.match(/\bv(\d{4})[-\.]?(\d{2})[-\.]?(\d{2})\b/i);
+  if (match) {
+    const year = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10) - 1;
+    const day = parseInt(match[3], 10);
+    const dateValue = new Date(year, month, day);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - dateValue.getTime()) / (1000 * 60 * 60 * 24));
+    return {
+      found: true,
+      version: match[0],
+      isDateVersion: true,
+      isStaleDateVersion: diffDays > 7,
+      dateValue
+    };
+  }
+  // vYYYYMMDD
+  match = title.match(/\bv(\d{8})\b/i);
+  if (match) {
+    const year = parseInt(match[1].slice(0, 4), 10);
+    const month = parseInt(match[1].slice(4, 6), 10) - 1;
+    const day = parseInt(match[1].slice(6, 8), 10);
+    const dateValue = new Date(year, month, day);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - dateValue.getTime()) / (1000 * 60 * 60 * 24));
+    return {
+      found: true,
+      version: match[0],
+      isDateVersion: true,
+      isStaleDateVersion: diffDays > 7,
+      dateValue
+    };
+  }
+  // vYY.MM.DD or vYYMMDD
+  match = title.match(/\bv(\d{2})[-\.]?(\d{2})[-\.]?(\d{2})\b/i);
+  if (match) {
+    let year = parseInt(match[1], 10);
+    year += year < 50 ? 2000 : 1900; // assume 2000+ for 00-49, 1900+ for 50-99
+    const month = parseInt(match[2], 10) - 1;
+    const day = parseInt(match[3], 10);
+    const dateValue = new Date(year, month, day);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - dateValue.getTime()) / (1000 * 60 * 60 * 24));
+    return {
+      found: true,
+      version: match[0],
+      isDateVersion: true,
+      isStaleDateVersion: diffDays > 7,
+      dateValue
+    };
+  }
+  // vYYMMDD
+  match = title.match(/\bv(\d{6})\b/i);
+  if (match) {
+    let year = parseInt(match[1].slice(0, 2), 10);
+    year += year < 50 ? 2000 : 1900;
+    const month = parseInt(match[1].slice(2, 4), 10) - 1;
+    const day = parseInt(match[1].slice(4, 6), 10);
+    const dateValue = new Date(year, month, day);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - dateValue.getTime()) / (1000 * 60 * 60 * 24));
+    return {
+      found: true,
+      version: match[0],
+      isDateVersion: true,
+      isStaleDateVersion: diffDays > 7,
+      dateValue
+    };
+  }
+
+  // Fallback to other version patterns
+  for (const pattern of versionPatterns.slice(2)) {
     const match = title.match(pattern);
     if (match) {
-      return { found: true, version: match[1] };
+      return { found: true, version: match[1], isDateVersion: false };
     }
   }
 

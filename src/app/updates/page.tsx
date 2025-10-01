@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import Image from 'next/image';
 import { Navigation } from '../../components/Navigation';
+import { SchedulerStatus } from '../../components/SchedulerStatus';
 import { useNotification } from '../../contexts/NotificationContext';
 
 interface UpdateHistoryItem {
@@ -193,7 +194,11 @@ export default function UpdatesPage() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <Navigation />
+      {/* Automatic Update Scheduler Status */}
       <div className="max-w-6xl mx-auto py-8 px-4">
+        <div className="mb-6">
+          <SchedulerStatus />
+        </div>
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Game Updates</h1>

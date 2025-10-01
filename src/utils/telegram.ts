@@ -202,11 +202,9 @@ export function formatGameUpdateMessage(gameData: {
   if (downloadLinks && downloadLinks.length > 0) {
     text += `\n\n📥 <b>Download Links:</b>\n`;
     downloadLinks.forEach(link => {
-      text += `• ${link.service}${link.type ? ` (${link.type})` : ' (hosting)'}\n`;
+      // Make each link clickable with service name
+      text += `• <a href="${link.url}">${link.service}${link.type ? ` (${link.type})` : ''}</a>\n`;
     });
-    console.log(`✅ Added ${downloadLinks.length} download links to Telegram message`);
-  } else {
-    console.log(`❌ No download links found or empty array`);
   }
   
   // Add timestamp

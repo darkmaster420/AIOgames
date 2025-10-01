@@ -39,26 +39,26 @@ export function SmartVersionVerification({
   const { showSuccess, showError } = useNotification();
   const { confirm, ConfirmDialog } = useConfirm();
 
-  // Analyze the title when component mounts
+  // Analyze the title and always update version/build if a new update is detected
   useEffect(() => {
     const titleAnalysis = analyzeGameTitle(originalTitle || gameTitle);
     setAnalysis(titleAnalysis);
-    
-    // Pre-fill detected values if not already verified
-    if (titleAnalysis.detectedVersion && !versionNumberVerified) {
+
+    // Always update version/build if detected and different from current
+    if (titleAnalysis.detectedVersion && titleAnalysis.detectedVersion !== versionNumber) {
       setVersionNumber(titleAnalysis.detectedVersion);
     }
-    if (titleAnalysis.detectedBuild && !buildNumberVerified) {
+    if (titleAnalysis.detectedBuild && titleAnalysis.detectedBuild !== buildNumber) {
       setBuildNumber(titleAnalysis.detectedBuild);
     }
-    
+
     // Set default tab based on what's suggested
     if (titleAnalysis.suggestions.shouldAskForVersion && !titleAnalysis.suggestions.shouldAskForBuild) {
       setActiveTab('version');
     } else if (titleAnalysis.suggestions.shouldAskForBuild && !titleAnalysis.suggestions.shouldAskForVersion) {
       setActiveTab('build');
     }
-  }, [originalTitle, gameTitle, versionNumberVerified, buildNumberVerified]);
+  }, [originalTitle, gameTitle, versionNumber, buildNumber]);
 
   const handleVerifyVersion = async () => {
     try {
