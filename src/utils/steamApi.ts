@@ -65,9 +65,14 @@ interface SteamApiError {
   details?: unknown;
 }
 
-const STEAM_API_BASE = 'https://steamapi.a7a8524.workers.dev';
+// Prefer env vars to configure the Worker endpoint; default to provided URL
+export const STEAM_API_BASE =
+  (typeof process !== 'undefined' && (process.env.NEXT_PUBLIC_STEAM_API_BASE || process.env.STEAM_API_BASE)) ||
+  'https://steamapi.a7a8524.workers.dev';
 const REQUEST_TIMEOUT = 10000; // 10 seconds
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+// Shorter TTL for frequently changing builds from SteamDB via Worker
+const BUILDS_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
 // In-memory cache for Steam API responses
 const steamCache = new Map<string, { data: unknown; timestamp: number; ttl: number }>();
@@ -136,6 +141,99 @@ function setCacheResult(key: string, data: unknown, ttl: number = CACHE_TTL): vo
     timestamp: Date.now(),
     ttl
   });
+}
+
+// Types for aggregated /appid details from the Worker
+export interface SteamDbBuildItem {
+  guid: string; // e.g., "build#20193388"
+  build_id: string; // e.g., "20193388"
+  version?: string | null; // heuristic version extracted by the Worker
+  title?: string;
+  url?: string;
+  description?: string;
+  thumbnail?: string | null;
+  published_at?: string; // RFC 822 from RSS
+}
+
+export interface SteamAppAggregatedDetails {
+  appid: string;
+  name?: string;
+  sources?: Record<string, unknown> & {
+    steamdb?: { rss_url?: string; item_count?: number };
+  };
+  builds?: SteamDbBuildItem[];
+  latest_build?: SteamDbBuildItem | null;
+}
+
+/**
+ * Fetch aggregated details (including SteamDB builds/versions) for a Steam App ID
+ * Uses the Worker's /appid endpoint.
+ */
+export async function getSteamAppDetails(appId: string | number): Promise<SteamAppAggregatedDetails> {
+  if (!appId) throw new Error('App ID cannot be empty');
+
+  const normalizedId = String(appId).trim();
+  const cacheKey = `appid:${normalizedId}`;
+  const cached = getCachedResult(cacheKey);
+  if (cached) return cached as SteamAppAggregatedDetails;
+
+  const url = `${STEAM_API_BASE}/appid/${encodeURIComponent(normalizedId)}`;
+  const data = await steamApiFetch(url) as SteamAppAggregatedDetails;
+
+  // Cache with shorter TTL since builds change more often
+  setCacheResult(cacheKey, data, BUILDS_CACHE_TTL);
+  return data;
+}
+
+/** Normalize version strings like "v1.2.3" -> "1.2.3" */
+export function normalizeVersionString(version: string): string {
+  return String(version).trim().replace(/^v\s*/i, '');
+}
+
+/**
+ * Resolve a SteamDB build ID for a given version string using the Worker's aggregated builds
+ */
+export async function resolveBuildFromVersion(appId: string | number, version: string): Promise<string | null> {
+  const normalized = normalizeVersionString(version);
+  if (!normalized) return null;
+
+  try {
+    const details = await getSteamAppDetails(appId);
+    const builds = details.builds || [];
+    // 1) Prefer explicit version field match
+    const byField = builds.find(b => (b.version || '').toLowerCase() === normalized.toLowerCase());
+    if (byField?.build_id) return byField.build_id;
+    // 2) Fallback to title/description contains
+    const patterns = [normalized, `v${normalized}`];
+    const byText = builds.find(b => {
+      const hay = `${b.title || ''} ${b.description || ''}`.toLowerCase();
+      return patterns.some(p => hay.includes(p.toLowerCase()));
+    });
+    return byText?.build_id || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve a version string for a given SteamDB build ID using the Worker's aggregated builds
+ */
+export async function resolveVersionFromBuild(appId: string | number, buildId: string | number): Promise<string | null> {
+  const target = String(buildId).trim();
+  if (!target) return null;
+  try {
+    const details = await getSteamAppDetails(appId);
+    const builds = details.builds || [];
+    const found = builds.find(b => String(b.build_id) === target);
+    if (!found) return null;
+    if (found.version) return normalizeVersionString(found.version);
+    // Fallback: try to extract from title/description like "v1.2.3" or "1.2.3"
+    const text = `${found.title || ''} ${found.description || ''}`;
+    const m = text.match(/v?(\d+\.\d+(?:\.\d+){0,2})/i);
+    return m ? normalizeVersionString(m[1]) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

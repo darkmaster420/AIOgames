@@ -38,6 +38,47 @@ export function SmartVersionVerification({
   const { showSuccess, showError } = useNotification();
   const { confirm } = useConfirm();
 
+  // Try to resolve missing side via API
+  const handleResolveMissing = async () => {
+    if (!steamAppId) return;
+    try {
+      setIsLoading(true);
+      if (activeTab === 'version' && versionNumber && !buildNumber) {
+        const res = await fetch('/api/games/resolve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ appId: steamAppId, version: versionNumber })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || data.message || 'Failed to resolve build');
+        if (data.build) {
+          setBuildNumber(String(data.build));
+          showSuccess('Resolved', `Matched build ${data.build} for version ${versionNumber}.`);
+        } else {
+          showError('Not Found', 'No matching build found for that version on SteamDB.');
+        }
+      } else if (activeTab === 'build' && buildNumber && !versionNumber) {
+        const res = await fetch('/api/games/resolve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ appId: steamAppId, build: buildNumber })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || data.message || 'Failed to resolve version');
+        if (data.version) {
+          setVersionNumber(String(data.version));
+          showSuccess('Resolved', `Matched version ${data.version} for build ${buildNumber}.`);
+        } else {
+          showError('Not Found', 'No matching version found for that build on SteamDB.');
+        }
+      }
+    } catch (e) {
+      showError('Resolve Failed', e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Analyze the title and always update version/build if a new update is detected
   useEffect(() => {
     const titleAnalysis = analyzeGameTitle(originalTitle || gameTitle);
@@ -406,6 +447,16 @@ export function SmartVersionVerification({
                   steamdb.info/app/{steamAppId}/patchnotes/
                 </a> to find the version and build number that matches your game.
               </p>
+              {(versionNumber && !buildNumber) && (
+                <button
+                  type="button"
+                  onClick={handleResolveMissing}
+                  disabled={isLoading}
+                  className="mt-2 px-2 py-1 bg-green-600 text-white rounded text-xs disabled:opacity-50"
+                >
+                  {isLoading ? 'Resolving…' : 'Resolve Build from Version'}
+                </button>
+              )}
             </div>
           )}
 
@@ -466,6 +517,16 @@ export function SmartVersionVerification({
                   steamdb.info/app/{steamAppId}/patchnotes/
                 </a> to find the build number that matches your game version.
               </p>
+              {(buildNumber && !versionNumber) && (
+                <button
+                  type="button"
+                  onClick={handleResolveMissing}
+                  disabled={isLoading}
+                  className="mt-2 px-2 py-1 bg-purple-600 text-white rounded text-xs disabled:opacity-50"
+                >
+                  {isLoading ? 'Resolving…' : 'Resolve Version from Build'}
+                </button>
+              )}
             </div>
           )}
 

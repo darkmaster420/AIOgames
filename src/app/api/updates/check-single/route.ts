@@ -4,7 +4,8 @@ import connectDB from '../../../../lib/db';
 import { TrackedGame, ReleaseGroupVariant } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel } from '../../../../utils/sequelDetection';
-import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities } from '../../../../utils/steamApi';
+import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild } from '../../../../utils/steamApi';
+import logger from '../../../../utils/logger';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
 import { extractReleaseGroup, analyzeGameTitle } from '../../../../utils/versionDetection';
 
@@ -77,14 +78,12 @@ async function canAutoApprove(game: TrackedGameDocument, newVersionInfo: Version
     needsUserConfirmation: false
   };
   
-  console.log('\n🔍 Checking auto-approval conditions:');
-  console.log(`New version info:`, newVersionInfo);
+  logger.debug('Checking auto-approval conditions');
   
   // First try verified version number
   if (game.versionNumberVerified && game.currentVersionNumber) {
     currentInfo = extractVersionInfo(game.currentVersionNumber);
-    console.log(`📊 Checking verified version number: ${game.currentVersionNumber}`);
-    console.log(`Extracted current version info:`, currentInfo);
+  logger.debug(`Checking verified version number: ${game.currentVersionNumber}`);
     
     const comparison = compareVersions(currentInfo, newVersionInfo);
     if (comparison.isNewer && comparison.significance >= 2) {
@@ -97,7 +96,7 @@ async function canAutoApprove(game: TrackedGameDocument, newVersionInfo: Version
 
   // Then try verified build number
   if (game.buildNumberVerified && game.currentBuildNumber && newVersionInfo.build) {
-    console.log(`🔢 Checking verified build number: ${game.currentBuildNumber} vs ${newVersionInfo.build}`);
+  logger.debug(`Checking verified build number: ${game.currentBuildNumber} vs ${newVersionInfo.build}`);
     const currentBuild = parseInt(game.currentBuildNumber);
     const newBuild = parseInt(newVersionInfo.build);
     if (!isNaN(currentBuild) && !isNaN(newBuild) && newBuild > currentBuild) {
@@ -120,8 +119,7 @@ async function canAutoApprove(game: TrackedGameDocument, newVersionInfo: Version
     { title: game.title, label: 'clean title' }
   ].filter(source => source.title); // Remove undefined/null titles
 
-  console.log(`📝 Checking version from available sources:`, 
-    titleSources.map(s => `\n   - ${s.label}: "${s.title}"`).join(''));
+  logger.debug('Checking version from available sources');
 
   for (const source of titleSources) {
     // Skip if title is undefined (shouldn't happen due to filter, but TypeScript doesn't know that)
@@ -556,7 +554,28 @@ export async function POST(request: Request) {
           currentVersionInfo = extractVersionInfo(titleSources[titleSources.length - 1].title);
         }
 
-        const newVersionInfo = extractVersionInfo(decodedTitle);
+        let newVersionInfo = extractVersionInfo(decodedTitle);
+
+        // Enrich version/build via SteamDB Worker if one side is missing and we know the appId
+        if (game.steamAppId) {
+          try {
+            if (newVersionInfo.version && !newVersionInfo.build) {
+              const build = await resolveBuildFromVersion(game.steamAppId, newVersionInfo.version);
+              if (build) {
+                newVersionInfo.build = build;
+                console.log(`🔗 Resolved build ${build} from version ${newVersionInfo.version} via SteamDB`);
+              }
+            } else if (!newVersionInfo.version && newVersionInfo.build) {
+              const version = await resolveVersionFromBuild(game.steamAppId, newVersionInfo.build);
+              if (version) {
+                newVersionInfo.version = version;
+                console.log(`🔗 Resolved version ${version} from build ${newVersionInfo.build} via SteamDB`);
+              }
+            }
+          } catch (e) {
+            console.log('ℹ️ Version↔build resolution skipped due to error:', e instanceof Error ? e.message : 'unknown');
+          }
+        }
         
         const comparison = compareVersions(currentVersionInfo, newVersionInfo);
         

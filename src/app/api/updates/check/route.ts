@@ -4,7 +4,8 @@ import { TrackedGame, ReleaseGroupVariant } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel } from '../../../../utils/sequelDetection';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
-import { cleanGameTitle, decodeHtmlEntities } from '../../../../utils/steamApi';
+import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild } from '../../../../utils/steamApi';
+import logger from '../../../../utils/logger';
 import { extractReleaseGroup, analyzeGameTitle } from '../../../../utils/versionDetection';
 
 interface GameSearchResult {
@@ -271,7 +272,7 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
 // Main update check using recent feed approach
 export async function POST(request: Request) {
   const startTime = Date.now();
-  console.log('🎮 Starting improved update check using recent feed...');
+  logger.info('Starting update check using recent feed');
   
   try {
     // Check if this is an internal scheduler call
@@ -283,7 +284,7 @@ export async function POST(request: Request) {
     if (schedulerUserId) {
       // Internal call from scheduler - use provided user ID
       user = { id: schedulerUserId, email: '', name: 'Scheduler' };
-      console.log(`📅 Scheduled update check for user: ${schedulerUserId}`);
+  logger.debug(`Scheduled update check for user: ${schedulerUserId}`);
     } else {
       // Regular API call - get current user
       user = await getCurrentUser();
@@ -293,7 +294,7 @@ export async function POST(request: Request) {
           { status: 401 }
         );
       }
-      console.log(`👤 Manual update check for user: ${user.id}`);
+  logger.debug(`Manual update check for user: ${user.id}`);
     }
 
     await connectDB();
@@ -304,7 +305,7 @@ export async function POST(request: Request) {
       isActive: true 
     });
     
-    console.log(`📊 Found ${trackedGames.length} games to check for user ${user.id}`);
+  logger.info(`Found ${trackedGames.length} games to check for user ${user.id}`);
     
     if (trackedGames.length === 0) {
       return NextResponse.json({ 
@@ -316,7 +317,7 @@ export async function POST(request: Request) {
     }
 
     // First clear the cache to get fresh results
-    console.log('🔄 Clearing API cache for fresh results...');
+  logger.debug('Clearing game API cache before fetch');
     const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
     
     try {
@@ -324,16 +325,16 @@ export async function POST(request: Request) {
         method: 'POST'
       });
       if (clearCacheResponse.ok) {
-        console.log('✅ Cache cleared successfully');
+  logger.debug('Cache cleared successfully');
       } else {
-        console.log('⚠️ Cache clear failed, continuing with potentially cached results');
+  logger.warn('Cache clear failed, continuing with potentially cached results');
       }
     } catch (cacheError) {
-      console.log('⚠️ Cache clear error, continuing:', cacheError instanceof Error ? cacheError.message : 'Unknown error');
+  logger.warn('Cache clear error, continuing:', cacheError instanceof Error ? cacheError.message : 'Unknown error');
     }
 
     // Fetch recent games from the API (same as homepage)
-    console.log('📡 Fetching fresh recent games from feed...');
+  logger.info('Fetching recent games from feed');
     let recentGames: GameSearchResult[] = [];
     
     try {
@@ -341,12 +342,12 @@ export async function POST(request: Request) {
       if (recentResponse.ok) {
         const recentData = await recentResponse.json();
         recentGames = recentData.results || [];
-        console.log(`📦 Retrieved ${recentGames.length} fresh recent games from feed`);
+  logger.info(`Retrieved ${recentGames.length} recent games from feed`);
       } else {
         throw new Error(`Recent API failed: ${recentResponse.status}`);
       }
     } catch (fetchError) {
-      console.error('❌ Failed to fetch recent games:', fetchError);
+  logger.error('Failed to fetch recent games:', fetchError);
       return NextResponse.json({
         error: 'Failed to fetch recent games from API',
         checked: 0,
@@ -363,7 +364,7 @@ export async function POST(request: Request) {
     // Check each tracked game against the recent feed
     for (const game of trackedGames) {
       const gameStartTime = Date.now();
-      console.log(`🔍 Checking: ${game.title}`);
+  logger.debug(`Checking: ${game.title}`);
 
       try {
         // --- Robust filter gate matching ---
@@ -426,9 +427,9 @@ export async function POST(request: Request) {
                       updateType: 'sequel'
                     });
                     await sendUpdateNotification(game.userId.toString(), notificationData);
-                    console.log(`📢 Sequel found: ${game.title} -> ${decodedTitle}`);
+                    logger.info(`Sequel found: ${game.title} -> ${decodedTitle}`);
                   } catch (notificationError) {
-                    console.error(`Failed to send sequel notification:`, notificationError);
+                    logger.error('Failed to send sequel notification:', notificationError);
                   }
                   sequelsFound++;
                 }
@@ -443,15 +444,15 @@ export async function POST(request: Request) {
         }
 
         // Now select the best match based on what the tracked game has verified
-        console.log(`🔍 Found ${potentialMatches.length} potential matches for "${game.title}" (gate: ${bestGate})`);
+  logger.debug(`Found ${potentialMatches.length} potential matches for "${game.title}" (gate: ${bestGate})`);
 
         if (potentialMatches.length > 0) {
           let sortedMatches = [...potentialMatches];
           const hasVerifiedVersion = game.versionNumberVerified && game.currentVersionNumber;
           const hasVerifiedBuild = game.buildNumberVerified && game.currentBuildNumber;
-          console.log(`📋 Game verification status: Version=${hasVerifiedVersion ? game.currentVersionNumber : 'No'}, Build=${hasVerifiedBuild ? game.currentBuildNumber : 'No'}`);
+          logger.debug(`Game verification status: Version=${hasVerifiedVersion ? game.currentVersionNumber : 'No'}, Build=${hasVerifiedBuild ? game.currentBuildNumber : 'No'}`);
           if (hasVerifiedVersion && hasVerifiedBuild) {
-            console.log('🎯 Using both version and build number comparison');
+            logger.debug('Using both version and build number comparison');
             sortedMatches.sort((a, b) => {
               const aVersion = parseFloat(a.versionInfo.version || '0');
               const bVersion = parseFloat(b.versionInfo.version || '0');
@@ -461,7 +462,7 @@ export async function POST(request: Request) {
               return bBuild - aBuild;
             });
           } else if (hasVerifiedVersion) {
-            console.log('🎯 Using version number comparison only');
+            logger.debug('Using version number comparison only');
             sortedMatches = sortedMatches.filter(m => m.versionInfo.version);
             sortedMatches.sort((a, b) => {
               const aVersion = parseFloat(a.versionInfo.version || '0');
@@ -469,7 +470,7 @@ export async function POST(request: Request) {
               return bVersion - aVersion;
             });
           } else if (hasVerifiedBuild) {
-            console.log('🎯 Using build number comparison only');
+            logger.debug('Using build number comparison only');
             sortedMatches = sortedMatches.filter(m => m.versionInfo.build);
             sortedMatches.sort((a, b) => {
               const aBuild = parseInt(a.versionInfo.build || '0');
@@ -477,7 +478,7 @@ export async function POST(request: Request) {
               return bBuild - aBuild;
             });
           } else {
-            console.log('🎯 Using similarity-based comparison (no verification)');
+            logger.debug('Using similarity-based comparison (no verification)');
             sortedMatches.sort((a, b) => {
               if (b.similarity !== a.similarity) return b.similarity - a.similarity;
               const aVersion = parseFloat(a.versionInfo.version || '0');
@@ -491,7 +492,7 @@ export async function POST(request: Request) {
           bestMatch = sortedMatches[0]?.game || null;
           bestSimilarity = sortedMatches[0]?.similarity || 0;
           if (bestMatch) {
-            console.log(`🎯 Selected best match: "${bestMatch.title}" (similarity: ${bestSimilarity.toFixed(2)}, gate: ${bestGate})`);
+            logger.debug(`Selected best match: "${bestMatch.title}" (similarity: ${bestSimilarity.toFixed(2)}, gate: ${bestGate})`);
           }
         }
         
@@ -507,10 +508,10 @@ export async function POST(request: Request) {
           let currentVersionInfo = null;
           
           if (hasVerifiedVersion && game.currentVersionNumber) {
-            console.log(`📊 Using verified version number: ${game.currentVersionNumber}`);
+            logger.debug(`Using verified version number: ${game.currentVersionNumber}`);
             currentVersionInfo = extractVersionInfo(game.currentVersionNumber);
           } else if (hasVerifiedBuild && game.currentBuildNumber) {
-            console.log(`📊 Using verified build number: ${game.currentBuildNumber}`);
+            logger.debug(`Using verified build number: ${game.currentBuildNumber}`);
             currentVersionInfo = { 
               version: '', 
               build: game.currentBuildNumber, 
@@ -542,7 +543,28 @@ export async function POST(request: Request) {
             }
           }
 
-          const newVersionInfo = extractVersionInfo(decodedTitle);
+          let newVersionInfo = extractVersionInfo(decodedTitle);
+
+          // If we detected only version or only build, try to resolve the missing one via SteamDB Worker when appId is known
+          if (game.steamAppId) {
+            try {
+              if (newVersionInfo.version && !newVersionInfo.build) {
+                const build = await resolveBuildFromVersion(game.steamAppId, newVersionInfo.version);
+                if (build) {
+                  newVersionInfo.build = build;
+                  logger.info(`Resolved build ${build} from version ${newVersionInfo.version} via SteamDB`);
+                }
+              } else if (!newVersionInfo.version && newVersionInfo.build) {
+                const version = await resolveVersionFromBuild(game.steamAppId, newVersionInfo.build);
+                if (version) {
+                  newVersionInfo.version = version;
+                  logger.info(`Resolved version ${version} from build ${newVersionInfo.build} via SteamDB`);
+                }
+              }
+            } catch (e) {
+              logger.debug('Version↔build resolution skipped:', e instanceof Error ? e.message : 'unknown');
+            }
+          }
           
           // Enhanced comparison that respects verification preferences
           let isActuallyNewer = false;
@@ -587,10 +609,10 @@ export async function POST(request: Request) {
           // Check if it's different content (different link) or actually newer
           const isDifferentLink = game.gameLink !== bestMatch.link;
           
-          console.log(`🔍 Update analysis: Different link=${isDifferentLink}, Newer version=${isActuallyNewer}, Reason=${comparisonReason}`);
+          logger.debug(`Update analysis: Different link=${isDifferentLink}, Newer=${isActuallyNewer}, Reason=${comparisonReason}`);
           
           if (isDifferentLink || isActuallyNewer) {
-            console.log(`✨ Update found: ${decodedTitle} (different link: ${isDifferentLink}, newer version: ${isActuallyNewer})`);
+            logger.info(`Update found: ${decodedTitle} (different link: ${isDifferentLink}, newer: ${isActuallyNewer})`);
             
             // Check if we already have this update
             const existingUpdate = game.updateHistory?.some((update: { gameLink: string }) => 
@@ -653,7 +675,7 @@ export async function POST(request: Request) {
                   updateFields.versionNumberVerified = true;
                   updateFields.versionNumberSource = 'automatic';
                   updateFields.versionNumberLastUpdated = new Date();
-                  console.log(`✅ Updated version number to: ${newVersionInfo.version}`);
+                  logger.info(`Updated version number to: ${newVersionInfo.version}`);
                 }
                 
                 if (newVersionInfo.build) {
@@ -661,12 +683,12 @@ export async function POST(request: Request) {
                   updateFields.buildNumberVerified = true;
                   updateFields.buildNumberSource = 'automatic';
                   updateFields.buildNumberLastUpdated = new Date();
-                  console.log(`✅ Updated build number to: ${newVersionInfo.build}`);
+                  logger.info(`Updated build number to: ${newVersionInfo.build}`);
                 }
 
                 await TrackedGame.findByIdAndUpdate(game._id, updateFields);
 
-                console.log(`✅ Auto-approved update for ${game.title}: ${versionString}`);
+                logger.info(`Auto-approved update for ${game.title}: ${versionString}`);
                 updatesFound++;
               } else {
                 // Add to pending updates
@@ -689,7 +711,7 @@ export async function POST(request: Request) {
                   lastChecked: new Date()
                 });
 
-                console.log(`📝 Added pending update for ${game.title}: ${versionString}`);
+                logger.info(`Added pending update for ${game.title}: ${versionString}`);
                 updatesFound++;
               }
               
@@ -704,19 +726,19 @@ export async function POST(request: Request) {
                 });
                 
                 await sendUpdateNotification(game.userId.toString(), notificationData);
-                console.log(`📢 Update notification sent for ${game.title}`);
+                logger.info(`Update notification sent for ${game.title}`);
               } catch (notificationError) {
-                console.error(`Failed to send update notification:`, notificationError);
+                logger.error('Failed to send update notification:', notificationError);
               }
 
               // Collect release group variant from the new update
               try {
-                console.log(`🔍 Attempting release group extraction for update: "${decodedTitle}"`);
+                logger.debug(`Attempting release group extraction for update: "${decodedTitle}"`);
                 
                 const releaseGroupResult = extractReleaseGroup(decodedTitle);
                 
                 if (releaseGroupResult.releaseGroup && releaseGroupResult.releaseGroup !== 'UNKNOWN') {
-                  console.log(`✅ Detected release group in update: ${releaseGroupResult.releaseGroup}`);
+                  logger.debug(`Detected release group in update: ${releaseGroupResult.releaseGroup}`);
                   
                   // Analyze the new title for version/build information
                   const analysis = analyzeGameTitle(decodedTitle);
@@ -740,7 +762,7 @@ export async function POST(request: Request) {
                       dateFound: new Date()
                     });
                     await variant.save();
-                    console.log(`✅ Stored new release group variant from update: ${releaseGroupResult.releaseGroup} for game "${game.title}"`);
+                    logger.debug(`Stored new release group variant from update: ${releaseGroupResult.releaseGroup} for game "${game.title}"`);
                   } else {
                     // Update existing variant with latest information
                     existingVariant.title = decodedTitle;
@@ -749,14 +771,14 @@ export async function POST(request: Request) {
                     if (analysis.detectedBuild) existingVariant.buildNumber = analysis.detectedBuild;
                     existingVariant.lastSeen = new Date();
                     await existingVariant.save();
-                    console.log(`✅ Updated existing release group variant: ${releaseGroupResult.releaseGroup} for game "${game.title}"`);
+                    logger.debug(`Updated existing release group variant: ${releaseGroupResult.releaseGroup} for game "${game.title}"`);
                   }
                 } else {
-                  console.log(`ℹ️ No release group detected in update title: "${decodedTitle}"`);
+                  logger.debug(`No release group detected in update title: "${decodedTitle}"`);
                 }
                 
               } catch (releaseGroupError) {
-                console.error(`❌ Release group extraction error for update "${decodedTitle}":`, releaseGroupError);
+                logger.error('Release group extraction error:', releaseGroupError);
                 // Don't fail the entire request if release group extraction fails
               }
             }
@@ -769,11 +791,11 @@ export async function POST(request: Request) {
         });
         
         const gameEndTime = Date.now();
-        console.log(`✅ Completed ${game.title} in ${gameEndTime - gameStartTime}ms`);
+  logger.debug(`Completed ${game.title} in ${gameEndTime - gameStartTime}ms`);
 
       } catch (error) {
         const gameEndTime = Date.now();
-        console.error(`❌ Error checking ${game.title} after ${gameEndTime - gameStartTime}ms:`, error);
+  logger.error(`Error checking ${game.title} after ${gameEndTime - gameStartTime}ms:`, error);
         errors++;
         
         // Update last checked even on error
@@ -785,7 +807,7 @@ export async function POST(request: Request) {
 
     const endTime = Date.now();
     const totalMs = endTime - startTime;
-    console.log(`🎯 Update check completed in ${totalMs}ms: ${updatesFound} updates, ${sequelsFound} sequels, ${errors} errors`);
+  logger.info(`Update check completed in ${totalMs}ms: ${updatesFound} updates, ${sequelsFound} sequels, ${errors} errors`);
 
     return NextResponse.json({
       message: `Update check completed in ${totalMs}ms using recent feed`,
@@ -799,7 +821,7 @@ export async function POST(request: Request) {
     });
 
   } catch (error) {
-    console.error('Update check error:', error);
+  logger.error('Update check error:', error);
     return NextResponse.json(
       { error: 'Failed to check for updates' },
       { status: 500 }
@@ -849,7 +871,7 @@ export async function GET() {
     });
 
   } catch (error) {
-    console.error('Get update status error:', error);
+  logger.error('Get update status error:', error);
     return NextResponse.json(
       { error: 'Failed to get update status' },
       { status: 500 }

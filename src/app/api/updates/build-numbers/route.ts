@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
 import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
+import { getSteamAppDetails } from '../../../../utils/steamApi';
+import logger from '../../../../utils/logger';
 
 // POST: Check for build number updates for verified games
 export async function POST() {
@@ -33,36 +35,91 @@ export async function POST() {
       });
     }
 
-    console.log(`🔢 Checking build numbers for ${verifiedGames.length} verified games`);
+  logger.info(`Checking build numbers for ${verifiedGames.length} verified games`);
 
     const results: Record<string, {
       currentBuildNumber: string;
       hasUpdate?: boolean;
       latestBuildNumber?: string;
+      latestPublishedAt?: string | null;
       message: string;
       status: 'success' | 'info' | 'error';
     }> = {};
 
-    // For now, we'll just return the current status since we can't automatically check SteamDB
-    // Users would need to manually update the build numbers when they see updates
-    for (const game of verifiedGames) {
-      results[game.gameId] = {
-        currentBuildNumber: game.currentBuildNumber,
-        message: `Current build: ${game.currentBuildNumber}. Check SteamDB manually for updates.`,
-        status: 'info'
-      };
+    // Helper to process a single game with Steam API Worker
+    const processGame = async (game: typeof verifiedGames[number]) => {
+      try {
+        const gameId = game.gameId as unknown as string;
+        const currentBuild = parseInt(game.currentBuildNumber, 10);
+        if (!game.steamAppId) {
+          results[gameId] = {
+            currentBuildNumber: game.currentBuildNumber,
+            message: `Current build: ${game.currentBuildNumber}. Missing Steam App ID, cannot auto-check.`,
+            status: 'info'
+          };
+          return;
+        }
 
-      if (game.steamAppId) {
-        results[game.gameId].message += ` Visit steamdb.info/app/${game.steamAppId}/patchnotes/`;
+        // Fetch aggregated details (includes SteamDB builds)
+        const details = await getSteamAppDetails(game.steamAppId);
+        const latest = details.latest_build || (details.builds && details.builds[0]) || null;
+
+        if (!latest || !latest.build_id) {
+          results[gameId] = {
+            currentBuildNumber: game.currentBuildNumber,
+            message: `Current build: ${game.currentBuildNumber}. No SteamDB builds found via API.`,
+            status: 'info'
+          };
+          return;
+        }
+
+        const latestBuild = parseInt(latest.build_id, 10);
+        if (Number.isNaN(currentBuild) || Number.isNaN(latestBuild)) {
+          results[gameId] = {
+            currentBuildNumber: game.currentBuildNumber,
+            latestBuildNumber: latest.build_id,
+            latestPublishedAt: latest.published_at || null,
+            message: `Could not compare builds (current="${game.currentBuildNumber}", latest="${latest.build_id}").`,
+            status: 'error'
+          };
+          return;
+        }
+
+        const hasUpdate = latestBuild > currentBuild;
+        results[gameId] = {
+          currentBuildNumber: game.currentBuildNumber,
+          latestBuildNumber: String(latestBuild),
+          latestPublishedAt: latest.published_at || null,
+          hasUpdate,
+          message: hasUpdate
+            ? `Update available: ${currentBuild} → ${latestBuild}${latest.published_at ? ` (published ${latest.published_at})` : ''}`
+            : `Up-to-date: ${currentBuild}${latest.published_at ? ` (latest published ${latest.published_at})` : ''}`,
+          status: hasUpdate ? 'success' : 'info'
+        };
+      } catch (e) {
+        const gameId = game.gameId as unknown as string;
+        results[gameId] = {
+          currentBuildNumber: game.currentBuildNumber,
+          message: `Failed to check SteamDB builds: ${(e as Error).message}`,
+          status: 'error'
+        };
       }
+    };
+
+    // Process with modest concurrency to avoid overloading the Worker
+    const concurrency = 5;
+    let index = 0;
+    while (index < verifiedGames.length) {
+      const slice = verifiedGames.slice(index, index + concurrency);
+      await Promise.all(slice.map(processGame));
+      index += concurrency;
     }
 
     return NextResponse.json({
       success: true,
-      message: `Checked ${verifiedGames.length} games with build number verification`,
+      message: `Checked ${verifiedGames.length} games with build number verification via SteamDB`,
       checkedCount: verifiedGames.length,
-      results,
-      note: 'Build numbers need to be updated manually. Check SteamDB for the latest versions.'
+      results
     });
 
   } catch (error) {
