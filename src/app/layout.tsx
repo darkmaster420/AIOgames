@@ -5,6 +5,7 @@ import { ThemeProvider } from "../components/ThemeProvider";
 import AuthProvider from "../components/AuthProvider";
 import { NotificationProvider } from "../contexts/NotificationContext";
 import { NotificationContainer } from "../components/NotificationContainer";
+import { Navigation } from "../components/Navigation";
 import './init'; // Initialize background services including scheduler
 
 const geistSans = Geist({
@@ -43,6 +44,7 @@ export default function RootLayout({
         <AuthProvider>
           <ThemeProvider>
             <NotificationProvider>
+              <Navigation />
               {children}
               <NotificationContainer />
             </NotificationProvider>

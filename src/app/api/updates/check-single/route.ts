@@ -514,9 +514,19 @@ export async function POST(request: Request) {
     for (const result of games) {
       const decodedTitle = decodeHtmlEntities(result.title);
       const similarity = calculateGameSimilarity(cleanTitle, decodedTitle);
-      
+
+      // --- Require a valid version/build pattern in the detected title ---
+  // Use ESM import for detectVersionNumber
+      const { detectVersionNumber } = await import('../../../../utils/versionDetection');
+      const { found: hasVersion } = detectVersionNumber(decodedTitle);
+      const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(decodedTitle);
+      if (!hasVersion && !hasBuild) {
+        console.log(`⏩ Skipping "${decodedTitle}" (no valid version/build pattern)`);
+        continue;
+      }
+
       console.log(`🎯 Comparing "${decodedTitle}" (similarity: ${similarity.toFixed(2)})`);
-      
+
       // Check for potential updates (high similarity)
       if (similarity >= 0.8) {
         // Try sources in priority order for current version
