@@ -452,7 +452,8 @@ export async function POST(request: Request) {
     console.log(`🔍 Searching for: "${searchTitle}" (from "${game.title}")`);
 
     // Use the same search API that the main search uses
-    const searchResponse = await fetch(`https://gameapi.a7a8524.workers.dev/?search=${encodeURIComponent(searchTitle)}`);
+    const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
+    const searchResponse = await fetch(`${baseUrl}/?search=${encodeURIComponent(searchTitle)}`);
     
     if (!searchResponse.ok) {
       throw new Error(`Search API request failed: ${searchResponse.status}`);

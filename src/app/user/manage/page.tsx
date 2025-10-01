@@ -373,6 +373,10 @@ export default function UserManagePage() {
                         <p>2. Get your chat ID from @userinfobot (message it and it replies with your ID)</p>
                         <p>3. Start a conversation with your bot first (send any message)</p>
                         <p>4. Use the &ldquo;Test Telegram&rdquo; button below to verify everything works</p>
+                        <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-700">
+                          <p className="text-blue-700 dark:text-blue-300 font-medium">✨ New Feature:</p>
+                          <p className="text-blue-600 dark:text-blue-400">Once configured, you can send games from the homepage directly to your Telegram using the telegram icon next to each game!</p>
+                        </div>
                       </div>
                     </>
                   )}

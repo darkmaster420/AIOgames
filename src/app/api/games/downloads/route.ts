@@ -114,7 +114,8 @@ export async function GET(req: NextRequest) {
           
           console.log(`Attempting to fetch download links from gameapi: postId=${postId}, siteType=${siteType}`);
           
-          const gameapiUrl = `https://gameapi.a7a8524.workers.dev/post?id=${encodeURIComponent(postId)}&site=${encodeURIComponent(siteType)}`;
+          const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
+          const gameapiUrl = `${baseUrl}/post?id=${encodeURIComponent(postId)}&site=${encodeURIComponent(siteType)}`;
           
           const gameapiResponse = await fetch(gameapiUrl, {
             headers: {

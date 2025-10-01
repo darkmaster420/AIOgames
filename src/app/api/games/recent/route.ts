@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     const site = searchParams.get('site') || 'all';
 
     // Always fetch all recent games from external API (no site filtering supported)
-    const apiUrl = 'https://gameapi.a7a8524.workers.dev/recent';
+    const apiUrl = process.env.GAME_API_URL + '/recent' || 'https://gameapi.a7a8524.workers.dev/recent';
     const response = await fetch(apiUrl);
 
     if (!response.ok) {

@@ -6,6 +6,7 @@ import { useSession } from 'next-auth/react';
 import { ImageWithFallback } from '../utils/imageProxy';
 import { GameDownloadLinks } from '../components/GameDownloadLinks';
 import { AddCustomGame } from '../components/AddCustomGame';
+import { TelegramSendButton } from '../components/TelegramSendButton';
 import { useNotification } from '../contexts/NotificationContext';
 import { SITES } from '../lib/sites';
 import { decodeHtmlEntities } from '../utils/steamApi';
@@ -371,25 +372,40 @@ function DashboardInner() {
                           </span>
                         </a>
                         {/* Track/Untrack Button */}
-                        {trackedGames.has(game.id) ? (
-                          <button
-                            onClick={() => handleUntrackGame(game)}
-                            className="block w-full px-4 py-2 text-center bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 text-sm font-medium rounded-lg hover:bg-red-200 dark:hover:bg-red-800 transition-colors min-h-[40px] flex items-center justify-center"
-                          >
-                            <span className="flex items-center gap-2">
-                              🔔 <span>Stop Tracking</span>
-                            </span>
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleTrackGame(game)}
-                            className="block w-full px-4 py-2 text-center bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-sm font-medium rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors min-h-[40px] flex items-center justify-center"
-                          >
-                            <span className="flex items-center gap-2">
-                              ⏰ <span>Track Updates</span>
-                            </span>
-                          </button>
-                        )}
+                        <div className="flex gap-1.5">
+                          {trackedGames.has(game.id) ? (
+                            <button
+                              onClick={() => handleUntrackGame(game)}
+                              className="flex-1 px-4 py-2 text-center bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 text-sm font-medium rounded-lg hover:bg-red-200 dark:hover:bg-red-800 transition-colors min-h-[40px] flex items-center justify-center"
+                            >
+                              <span className="flex items-center gap-2">
+                                🔔 <span>Stop Tracking</span>
+                              </span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleTrackGame(game)}
+                              className="flex-1 px-4 py-2 text-center bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-sm font-medium rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors min-h-[40px] flex items-center justify-center"
+                            >
+                              <span className="flex items-center gap-2">
+                                ⏰ <span>Track Updates</span>
+                              </span>
+                            </button>
+                          )}
+                          {/* Telegram Send Button */}
+                          <TelegramSendButton 
+                            game={{
+                              id: game.id,
+                              title: game.title,
+                              description: game.description,
+                              link: game.link,
+                              image: game.image,
+                              source: game.source,
+                              siteType: game.siteType
+                            }}
+                            className="bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white min-h-[40px] w-12 flex items-center justify-center"
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>

@@ -16,7 +16,8 @@ export async function GET(request: NextRequest) {
       queryParams.set('site', site);
     }
     
-    const response = await fetch(`https://gameapi.a7a8524.workers.dev/?${queryParams}`);
+    const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
+    const response = await fetch(`${baseUrl}/?${queryParams}`);
     
     if (!response.ok) {
       throw new Error(`API request failed: ${response.status}`);

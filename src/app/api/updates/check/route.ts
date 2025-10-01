@@ -317,8 +317,10 @@ export async function POST(request: Request) {
 
     // First clear the cache to get fresh results
     console.log('🔄 Clearing API cache for fresh results...');
+    const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
+    
     try {
-      const clearCacheResponse = await fetch('https://gameapi.a7a8524.workers.dev/clearcache', {
+      const clearCacheResponse = await fetch(`${baseUrl}/clearcache`, {
         method: 'POST'
       });
       if (clearCacheResponse.ok) {
@@ -335,7 +337,7 @@ export async function POST(request: Request) {
     let recentGames: GameSearchResult[] = [];
     
     try {
-      const recentResponse = await fetch('https://gameapi.a7a8524.workers.dev/recent?limit=100');
+      const recentResponse = await fetch(`${baseUrl}/recent?limit=100`);
       if (recentResponse.ok) {
         const recentData = await recentResponse.json();
         recentGames = recentData.results || [];
