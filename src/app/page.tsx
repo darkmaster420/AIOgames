@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { ImageWithFallback } from '../utils/imageProxy';
 import { GameDownloadLinks } from '../components/GameDownloadLinks';
@@ -31,7 +31,6 @@ function DashboardInner() {
   const { status } = useSession();
   const notify = useNotification();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [refineText, setRefineText] = useState('');
   const [showRefine, setShowRefine] = useState(false);
 
@@ -75,7 +74,7 @@ function DashboardInner() {
     // Track/untrack handlers
     const handleTrackGame = useCallback((game: Game) => {
       setTrackedGames(prev => new Set(prev).add(game.id));
-      notify && notify.showSuccess('Game added to tracking!');
+      void (notify && notify.showSuccess('Game added to tracking!'));
     }, [notify]);
 
     const handleUntrackGame = useCallback((game: Game) => {
@@ -84,7 +83,7 @@ function DashboardInner() {
         next.delete(game.id);
         return next;
       });
-      notify && notify.showInfo('Game removed from tracking.');
+      void (notify && notify.showInfo('Game removed from tracking.'));
     }, [notify]);
 
     return (

@@ -18,7 +18,11 @@ class UpdateScheduler {
   private scheduledChecks = new Map<string, ScheduledCheck>();
 
   constructor() {
-    // Start the scheduler when the class is instantiated
+    // Only start the scheduler in runtime, not during build
+    if (process.env.NODE_ENV !== 'production' && process.env.NEXT_PHASE === 'phase-production-build') {
+      // Skip initialization during build
+      return;
+    }
     this.start();
   }
 
@@ -68,6 +72,12 @@ class UpdateScheduler {
    */
   private async loadScheduledChecks(): Promise<void> {
     try {
+      // Check if MongoDB URI is available
+      if (!process.env.MONGODB_URI) {
+        console.log('⚠️ MONGODB_URI not configured, skipping scheduled checks loading');
+        return;
+      }
+
       await connectDB();
 
       // Get all users with tracked games that have automatic checking enabled
