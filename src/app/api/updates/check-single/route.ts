@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 
 import connectDB from '../../../../lib/db';
-import { TrackedGame } from '../../../../lib/models';
+import { TrackedGame, ReleaseGroupVariant } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel } from '../../../../utils/sequelDetection';
 import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities } from '../../../../utils/steamApi';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
+import { extractReleaseGroup, analyzeGameTitle } from '../../../../utils/versionDetection';
 
 interface GameSearchResult {
   id: string;
@@ -604,12 +605,8 @@ export async function POST(request: Request) {
               updatesFound++;
 
               // Update the game with auto-approved update
-              await TrackedGame.findByIdAndUpdate(game._id, {
+              const updateFields: Record<string, unknown> = {
                 lastKnownVersion: decodedTitle,
-                currentVersionNumber: decodedTitle,
-                versionNumberVerified: true,
-                versionNumberSource: 'automatic',
-                versionNumberLastUpdated: new Date(),
                 lastVersionDate: new Date().toISOString(),
                 title: result.title,
                 gameLink: result.link,
@@ -633,13 +630,83 @@ export async function POST(request: Request) {
                 // Set new update indicator for auto-approved updates
                 hasNewUpdate: true,
                 newUpdateSeen: false
-              });
+              };
+
+              // Update version or build numbers based on what was detected
+              if (newVersionInfo.version) {
+                updateFields.currentVersionNumber = newVersionInfo.version;
+                updateFields.versionNumberVerified = true;
+                updateFields.versionNumberSource = 'automatic';
+                updateFields.versionNumberLastUpdated = new Date();
+                console.log(`✅ Updated version number to: ${newVersionInfo.version}`);
+              }
+              
+              if (newVersionInfo.build) {
+                updateFields.currentBuildNumber = newVersionInfo.build;
+                updateFields.buildNumberVerified = true;
+                updateFields.buildNumberSource = 'automatic';
+                updateFields.buildNumberLastUpdated = new Date();
+                console.log(`✅ Updated build number to: ${newVersionInfo.build}`);
+              }
+
+              await TrackedGame.findByIdAndUpdate(game._id, updateFields);
             } else {
               // Add to pending updates if can't auto-approve
               await TrackedGame.findByIdAndUpdate(game._id, {
                 $push: { pendingUpdates: updateData },
                 lastChecked: new Date()
               });
+            }
+
+            // Collect release group variant from the new update
+            try {
+              console.log(`🔍 Attempting release group extraction for update: "${result.title}"`);
+              
+              const releaseGroupResult = extractReleaseGroup(result.title);
+              
+              if (releaseGroupResult.releaseGroup && releaseGroupResult.releaseGroup !== 'UNKNOWN') {
+                console.log(`✅ Detected release group in update: ${releaseGroupResult.releaseGroup}`);
+                
+                // Analyze the new title for version/build information
+                const analysis = analyzeGameTitle(result.title);
+                
+                // Check if this release group variant already exists for this game
+                const existingVariant = await ReleaseGroupVariant.findOne({
+                  trackedGameId: game._id,
+                  releaseGroup: releaseGroupResult.releaseGroup
+                });
+
+                if (!existingVariant) {
+                  const variant = new ReleaseGroupVariant({
+                    trackedGameId: game._id,
+                    gameId: result.id,
+                    releaseGroup: releaseGroupResult.releaseGroup,
+                    source: result.source,
+                    title: result.title,
+                    gameLink: result.link,
+                    version: analysis.detectedVersion || "",
+                    buildNumber: analysis.detectedBuild || "",
+                    dateFound: new Date()
+                  });
+                  await variant.save();
+                  console.log(`✅ Stored new release group variant from update: ${releaseGroupResult.releaseGroup} for game "${game.title}"`);
+                } else {
+                  // Update existing variant with latest information
+                  existingVariant.title = result.title;
+                  existingVariant.gameLink = result.link;
+                  if (analysis.detectedVersion) existingVariant.version = analysis.detectedVersion;
+                  if (analysis.detectedBuild) existingVariant.buildNumber = analysis.detectedBuild;
+                  existingVariant.lastSeen = new Date();
+                  await existingVariant.save();
+                  console.log(`✅ Updated existing release group variant: ${releaseGroupResult.releaseGroup} for game "${game.title}"`);
+                }
+              } else {
+                console.log(`ℹ️ No release group detected in update title: "${result.title}"`);
+              }
+              
+            } catch (releaseGroupError) {
+              console.error(`❌ Release group extraction error for update "${result.title}":`, releaseGroupError);
+              // Don't fail the entire request if release group extraction fails
             }
 
             // Send notification for the update

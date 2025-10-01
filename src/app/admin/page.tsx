@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { ImageWithFallback } from '../../utils/imageProxy';
 import { useNotification } from '../../contexts/NotificationContext';
-import { useConfirm } from '../../components/ConfirmDialog';
+import { useConfirm } from '../../contexts/ConfirmContext';
 
 interface AdminStats {
   totalUsers: number;
@@ -68,7 +68,7 @@ interface AdminTrackedGame {
 export default function AdminDashboard() {
   const { status } = useSession();
   const { showSuccess, showError } = useNotification();
-  const { confirm, ConfirmDialog } = useConfirm();
+  const { confirm } = useConfirm();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [recentUsers, setRecentUsers] = useState<RecentUser[]>([]);
   const [topGames, setTopGames] = useState<TopGame[]>([]);
@@ -676,7 +676,6 @@ export default function AdminDashboard() {
         )}
         </div>
       </div>
-      <ConfirmDialog />
     </>
   );
 }

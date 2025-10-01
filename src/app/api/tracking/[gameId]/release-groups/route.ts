@@ -31,11 +31,13 @@ export async function GET(
 
     // Get all release group variants for this game
     const variants = await ReleaseGroupVariant.find({
-      gameId: gameId
-    }).sort({ detectedAt: -1 }); // Most recent first
+      trackedGameId: gameId
+    }).sort({ dateFound: -1 }); // Most recent first
 
     // Group by release group and get the latest version for each
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const releaseGroups = variants.reduce((acc: any[], variant) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const existing = acc.find((v: any) => v.releaseGroup === variant.releaseGroup);
       if (!existing) {
         acc.push({
@@ -43,7 +45,7 @@ export async function GET(
           title: variant.title,
           version: variant.version,
           buildNumber: variant.buildNumber,
-          detectedAt: variant.detectedAt,
+          dateFound: variant.dateFound,
           _id: variant._id
         });
       }

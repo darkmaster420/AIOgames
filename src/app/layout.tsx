@@ -4,6 +4,7 @@ import "./globals.css";
 import { ThemeProvider } from "../components/ThemeProvider";
 import AuthProvider from "../components/AuthProvider";
 import { NotificationProvider } from "../contexts/NotificationContext";
+import { ConfirmProvider } from "../contexts/ConfirmContext";
 import { NotificationContainer } from "../components/NotificationContainer";
 import { Navigation } from "../components/Navigation";
 import './init'; // Initialize background services including scheduler
@@ -44,9 +45,11 @@ export default function RootLayout({
         <AuthProvider>
           <ThemeProvider>
             <NotificationProvider>
-              <Navigation />
-              {children}
-              <NotificationContainer />
+              <ConfirmProvider>
+                <Navigation />
+                {children}
+                <NotificationContainer />
+              </ConfirmProvider>
             </NotificationProvider>
           </ThemeProvider>
         </AuthProvider>

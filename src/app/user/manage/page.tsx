@@ -3,11 +3,11 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useNotification } from '../../../contexts/NotificationContext';
-import { useConfirm } from '../../../components/ConfirmDialog';
+import { useConfirm } from '../../../contexts/ConfirmContext';
 
 export default function UserManagePage() {
   const { showSuccess, showError } = useNotification();
-  const { confirm, ConfirmDialog } = useConfirm();
+  const { confirm } = useConfirm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -506,7 +506,6 @@ export default function UserManagePage() {
           </div>
         </form>
       </div>
-      <ConfirmDialog />
     </div>
   );
 }

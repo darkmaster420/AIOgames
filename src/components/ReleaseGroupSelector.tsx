@@ -14,13 +14,13 @@ interface ReleaseGroup {
 
 interface ReleaseGroupSelectorProps {
   gameId: string;
-  gameTitle: string;
+  gameTitle?: string;
   onReleaseGroupChange?: (releaseGroup: ReleaseGroup | null) => void;
 }
 
 export function ReleaseGroupSelector({ 
   gameId, 
-  gameTitle, 
+  gameTitle: _, // eslint-disable-line @typescript-eslint/no-unused-vars
   onReleaseGroupChange 
 }: ReleaseGroupSelectorProps) {
   const [releaseGroups, setReleaseGroups] = useState<ReleaseGroup[]>([]);
@@ -32,6 +32,7 @@ export function ReleaseGroupSelector({
   // Load available release groups for this game
   useEffect(() => {
     loadReleaseGroups();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId]);
 
   const loadReleaseGroups = async () => {

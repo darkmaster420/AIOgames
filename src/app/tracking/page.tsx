@@ -9,7 +9,7 @@ import { SmartVersionVerification } from '../../components/SmartVersionVerificat
 import { ReleaseGroupSelector } from '../../components/ReleaseGroupSelector';
 import { SequelNotifications } from '../../components/SequelNotifications';
 import { AddCustomGame } from '../../components/AddCustomGame';
-import { useConfirm } from '../../components/ConfirmDialog';
+import { useConfirm } from '../../contexts/ConfirmContext';
 import { ImageWithFallback } from '../../utils/imageProxy';
 import { cleanGameTitle } from '../../utils/steamApi';
 import { useNotification } from '../../contexts/NotificationContext';
@@ -114,7 +114,7 @@ interface TrackedGame {
 export default function TrackingDashboard() {
   const { status } = useSession();
   const { showSuccess, showError, showInfo } = useNotification();
-  const { confirm, ConfirmDialog } = useConfirm();
+  const { confirm } = useConfirm();
   const [trackedGames, setTrackedGames] = useState<TrackedGame[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -456,9 +456,7 @@ export default function TrackingDashboard() {
                         <div className="mt-2">
                           <ReleaseGroupSelector
                             gameId={game._id}
-                            gameTitle={game.title}
-                            onReleaseGroupChange={(group) => {
-                              console.log('Selected release group:', group);
+                            onReleaseGroupChange={() => {
                               // You can add logic here to handle release group changes
                             }}
                           />
@@ -640,9 +638,6 @@ export default function TrackingDashboard() {
         )}
         </div>
       </div>
-      
-      {/* ConfirmDialog for untrack confirmations */}
-      <ConfirmDialog />
     </>
   );
 }

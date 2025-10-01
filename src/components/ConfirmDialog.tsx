@@ -114,13 +114,25 @@ export const useConfirm = () => {
     }
   ): Promise<boolean> => {
     return new Promise((resolve) => {
-      setDialog({
-        isOpen: true,
-        title,
-        message,
-        ...options,
-        resolve
+      console.log('Setting dialog state:', { title, message, options });
+      
+      // Use functional state update to ensure we're working with the latest state
+      setDialog(prevDialog => {
+        const newDialog = {
+          isOpen: true,
+          title,
+          message,
+          confirmText: options?.confirmText,
+          cancelText: options?.cancelText,
+          type: options?.type,
+          resolve
+        };
+        console.log('New dialog object:', newDialog);
+        console.log('Previous dialog state:', prevDialog);
+        return newDialog;
       });
+      
+      console.log('Dialog state update dispatched');
     });
   };
 
@@ -132,23 +144,24 @@ export const useConfirm = () => {
   };
 
   const handleConfirm = () => {
+    setDialog(prev => ({ ...prev, isOpen: false }));
     if (dialog.resolve) {
       dialog.resolve(true);
     }
   };
 
-  const ConfirmDialogComponent = () => (
-    <ConfirmDialog
-      isOpen={dialog.isOpen}
-      onClose={handleClose}
-      onConfirm={handleConfirm}
-      title={dialog.title}
-      message={dialog.message}
-      confirmText={dialog.confirmText}
-      cancelText={dialog.cancelText}
-      type={dialog.type}
-    />
-  );
-
-  return { confirm, ConfirmDialog: ConfirmDialogComponent };
+  const ConfirmDialogComponent = () => {
+    return (
+      <ConfirmDialog
+        isOpen={dialog.isOpen}
+        onClose={handleClose}
+        onConfirm={handleConfirm}
+        title={dialog.title}
+        message={dialog.message}
+        confirmText={dialog.confirmText}
+        cancelText={dialog.cancelText}
+        type={dialog.type}
+      />
+    );
+  };  return { confirm, ConfirmDialog: ConfirmDialogComponent };
 };

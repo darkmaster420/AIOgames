@@ -160,30 +160,33 @@ export async function POST(request: NextRequest) {
     try {
       console.log(`🔍 Attempting release group extraction for newly added game: "${title}"`);
       
-      const releaseGroup = extractReleaseGroup(title);
+      const releaseGroupResult = extractReleaseGroup(title);
       
-      if (releaseGroup) {
-        console.log(`✅ Detected release group: ${releaseGroup}`);
+      if (releaseGroupResult.releaseGroup && releaseGroupResult.releaseGroup !== 'UNKNOWN') {
+        console.log(`✅ Detected release group: ${releaseGroupResult.releaseGroup}`);
         
         // Check if this release group variant already exists for this game
         const existingVariant = await ReleaseGroupVariant.findOne({
-          gameId: trackedGame._id,
-          releaseGroup: releaseGroup
+          trackedGameId: trackedGame._id,
+          releaseGroup: releaseGroupResult.releaseGroup
         });
 
         if (!existingVariant) {
           const variant = new ReleaseGroupVariant({
-            gameId: trackedGame._id,
-            releaseGroup: releaseGroup,
+            trackedGameId: trackedGame._id,
+            gameId: gameId,
+            releaseGroup: releaseGroupResult.releaseGroup,
+            source: source,
             title: title,
+            gameLink: gameLink,
             version: trackedGame.currentVersionNumber || "",
             buildNumber: trackedGame.currentBuildNumber || "",
-            detectedAt: new Date()
+            dateFound: new Date()
           });
           await variant.save();
-          console.log(`✅ Stored release group variant: ${releaseGroup} for game "${title}"`);
+          console.log(`✅ Stored release group variant: ${releaseGroupResult.releaseGroup} for game "${title}"`);
         } else {
-          console.log(`ℹ️ Release group variant ${releaseGroup} already exists for this game`);
+          console.log(`ℹ️ Release group variant ${releaseGroupResult.releaseGroup} already exists for this game`);
         }
       } else {
         console.log(`ℹ️ No release group detected in title: "${title}"`);

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useNotification } from '../contexts/NotificationContext';
-import { useConfirm } from './ConfirmDialog';
+import { useConfirm } from '../contexts/ConfirmContext';
 import { analyzeGameTitle, validateVersionNumber, validateBuildNumber, normalizeVersionNumber, normalizeBuildNumber } from '../utils/versionDetection';
 
 interface SmartVersionVerificationProps {
@@ -36,7 +36,7 @@ export function SmartVersionVerification({
   const [isLoading, setIsLoading] = useState(false);
   const [analysis, setAnalysis] = useState<ReturnType<typeof analyzeGameTitle> | null>(null);
   const { showSuccess, showError } = useNotification();
-  const { confirm, ConfirmDialog } = useConfirm();
+  const { confirm } = useConfirm();
 
   // Analyze the title and always update version/build if a new update is detected
   useEffect(() => {
@@ -57,7 +57,8 @@ export function SmartVersionVerification({
     } else if (titleAnalysis.suggestions.shouldAskForBuild && !titleAnalysis.suggestions.shouldAskForVersion) {
       setActiveTab('build');
     }
-  }, [originalTitle, gameTitle]); // Remove versionNumber and buildNumber from deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [originalTitle, gameTitle]); // Remove versionNumber and buildNumber from deps to prevent infinite loops
 
   const handleVerifyVersion = async () => {
     try {
@@ -491,9 +492,6 @@ export function SmartVersionVerification({
           </div>
         </div>
       )}
-      
-      {/* ConfirmDialog for verification actions */}
-      <ConfirmDialog />
     </div>
   );
 }

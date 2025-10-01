@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useNotification } from '../contexts/NotificationContext';
-import { useConfirm } from './ConfirmDialog';
+import { useConfirm } from '../contexts/ConfirmContext';
 
 interface BuildNumberVerificationProps {
   gameId: string;
