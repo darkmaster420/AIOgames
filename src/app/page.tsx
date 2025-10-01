@@ -41,7 +41,7 @@ function DashboardInner() {
         const response = await fetch('/api/tracking');
         if (response.ok) {
           const data = await response.json();
-          const trackedGameIds = new Set<string>(data.games.map((game: any) => String(game.gameId)));
+          const trackedGameIds = new Set<string>(data.games.map((game: { gameId: string }) => String(game.gameId)));
           setTrackedGames(trackedGameIds);
         }
       } catch (error) {
