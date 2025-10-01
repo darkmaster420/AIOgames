@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { Navigation } from '../../components/Navigation';
 import { DownloadLinks } from '../../components/DownloadLinks';
 import { SteamVerification } from '../../components/SteamVerification';
 import { SmartVersionVerification } from '../../components/SmartVersionVerification';
@@ -290,9 +289,8 @@ export default function TrackingDashboard() {
     );
   }
 
-  return (
+    return (
     <>
-      <Navigation />
       <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-2 sm:p-4">
         <div className="max-w-7xl mx-auto">
           {/* Page Header */}
@@ -423,7 +421,7 @@ export default function TrackingDashboard() {
                             </div>
                           )}
                           <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
-                            <p>Source: {game.source}</p>
+                            <p>Original: {game.originalTitle}</p>
                           </div>
                         </div>
                         

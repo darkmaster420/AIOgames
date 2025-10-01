@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, Suspense } from 'react';
+import { useState, useCallback, useEffect, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { ImageWithFallback } from '../utils/imageProxy';
@@ -35,55 +35,163 @@ function DashboardInner() {
   const [showRefine, setShowRefine] = useState(false);
 
   // Load tracked games from localStorage or API
-  const loadTrackedGames = useCallback(() => {
-    // Placeholder: implement actual tracked games loading logic
-    // setTrackedGames(...)
-  }, []);
+  const loadTrackedGames = useCallback(async () => {
+    if (status === 'authenticated') {
+      try {
+        const response = await fetch('/api/tracking');
+        if (response.ok) {
+          const data = await response.json();
+          const trackedGameIds = new Set<string>(data.games.map((game: any) => String(game.gameId)));
+          setTrackedGames(trackedGameIds);
+        }
+      } catch (error) {
+        console.error('Failed to load tracked games:', error);
+      }
+    }
+  }, [status]);
 
   // Load recent games (default view)
-  const loadRecentGames = useCallback(() => {
+  const loadRecentGames = useCallback(async () => {
     setLoading(true);
     setError(null);
-    // Placeholder: implement actual recent games loading logic
-    setTimeout(() => {
+    try {
+      const response = await fetch('/api/games/recent');
+      if (!response.ok) {
+        throw new Error('Failed to fetch recent games');
+      }
+      const data = await response.json();
+      setGames(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch recent games');
       setGames([]);
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   }, []);
 
   // Search games handler
-  const searchGames = useCallback((e?: React.FormEvent) => {
+  const searchGames = useCallback(async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-      setLoading(true);
-      setError(null);
-      // Placeholder: implement actual search logic
-      setTimeout(() => {
-        setGames([]);
-        setShowRefine(true);
-        setLoading(false);
-      }, 500);
-    }, []);
+    if (!searchQuery.trim()) {
+      loadRecentGames();
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({ search: searchQuery });
+      if (siteFilter !== 'all') {
+        params.set('site', siteFilter);
+      }
+      const response = await fetch(`/api/games/search?${params}`);
+      if (!response.ok) {
+        throw new Error('Failed to search games');
+      }
+      const data = await response.json();
+      setGames(data);
+      setShowRefine(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to search games');
+      setGames([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [searchQuery, siteFilter, loadRecentGames]);
+
+  // Load recent games on mount
+  useEffect(() => {
+    loadRecentGames();
+  }, [loadRecentGames]);
+
+  // Load tracked games when authentication status changes
+  useEffect(() => {
+    loadTrackedGames();
+  }, [loadTrackedGames]);
 
     // Apply current filter
-    const applyCurrentFilter = useCallback(() => {
-      // Placeholder: implement actual filter logic
-      setLoading(true);
-      setTimeout(() => setLoading(false), 300);
-    }, []);
+    const applyCurrentFilter = useCallback(async () => {
+      if (searchQuery.trim()) {
+        await searchGames();
+      } else {
+        setLoading(true);
+        setError(null);
+        try {
+          const params = new URLSearchParams();
+          if (siteFilter !== 'all') {
+            params.set('site', siteFilter);
+          }
+          const response = await fetch(`/api/games/recent?${params}`);
+          if (!response.ok) {
+            throw new Error('Failed to fetch filtered games');
+          }
+          const data = await response.json();
+          setGames(data);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Failed to fetch filtered games');
+          setGames([]);
+        } finally {
+          setLoading(false);
+        }
+      }
+    }, [searchQuery, siteFilter, searchGames]);
 
     // Track/untrack handlers
-    const handleTrackGame = useCallback((game: Game) => {
-      setTrackedGames(prev => new Set(prev).add(game.id));
-      void (notify && notify.showSuccess('Game added to tracking!'));
-    }, [notify]);
+    const handleTrackGame = useCallback(async (game: Game) => {
+      if (status !== 'authenticated') {
+        router.push('/auth/signin');
+        return;
+      }
 
-    const handleUntrackGame = useCallback((game: Game) => {
-      setTrackedGames(prev => {
-        const next = new Set(prev);
-        next.delete(game.id);
-        return next;
-      });
-      void (notify && notify.showInfo('Game removed from tracking.'));
+      try {
+        const response = await fetch('/api/tracking', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            gameId: game.id,
+            title: game.title,
+            source: game.source,
+            image: game.image,
+            description: game.description,
+            gameLink: game.link,
+          }),
+        });
+
+        if (response.ok) {
+          setTrackedGames(prev => new Set(prev).add(game.id));
+          notify?.showSuccess('Game added to tracking!');
+        } else {
+          const error = await response.json();
+          notify?.showError(error.error || 'Failed to track game');
+        }
+      } catch (error) {
+        console.error('Track game error:', error);
+        notify?.showError('Failed to track game');
+      }
+    }, [status, router, notify]);
+
+    const handleUntrackGame = useCallback(async (game: Game) => {
+      try {
+        const response = await fetch(`/api/tracking?gameId=${encodeURIComponent(game.id)}`, {
+          method: 'DELETE',
+        });
+
+        if (response.ok) {
+          setTrackedGames(prev => {
+            const next = new Set(prev);
+            next.delete(game.id);
+            return next;
+          });
+          notify?.showInfo('Game removed from tracking.');
+        } else {
+          const error = await response.json();
+          notify?.showError(error.error || 'Failed to untrack game');
+        }
+      } catch (error) {
+        console.error('Untrack game error:', error);
+        notify?.showError('Failed to untrack game');
+      }
     }, [notify]);
 
     return (
@@ -214,7 +322,17 @@ function DashboardInner() {
               {error ? 'Failed to load games' : 'No games found'}
             </div>
           ) : (
-            games.map((game: Game) => {
+            games
+              .filter(game => {
+                // Apply refine text filter if present
+                if (refineText.trim()) {
+                  const searchText = refineText.toLowerCase();
+                  return game.title.toLowerCase().includes(searchText) ||
+                         game.description.toLowerCase().includes(searchText);
+                }
+                return true;
+              })
+              .map((game: Game) => {
               return (
                 <div key={game.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-200 dark:border-gray-700 flex flex-col h-full">
                   <ImageWithFallback

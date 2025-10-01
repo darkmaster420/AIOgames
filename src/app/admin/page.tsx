@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { Navigation } from '../../components/Navigation';
 import { ImageWithFallback } from '../../utils/imageProxy';
 import { useNotification } from '../../contexts/NotificationContext';
 import { useConfirm } from '../../components/ConfirmDialog';
@@ -256,7 +255,6 @@ export default function AdminDashboard() {
 
   return (
     <>
-      <Navigation />
       <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-2 sm:p-4">
         <div className="max-w-7xl mx-auto">
           {/* Header */}
