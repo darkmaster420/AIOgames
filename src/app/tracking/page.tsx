@@ -430,7 +430,7 @@ export default function TrackingDashboard() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
+          <div className="grid grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4 lg:gap-6">
             {filteredGames.map((game) => (
               <div key={game._id} className="game-card animate-fade-in flex flex-col">
                 <div className="flex flex-col gap-4 p-4 sm:p-6 flex-1">
