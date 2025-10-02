@@ -543,7 +543,7 @@ export async function POST(request: Request) {
             }
           }
 
-          let newVersionInfo = extractVersionInfo(decodedTitle);
+          const newVersionInfo = extractVersionInfo(decodedTitle);
 
           // If we detected only version or only build, try to resolve the missing one via SteamDB Worker when appId is known
           if (game.steamAppId) {

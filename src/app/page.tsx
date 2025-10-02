@@ -34,6 +34,17 @@ function DashboardInner() {
   const router = useRouter();
   const [refineText, setRefineText] = useState('');
   const [showRefine, setShowRefine] = useState(false);
+  const [showRecentGames, setShowRecentGames] = useState(false);
+
+  // Function to set cookie with 1 hour expiration
+  const setRecentGamesCookie = (show: boolean) => {
+    const expires = new Date();
+    expires.setTime(expires.getTime() + (60 * 60 * 1000)); // 1 hour
+    document.cookie = `showRecentGames=${show}; expires=${expires.toUTCString()}; path=/`;
+    setShowRecentGames(show);
+  };
+
+
 
   // Load tracked games from localStorage or API
   const loadTrackedGames = useCallback(async () => {
@@ -74,6 +85,7 @@ function DashboardInner() {
   const searchGames = useCallback(async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!searchQuery.trim()) {
+      setRecentGamesCookie(false);
       loadRecentGames();
       return;
     }
@@ -91,6 +103,7 @@ function DashboardInner() {
       const data = await response.json();
       setGames(data);
       setShowRefine(true);
+      setRecentGamesCookie(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to search games');
       setGames([]);
@@ -99,9 +112,15 @@ function DashboardInner() {
     }
   }, [searchQuery, siteFilter, loadRecentGames]);
 
-  // Load recent games on mount
+  // Load recent games on mount and check cookie for visibility
   useEffect(() => {
-    loadRecentGames();
+    const recentGamesVisible = document.cookie
+      .split('; ')
+      .find(row => row.startsWith('showRecentGames='))
+      ?.split('=')[1] === 'true';
+    
+    setShowRecentGames(recentGamesVisible);
+    loadRecentGames(); // Always load games, but visibility is controlled by state
   }, [loadRecentGames]);
 
   // Load tracked games when authentication status changes
@@ -316,24 +335,38 @@ function DashboardInner() {
             {error}
           </div>
         )}
+        
+        {/* Show Recent Uploads Button - only show if we have recent games but they're hidden */}
+        {!showRecentGames && games.length > 0 && searchQuery === '' && (
+          <div className="text-center mb-6">
+            <button
+              onClick={() => setRecentGamesCookie(true)}
+              className="px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg hover:from-blue-600 hover:to-cyan-600 transition-all duration-200 font-medium shadow-lg hover:shadow-xl transform hover:scale-105"
+            >
+              Show Recent Uploads
+            </button>
+          </div>
+        )}
+
         {/* Mobile-optimized Games Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
-          {games.length === 0 && !loading ? (
-            <div className="col-span-full text-center py-8 text-gray-500 dark:text-gray-400">
-              {error ? 'Failed to load games' : 'No games found'}
-            </div>
-          ) : (
-            games
-              .filter(game => {
-                // Apply refine text filter if present
-                if (refineText.trim()) {
-                  const searchText = refineText.toLowerCase();
-                  return game.title.toLowerCase().includes(searchText) ||
-                         game.description.toLowerCase().includes(searchText);
-                }
-                return true;
-              })
-              .map((game: Game) => {
+        {(showRecentGames || searchQuery !== '') && (
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
+            {games.length === 0 && !loading ? (
+              <div className="col-span-full text-center py-8 text-gray-500 dark:text-gray-400">
+                {error ? 'Failed to load games' : 'No games found'}
+              </div>
+            ) : (
+              games
+                .filter(game => {
+                  // Apply refine text filter if present
+                  if (refineText.trim()) {
+                    const searchText = refineText.toLowerCase();
+                    return game.title.toLowerCase().includes(searchText) ||
+                           game.description.toLowerCase().includes(searchText);
+                  }
+                  return true;
+                })
+                .map((game: Game) => {
               return (
                 <div key={game.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-200 dark:border-gray-700 flex flex-col h-full">
                   <ImageWithFallback
@@ -413,7 +446,8 @@ function DashboardInner() {
               );
             })
           )}
-        </div>
+          </div>
+        )}
         {loading && (
           <div className="text-center py-8">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>

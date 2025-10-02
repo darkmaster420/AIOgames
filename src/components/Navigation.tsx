@@ -10,6 +10,12 @@ export function Navigation() {
   const { data: session } = useSession();
   const isAdmin = (session?.user as { role?: string })?.role === 'admin';
 
+  const handleLogout = () => {
+    // Clear custom cookies before signing out
+    document.cookie = 'showRecentGames=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+    signOut({ callbackUrl: '/' });
+  };
+
   const navItems = [
     { href: '/', label: '🏠 Home', description: 'Main Dashboard' },
     { href: '/tracking', label: '📊 Tracking', description: 'Your Games' },
@@ -19,13 +25,13 @@ export function Navigation() {
   ];
 
   return (
-    <nav className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
+    <nav className="nav-glass shadow-xl sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-8">
             <div className="flex-shrink-0">
-              <h1 className="text-xl font-bold text-gray-900 dark:text-white">
-                AIO Games
+              <h1 className="text-xl font-bold text-gradient">
+                🎮 AIO Games
               </h1>
             </div>
             
@@ -35,10 +41,10 @@ export function Navigation() {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 backdrop-blur-sm ${
                       pathname === item.href
-                        ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
-                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                        ? 'bg-gradient-to-r from-primary-500/20 to-accent-500/20 text-primary-700 dark:text-primary-300 border border-primary-300/30 shadow-lg'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-white/20 dark:hover:bg-white/10 hover:text-primary-600 dark:hover:text-primary-400 hover:scale-105'
                     }`}
                     title={item.description}
                   >
@@ -53,13 +59,13 @@ export function Navigation() {
             <ThemeToggle />
             {session && (
               <>
-                <div className="text-sm text-gray-700 dark:text-gray-300">
+                <div className="text-sm text-slate-700 dark:text-slate-300 bg-white/20 dark:bg-white/10 px-3 py-1 rounded-lg backdrop-blur-sm border border-white/30 dark:border-white/20">
                   👋 {session.user?.name}
-                  {isAdmin && <span className="ml-1 text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1 rounded">ADMIN</span>}
+                  {isAdmin && <span className="ml-2 status-badge status-admin">ADMIN</span>}
                 </div>
                 <button
-                  onClick={() => signOut({ callbackUrl: '/' })}
-                  className="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+                  onClick={handleLogout}
+                  className="px-4 py-2 text-sm font-medium bg-gradient-to-r from-red-500/20 to-pink-500/20 text-red-600 dark:text-red-400 hover:from-red-500/30 hover:to-pink-500/30 hover:text-red-700 dark:hover:text-red-300 rounded-lg transition-all duration-200 backdrop-blur-sm border border-red-300/30 hover:scale-105"
                   title="Sign out"
                 >
                   🚪 Logout
@@ -69,7 +75,7 @@ export function Navigation() {
             {!session && (
               <Link
                 href="/auth/signin"
-                className="px-3 py-1 text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900 rounded-md transition-colors"
+                className="px-4 py-2 text-sm font-medium bg-gradient-to-r from-primary-500/20 to-accent-500/20 text-primary-600 dark:text-primary-400 hover:from-primary-500/30 hover:to-accent-500/30 hover:text-primary-700 dark:hover:text-primary-300 rounded-lg transition-all duration-200 backdrop-blur-sm border border-primary-300/30 hover:scale-105"
               >
                 🔑 Sign In
               </Link>
@@ -84,10 +90,10 @@ export function Navigation() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 backdrop-blur-sm ${
                   pathname === item.href
-                    ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
-                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    ? 'bg-gradient-to-r from-primary-500/20 to-accent-500/20 text-primary-700 dark:text-primary-300 border border-primary-300/30'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-white/20 dark:hover:bg-white/10 hover:text-primary-600 dark:hover:text-primary-400'
                 }`}
               >
                 {item.label}
@@ -96,7 +102,7 @@ export function Navigation() {
             {!session && (
               <Link
                 href="/auth/signin"
-                className="px-3 py-2 rounded-md text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900 transition-colors"
+                className="px-3 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-primary-500/20 to-accent-500/20 text-primary-600 dark:text-primary-400 hover:from-primary-500/30 hover:to-accent-500/30 transition-all duration-200 backdrop-blur-sm border border-primary-300/30"
               >
                 🔑 Sign In
               </Link>

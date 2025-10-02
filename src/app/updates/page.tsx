@@ -168,21 +168,24 @@ export default function UpdatesPage() {
 
   const getSignificanceBadge = (significance: number) => {
     if (significance >= 3) {
-      return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">🔴 Major</span>;
+      return <span className="status-badge bg-red-100/80 text-red-800 border border-red-200/50 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700/50">🔴 Major</span>;
     } else if (significance >= 2) {
-      return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">🟡 Minor</span>;
+      return <span className="status-badge bg-warning-100/80 text-warning-800 border border-warning-200/50 dark:bg-warning-900/30 dark:text-warning-300 dark:border-warning-700/50">🟡 Minor</span>;
     } else {
-      return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">🔵 Patch</span>;
+      return <span className="status-badge bg-primary-100/80 text-primary-800 border border-primary-200/50 dark:bg-primary-900/30 dark:text-primary-300 dark:border-primary-700/50">🔵 Patch</span>;
     }
   };
 
   if (!session) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-screen">
         <div className="max-w-4xl mx-auto py-8 px-4">
           <div className="text-center">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Game Updates</h1>
-            <p className="text-gray-600 dark:text-gray-400">Please sign in to view your game updates.</p>
+            <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-xl p-8 max-w-md mx-auto">
+              <div className="text-6xl mb-4">🔒</div>
+              <h1 className="text-2xl font-bold text-gradient mb-4">Game Updates</h1>
+              <p className="text-slate-600 dark:text-slate-400">Please sign in to view your game updates.</p>
+            </div>
           </div>
         </div>
       </div>
@@ -190,82 +193,89 @@ export default function UpdatesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen">
       {/* Automatic Update Scheduler Status */}
       <div className="max-w-6xl mx-auto py-8 px-4">
         <div className="mb-6">
           <SchedulerStatus />
         </div>
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Game Updates</h1>
-            <p className="text-gray-600 dark:text-gray-400">Track version changes and new releases for your games</p>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gradient mb-2">🔄 Game Updates</h1>
+            <p className="text-slate-600 dark:text-slate-400">Track version changes and new releases for your games</p>
+            <div className="w-24 h-1 bg-gradient-to-r from-primary-500 to-accent-500 mt-3 rounded-full"></div>
           </div>
           <button
             onClick={checkForUpdates}
             disabled={checkingUpdates}
-            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
           >
             {checkingUpdates ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+              <span className="flex items-center gap-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white/30 border-t-white"></div>
                 Checking...
-              </>
+              </span>
             ) : (
-              <>
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                Check for Updates
-              </>
+              <span className="flex items-center gap-2">
+                🔄 <span>Check for Updates</span>
+              </span>
             )}
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
+        {/* Enhanced Tabs */}
+        <div className="border-b border-white/20 dark:border-white/10 mb-6">
           <nav className="-mb-px flex space-x-8">
             <button
               onClick={() => setActiveTab('recent')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              className={`py-3 px-1 border-b-2 font-medium text-sm transition-all duration-200 ${
                 activeTab === 'recent'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400'
+                  ? 'border-primary-500 text-primary-600 dark:text-primary-400'
+                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300 dark:text-slate-400 dark:hover:text-slate-300'
               }`}
             >
-              Recent Updates ({recentUpdates.length})
+              <span className="flex items-center gap-2">
+                📈 <span>Recent Updates ({recentUpdates.length})</span>
+              </span>
             </button>
             <button
               onClick={() => setActiveTab('pending')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              className={`py-3 px-1 border-b-2 font-medium text-sm transition-all duration-200 ${
                 activeTab === 'pending'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400'
+                  ? 'border-primary-500 text-primary-600 dark:text-primary-400'
+                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300 dark:text-slate-400 dark:hover:text-slate-300'
               }`}
             >
-              Pending Confirmation ({pendingUpdates.reduce((acc, game) => acc + game.pendingUpdates.length, 0)})
+              <span className="flex items-center gap-2">
+                ⏳ <span>Pending Confirmation ({pendingUpdates.reduce((acc, game) => acc + game.pendingUpdates.length, 0)})</span>
+              </span>
             </button>
           </nav>
         </div>
 
         {loading ? (
           <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="text-gray-600 dark:text-gray-400 mt-4">Loading updates...</p>
+            <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-xl p-8 max-w-sm mx-auto">
+              <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-primary-200 dark:border-primary-800 border-t-primary-600 dark:border-t-primary-400 mb-4"></div>
+              <p className="text-slate-600 dark:text-slate-400 font-medium">Loading updates...</p>
+            </div>
           </div>
         ) : (
           <div>
             {activeTab === 'recent' && (
               <div className="space-y-6">
                 {recentUpdates.length === 0 ? (
-                  <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                    <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No Recent Updates</h3>
-                    <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Your tracked games haven&apos;t been updated recently.</h3>
+                  <div className="text-center py-12">
+                    <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-xl p-8 max-w-md mx-auto">
+                      <div className="text-6xl mb-4">📈</div>
+                      <h3 className="text-lg font-medium text-slate-700 dark:text-slate-300 mb-2">No Recent Updates</h3>
+                      <p className="text-slate-500 dark:text-slate-400">Your tracked games haven&apos;t been updated recently.</p>
+                    </div>
                   </div>
                 ) : (
                   recentUpdates.map((game) => (
-                    <div key={game._id} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                      <div className="flex items-start space-x-4">
+                    <div key={game._id} className="game-card animate-fade-in">
+                      <div className="flex flex-col sm:flex-row sm:items-start space-y-4 sm:space-y-0 sm:space-x-4 p-6">
                         {game.image && (
                           <Image 
                             src={game.image} 
@@ -339,14 +349,17 @@ export default function UpdatesPage() {
             {activeTab === 'pending' && (
               <div className="space-y-6">
                 {pendingUpdates.length === 0 ? (
-                  <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                    <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No Pending Updates</h3>
-                    <p className="text-gray-600 dark:text-gray-400">All detected updates have been processed.</p>
+                  <div className="text-center py-12">
+                    <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-xl p-8 max-w-md mx-auto">
+                      <div className="text-6xl mb-4">✅</div>
+                      <h3 className="text-lg font-medium text-slate-700 dark:text-slate-300 mb-2">No Pending Updates</h3>
+                      <p className="text-slate-500 dark:text-slate-400">All detected updates have been processed.</p>
+                    </div>
                   </div>
                 ) : (
                   pendingUpdates.map((game) => (
-                    <div key={game._id} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                      <div className="flex items-start space-x-4 mb-4">
+                    <div key={game._id} className="game-card animate-fade-in">
+                      <div className="flex flex-col sm:flex-row sm:items-start space-y-4 sm:space-y-0 sm:space-x-4 p-6">
                         {game.image && (
                           <Image 
                             src={game.image} 
@@ -358,16 +371,16 @@ export default function UpdatesPage() {
                         )}
                         <div className="flex-1">
                           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{game.title}</h3>
-                          <p className="text-sm text-orange-600 dark:text-orange-400 mb-4">
-                            ⚠️ The following updates need your confirmation:
+                          <p className="text-sm text-warning-600 dark:text-warning-400 mb-4 flex items-center gap-2">
+                            ⚠️ <span>The following updates need your confirmation:</span>
                           </p>
                         </div>
                       </div>
 
                       <div className="space-y-3">
                         {game.pendingUpdates.map((update, idx) => (
-                          <div key={idx} className="border border-orange-200 dark:border-orange-800 rounded-lg p-4 bg-orange-50 dark:bg-orange-900/20">
-                            <div className="flex items-start justify-between mb-3">
+                          <div key={idx} className="card-gradient backdrop-blur-sm border border-warning-300/30 dark:border-warning-600/30 rounded-xl p-4">
+                            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
                               <div>
                                 <div className="flex items-center space-x-2 mb-1">
                                   <span className="font-medium text-gray-900 dark:text-white">{update.newTitle}</span>
@@ -414,13 +427,13 @@ export default function UpdatesPage() {
                               <div className="flex items-center space-x-2">
                                 <button
                                   onClick={() => rejectUpdate(game._id, idx)}
-                                  className="px-3 py-1 text-sm font-medium text-red-700 bg-red-100 hover:bg-red-200 dark:bg-red-900 dark:text-red-200 dark:hover:bg-red-800 rounded-md"
+                                  className="px-3 py-1 text-sm font-medium bg-gradient-to-r from-red-500/20 to-pink-500/20 text-red-700 dark:text-red-300 hover:from-red-500/30 hover:to-pink-500/30 rounded-lg transition-all duration-200 backdrop-blur-sm border border-red-300/30"
                                 >
                                   Reject
                                 </button>
                                 <button
                                   onClick={() => approveUpdate(game._id, idx)}
-                                  className="px-3 py-1 text-sm font-medium text-green-700 bg-green-100 hover:bg-green-200 dark:bg-green-900 dark:text-green-200 dark:hover:bg-green-800 rounded-md"
+                                  className="px-3 py-1 text-sm font-medium bg-gradient-to-r from-success-500/20 to-accent-500/20 text-success-700 dark:text-success-300 hover:from-success-500/30 hover:to-accent-500/30 rounded-lg transition-all duration-200 backdrop-blur-sm border border-success-300/30"
                                 >
                                   Approve
                                 </button>

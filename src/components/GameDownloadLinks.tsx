@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 interface DownloadLink {
   service: string;
@@ -212,7 +213,7 @@ export function GameDownloadLinks({
       <button
         ref={buttonRef}
         onClick={handleToggle}
-        className="w-full px-4 py-2 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 text-sm rounded-lg hover:bg-green-200 dark:hover:bg-green-800 transition-colors flex items-center justify-center gap-2 min-h-[40px]"
+        className="w-full px-4 py-2 bg-gradient-to-r from-green-500/20 to-emerald-500/20 text-green-700 dark:text-green-300 text-sm rounded-lg hover:from-green-500/30 hover:to-emerald-500/30 transition-all duration-200 flex items-center justify-center gap-2 min-h-[40px] backdrop-blur-sm border border-green-300/30 hover:scale-105"
       >
         <span>📁</span>
         <span>Download Links</span>
@@ -221,20 +222,22 @@ export function GameDownloadLinks({
         </span>
       </button>
 
-      {isOpen && (
+      {isOpen && typeof window !== 'undefined' && createPortal(
         <>
           {/* Invisible overlay to capture outside clicks */}
           <div 
-            className="fixed inset-0 z-[9998]" 
+            className="fixed inset-0" 
+            style={{ zIndex: 99998 }}
             onClick={() => setIsOpen(false)}
           />
           <div 
             ref={dropdownRef}
-            className="fixed min-w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl max-h-96 overflow-y-auto z-[9999]"
+            className="fixed min-w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl max-h-96 overflow-y-auto"
             style={{
               top: `${dropdownPosition.top}px`,
               left: `${dropdownPosition.left}px`,
-              minWidth: `${Math.max(dropdownPosition.width, 320)}px`
+              minWidth: `${Math.max(dropdownPosition.width, 320)}px`,
+              zIndex: 99999
             }}
           >
             {/* Header */}
@@ -331,7 +334,8 @@ export function GameDownloadLinks({
             )}
           </div>
         </div>
-        </>
+        </>,
+        document.body
       )}
     </div>
   );

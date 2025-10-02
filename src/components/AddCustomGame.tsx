@@ -102,23 +102,23 @@ export function AddCustomGame({ onGameAdded, className = '' }: AddCustomGameProp
     <div className={className}>
       <button
         onClick={() => setIsOpen(true)}
-        className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors min-h-[40px]"
+        className="inline-flex items-center gap-2 px-6 py-3 text-sm btn-primary transition-all min-h-[48px] shadow-glow"
       >
-        <span>➕</span>
+        <span>✨</span>
         <span>Add Custom Game</span>
       </button>
 
       {isOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="card-gradient backdrop-blur-md border border-white/20 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-md animate-slide-up">
             {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Add Game to Tracking
+            <div className="flex items-center justify-between p-6 border-b border-white/20 dark:border-white/10">
+              <h3 className="text-lg font-semibold text-gradient">
+                🎮 Add Game to Tracking
               </h3>
               <button
                 onClick={handleClose}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:scale-110 transition-all duration-200"
               >
                 <span className="text-xl">✕</span>
               </button>
@@ -126,13 +126,13 @@ export function AddCustomGame({ onGameAdded, className = '' }: AddCustomGameProp
 
             {/* Content */}
             <div className="p-6">
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-5">
                 <div>
                   <label 
                     htmlFor="gameName" 
-                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+                    className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2"
                   >
-                    Game Name
+                    🎯 Game Name
                   </label>
                   <div className="relative">
                     <input
@@ -141,52 +141,57 @@ export function AddCustomGame({ onGameAdded, className = '' }: AddCustomGameProp
                       value={gameName}
                       onChange={(e) => setGameName(e.target.value)}
                       placeholder="Enter game name (e.g., 'Cyberpunk 2077', 'Baldur's Gate 3')"
-                      className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-4 py-3 pr-12 input-glass text-slate-900 dark:text-slate-100 placeholder-slate-500 dark:placeholder-slate-400 shadow-lg"
                       disabled={loading}
                     />
-                    <span className="absolute right-3 top-2.5 text-gray-400">🔍</span>
+                    <span className="absolute right-4 top-3.5 text-slate-400 text-lg">🔍</span>
                   </div>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    We&apos;ll search for the game and add the best match to your tracking list
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-50/50 dark:bg-slate-800/50 p-2 rounded-lg">
+                    ✨ We&apos;ll search for the game and add the best match to your tracking list
                   </p>
                 </div>
 
                 {/* Error Message */}
                 {error && (
-                  <div className="p-3 bg-red-100 dark:bg-red-900 border border-red-300 dark:border-red-600 rounded-md">
-                    <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+                  <div className="p-4 bg-gradient-to-r from-red-500/10 to-pink-500/10 border border-red-300/30 dark:border-red-600/30 rounded-xl backdrop-blur-sm animate-slide-up">
+                    <div className="flex items-center gap-2">
+                      <span className="text-red-500 text-lg">⚠️</span>
+                      <p className="text-sm text-red-700 dark:text-red-300 font-medium">{error}</p>
+                    </div>
                   </div>
                 )}
 
                 {/* Success Message */}
                 {success && (
-                  <div className="p-3 bg-green-100 dark:bg-green-900 border border-green-300 dark:border-green-600 rounded-md">
+                  <div className="p-4 bg-gradient-to-r from-success-500/10 to-accent-500/10 border border-success-300/30 dark:border-success-600/30 rounded-xl backdrop-blur-sm animate-slide-up">
                     <div className="flex items-center gap-2">
-                      <span className="text-green-600 dark:text-green-400">✅</span>
-                      <p className="text-sm text-green-700 dark:text-green-300">{success}</p>
+                      <span className="text-success-600 dark:text-success-400 text-lg">🎉</span>
+                      <p className="text-sm text-success-700 dark:text-success-300 font-medium">{success}</p>
                     </div>
                   </div>
                 )}
 
                 {/* Search Results Preview */}
                 {searchResults.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Search Results:
+                  <div className="space-y-3 animate-slide-up">
+                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                      🎯 <span>Search Results:</span>
                     </p>
-                    <div className="max-h-32 overflow-y-auto space-y-1">
+                    <div className="max-h-36 overflow-y-auto space-y-2 custom-scrollbar">
                       {searchResults.map((result) => (
                         <div 
                           key={result.id}
-                          className={`flex items-center gap-2 p-2 rounded text-xs ${
+                          className={`flex items-center gap-3 p-3 rounded-lg text-sm transition-all duration-200 ${
                             result.isSelected 
-                              ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300' 
-                              : 'bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                              ? 'bg-gradient-to-r from-success-500/20 to-accent-500/20 text-success-700 dark:text-success-300 border border-success-300/30 shadow-lg' 
+                              : 'bg-white/50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 border border-white/30 dark:border-white/20'
                           }`}
                         >
-                          {result.isSelected && <span>✅</span>}
-                          <span className="font-medium">{result.title}</span>
-                          <span className="text-gray-500">({result.source})</span>
+                          {result.isSelected && <span className="text-lg">🎯</span>}
+                          <div className="flex-1">
+                            <span className="font-semibold">{result.title}</span>
+                            <span className="ml-2 text-xs opacity-75">({result.source})</span>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -194,20 +199,20 @@ export function AddCustomGame({ onGameAdded, className = '' }: AddCustomGameProp
                 )}
 
                 {/* Buttons */}
-                <div className="flex gap-3 pt-2">
+                <div className="flex gap-3 pt-3">
                   <button
                     type="submit"
                     disabled={loading || !gameName.trim()}
-                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                    className="flex-1 px-5 py-3 btn-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-lg"
                   >
                     {loading ? (
                       <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white/30 border-t-white"></div>
                         <span>Searching...</span>
                       </>
                     ) : (
                       <>
-                        <span>🔍</span>
+                        <span>�</span>
                         <span>Add Game</span>
                       </>
                     )}
@@ -215,7 +220,7 @@ export function AddCustomGame({ onGameAdded, className = '' }: AddCustomGameProp
                   <button
                     type="button"
                     onClick={handleClose}
-                    className="px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors"
+                    className="px-5 py-3 btn-glass transition-all"
                   >
                     Close
                   </button>

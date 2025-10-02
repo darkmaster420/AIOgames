@@ -554,7 +554,7 @@ export async function POST(request: Request) {
           currentVersionInfo = extractVersionInfo(titleSources[titleSources.length - 1].title);
         }
 
-        let newVersionInfo = extractVersionInfo(decodedTitle);
+        const newVersionInfo = extractVersionInfo(decodedTitle);
 
         // Enrich version/build via SteamDB Worker if one side is missing and we know the appId
         if (game.steamAppId) {

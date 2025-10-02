@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { DownloadLinks } from '../../components/DownloadLinks';
+import { GameDownloadLinks } from '../../components/GameDownloadLinks';
 import { SteamVerification } from '../../components/SteamVerification';
 import { SmartVersionVerification } from '../../components/SmartVersionVerification';
 import { ReleaseGroupSelector } from '../../components/ReleaseGroupSelector';
@@ -281,10 +281,10 @@ export default function TrackingDashboard() {
   // Show loading spinner while checking auth
   if (status === 'loading') {
     return (
-      <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <p className="mt-2 text-gray-600 dark:text-gray-400">Loading...</p>
+      <div className="min-h-screen bg-hero flex items-center justify-center">
+        <div className="text-center card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-xl p-8">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-primary-200 dark:border-primary-800 border-t-primary-600 dark:border-t-primary-400 mb-4"></div>
+          <p className="text-slate-600 dark:text-slate-400 font-medium">Loading your games...</p>
         </div>
       </div>
     );
@@ -292,42 +292,50 @@ export default function TrackingDashboard() {
 
     return (
     <>
-      <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-2 sm:p-4">
+      <div className="min-h-screen p-2 sm:p-4">
         <div className="max-w-7xl mx-auto">
-          {/* Page Header */}
+          {/* Page Header with enhanced styling */}
           <div className="text-center sm:text-left mb-6 sm:mb-8">
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">Your Tracked Games</h1>
-            <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mt-1">Manage your game collection and check for updates</p>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gradient mb-2">🎮 Your Tracked Games</h1>
+            <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400">Manage your game collection and check for updates</p>
+            <div className="w-24 h-1 bg-gradient-to-r from-primary-500 to-accent-500 mx-auto sm:mx-0 mt-3 rounded-full"></div>
           </div>
           
-          {/* Action Buttons */}
+          {/* Enhanced Action Buttons */}
           <div className="flex flex-wrap justify-center sm:justify-start items-center gap-3 mb-6">
             <AddCustomGame onGameAdded={loadTrackedGames} />
             <button
               onClick={handleCheckForUpdates}
               disabled={checkingUpdates || trackedGames.length === 0}
-              className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap min-h-[40px] flex items-center justify-center"
+              className="px-6 py-3 btn-success disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm font-medium shadow-lg"
             >
-              {checkingUpdates ? 'Checking...' : 'Check Updates'}
+              {checkingUpdates ? (
+                <span className="flex items-center gap-2">
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  Checking...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  🔄 <span>Check Updates</span>
+                </span>
+              )}
             </button>
             <SequelNotifications />
           </div>
 
-        {/* Automatic Update Scheduler Status moved to updates page */}
-
-        {/* Summary Stats */}
+        {/* Enhanced Summary Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Tracked</h3>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">{trackedGames.length}</p>
+          <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 p-6 rounded-xl shadow-lg">
+            <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">📊 Total Tracked</h3>
+            <p className="text-3xl font-bold text-gradient">{trackedGames.length}</p>
           </div>
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Active Tracking</h3>
-            <p className="text-2xl font-bold text-green-600">{trackedGames.filter(g => g.isActive).length}</p>
+          <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 p-6 rounded-xl shadow-lg">
+            <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">✅ Active Tracking</h3>
+            <p className="text-3xl font-bold text-success-600 dark:text-success-400">{trackedGames.filter(g => g.isActive).length}</p>
           </div>
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Recent Updates</h3>
-            <p className="text-2xl font-bold text-orange-600">
+          <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 p-6 rounded-xl shadow-lg">
+            <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">🆕 Recent Updates</h3>
+            <p className="text-3xl font-bold text-warning-600 dark:text-warning-400">
               {trackedGames.filter(g => 
                 g.updateHistory.length > 0 && 
                 new Date(g.updateHistory[g.updateHistory.length - 1].dateFound).getTime() > 
@@ -335,48 +343,58 @@ export default function TrackingDashboard() {
               ).length}
             </p>
           </div>
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Original Sources</h3>
-            <p className="text-2xl font-bold text-purple-600">
+          <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 p-6 rounded-xl shadow-lg">
+            <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">🌐 Original Sources</h3>
+            <p className="text-3xl font-bold text-purple-600 dark:text-purple-400">
               {new Set(trackedGames.map(g => g.source)).size}
             </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               Updates checked across all sites
             </p>
           </div>
         </div>
 
-        {/* Error Display */}
+        {/* Enhanced Error Display */}
         {error && (
-          <div className="mb-4 p-4 bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 rounded">
-            {error}
+          <div className="mb-6 p-4 bg-gradient-to-r from-red-500/10 to-pink-500/10 border border-red-300/30 dark:border-red-600/30 text-red-700 dark:text-red-300 rounded-xl backdrop-blur-sm animate-slide-up">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">⚠️</span>
+              {error}
+            </div>
           </div>
         )}
 
-        {/* Loading State */}
+        {/* Enhanced Loading State */}
         {loading && (
-          <div className="text-center py-8">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            <p className="mt-2 text-gray-600 dark:text-gray-400">Loading tracked games...</p>
+          <div className="text-center py-12">
+            <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-xl p-8 max-w-sm mx-auto">
+              <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-primary-200 dark:border-primary-800 border-t-primary-600 dark:border-t-primary-400 mb-4"></div>
+              <p className="text-slate-600 dark:text-slate-400 font-medium">Loading tracked games...</p>
+            </div>
           </div>
         )}
 
-        {/* Tracked Games List */}
+        {/* Enhanced Empty State */}
         {!loading && trackedGames.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-gray-500 dark:text-gray-400 mb-4">No games are currently being tracked.</p>
-            <Link 
-              href="/"
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              Browse Games to Track
-            </Link>
+          <div className="text-center py-16">
+            <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-xl p-8 max-w-md mx-auto">
+              <div className="text-6xl mb-4">🎮</div>
+              <h3 className="text-lg font-medium text-slate-700 dark:text-slate-300 mb-2">No games tracked yet</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Start tracking your favorite games to get updates</p>
+              <Link 
+                href="/"
+                className="btn-primary inline-flex items-center gap-2 px-6 py-3"
+              >
+                <span>🔍</span>
+                <span>Browse Games to Track</span>
+              </Link>
+            </div>
           </div>
         ) : (
-          <div className="space-y-3 sm:space-y-4">
+          <div className="space-y-4 sm:space-y-6">
             {trackedGames.map((game) => (
-              <div key={game._id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
-                <div className="flex flex-col sm:flex-row gap-3 p-3 sm:p-6">
+              <div key={game._id} className="game-card animate-fade-in">
+                <div className="flex flex-col sm:flex-row gap-4 p-4 sm:p-6">
                   {/* Game Image - Mobile optimized */}
                   {game.image && (
                     <div className="flex-shrink-0 mx-auto sm:mx-0">
@@ -401,12 +419,12 @@ export default function TrackingDashboard() {
                             </h3>
                             {game.hasNewUpdate && !game.newUpdateSeen && (
                               <div className="flex items-center gap-2">
-                                <span className="px-2 py-1 bg-red-500 text-white text-xs font-bold rounded-full animate-pulse">
-                                  NEW
+                                <span className="px-2 py-1 bg-gradient-to-r from-red-500 to-pink-500 text-white text-xs font-bold rounded-full animate-pulse shadow-lg">
+                                  ✨ NEW
                                 </span>
                                 <button
                                   onClick={() => handleMarkUpdateSeen(game._id)}
-                                  className="text-xs text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 underline"
+                                  className="text-xs text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 underline transition-colors"
                                   title="Mark as seen"
                                 >
                                   dismiss
@@ -463,30 +481,31 @@ export default function TrackingDashboard() {
                         </div>
                       </div>
                       
-                      {/* Action Buttons */}
+                      {/* Enhanced Action Buttons */}
                       <div className="self-start flex flex-col gap-2">
                         <button
                           onClick={() => handleSingleGameUpdate(game._id, game.title)}
                           disabled={checkingSingleGame === game._id}
-                          className="px-4 py-2 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-sm rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors min-h-[40px] flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="px-4 py-2 bg-gradient-to-r from-primary-500/20 to-accent-500/20 text-primary-700 dark:text-primary-300 hover:from-primary-500/30 hover:to-accent-500/30 text-sm rounded-lg transition-all duration-200 min-h-[42px] flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed backdrop-blur-sm border border-primary-300/30 hover:scale-105"
                         >
                           {checkingSingleGame === game._id ? (
                             <>
-                              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-blue-700 dark:text-blue-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                              </svg>
+                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary-300/30 border-t-primary-600 mr-2"></div>
                               Checking...
                             </>
                           ) : (
-                            'Check Updates'
+                            <span className="flex items-center gap-2">
+                              🔄 <span>Check Updates</span>
+                            </span>
                           )}
                         </button>
                         <button
                           onClick={() => handleUntrack(game.gameId)}
-                          className="px-4 py-2 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 text-sm rounded-lg hover:bg-red-200 dark:hover:bg-red-800 transition-colors min-h-[40px] flex items-center justify-center"
+                          className="px-4 py-2 bg-gradient-to-r from-red-500/20 to-pink-500/20 text-red-700 dark:text-red-300 hover:from-red-500/30 hover:to-pink-500/30 text-sm rounded-lg transition-all duration-200 min-h-[42px] flex items-center justify-center backdrop-blur-sm border border-red-300/30 hover:scale-105"
                         >
-                          Untrack
+                          <span className="flex items-center gap-2">
+                            🗑️ <span>Untrack</span>
+                          </span>
                         </button>
                       </div>
                     </div>
@@ -529,7 +548,7 @@ export default function TrackingDashboard() {
                               </span>
                             </div>
                             <div className="self-start">
-                              <DownloadLinks 
+                              <GameDownloadLinks 
                                 gameId={game._id} 
                                 className="inline-block"
                               />
@@ -562,7 +581,7 @@ export default function TrackingDashboard() {
                                       </span>
                                     </div>
                                     <div className="self-start sm:ml-2">
-                                      <DownloadLinks 
+                                      <GameDownloadLinks 
                                         gameId={game._id} 
                                         updateIndex={updateIndex + 1}
                                         className="inline-block"
@@ -577,20 +596,23 @@ export default function TrackingDashboard() {
                       })()
                     )}
 
-                    {/* Action Links - Mobile optimized */}
+                    {/* Enhanced Action Links */}
                     <div className="mt-3 sm:mt-4 flex flex-col sm:flex-row gap-2 sm:gap-3">
                       <a
                         href={game.gameLink}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-4 py-2 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-sm rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 text-center transition-colors min-h-[40px] flex items-center justify-center w-full sm:w-auto"
+                        className="px-4 py-2 btn-glass text-sm transition-all text-center min-h-[42px] flex items-center justify-center w-full sm:w-auto group"
                       >
-                        View Latest Post
+                        <span className="flex items-center gap-2">
+                          📖 <span>View Latest Post</span>
+                          <span className="transform transition-transform group-hover:translate-x-1">→</span>
+                        </span>
                       </a>
                       <div className="w-full sm:w-auto">
-                        <DownloadLinks 
+                        <GameDownloadLinks 
                           gameId={game._id} 
-                          className="w-full sm:w-auto px-4 py-2 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 text-sm rounded-lg hover:bg-green-200 dark:hover:bg-green-800 transition-colors min-h-[40px] flex items-center justify-center" 
+                          className="w-full" 
                         />
                       </div>
                     </div>
@@ -618,7 +640,7 @@ export default function TrackingDashboard() {
                                   </div>
                                 </div>
                                 <div className="self-start sm:ml-2">
-                                  <DownloadLinks 
+                                  <GameDownloadLinks 
                                     gameId={game._id} 
                                     pendingUpdateId={update._id}
                                     className="inline-block"

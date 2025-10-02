@@ -73,9 +73,9 @@ export function DownloadLinks({ gameId, updateIndex, pendingUpdateId, className 
       // Responsive dropdown sizing
       const isMobile = viewportWidth < 768;
       const dropdownHeight = 300; // estimated height
-      const dropdownWidth = isMobile ? Math.min(viewportWidth - 16, 320) : Math.max(rect.width, 200);
+      const dropdownWidth = isMobile ? Math.min(viewportWidth - 16, 320) : Math.max(rect.width, 280);
       
-      let top = rect.bottom + 4;
+      let top = rect.bottom + 8;
       let left = rect.left;
       
       // Mobile-specific positioning
@@ -86,20 +86,20 @@ export function DownloadLinks({ gameId, updateIndex, pendingUpdateId, className 
         
         // If dropdown would go off bottom, show above with mobile considerations
         if (rect.bottom + dropdownHeight > viewportHeight - 20) {
-          top = Math.max(20, rect.top - dropdownHeight - 4);
+          top = Math.max(20, rect.top - dropdownHeight - 8);
         }
       } else {
         // Desktop positioning logic
-        if (rect.bottom + dropdownHeight > viewportHeight) {
-          top = rect.top - dropdownHeight - 4;
+        if (rect.bottom + dropdownHeight > viewportHeight - 20) {
+          top = rect.top - dropdownHeight - 8;
         }
         
-        if (rect.left + dropdownWidth > viewportWidth) {
+        if (rect.left + dropdownWidth > viewportWidth - 20) {
           left = rect.right - dropdownWidth;
         }
         
-        if (left < 4) {
-          left = 4;
+        if (left < 8) {
+          left = 8;
         }
       }
       
@@ -201,7 +201,7 @@ export function DownloadLinks({ gameId, updateIndex, pendingUpdateId, className 
         <button
           ref={buttonRef}
           onClick={handleToggle}
-          className="px-4 py-2 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 text-sm rounded-lg hover:bg-green-200 dark:hover:bg-green-800 transition-colors flex items-center gap-2 min-h-[40px]"
+          className={`px-4 py-2 bg-gradient-to-r from-green-500/20 to-emerald-500/20 text-green-700 dark:text-green-300 text-sm rounded-lg hover:from-green-500/30 hover:to-emerald-500/30 transition-all duration-200 flex items-center gap-2 min-h-[40px] backdrop-blur-sm border border-green-300/30 hover:scale-105 ${className.includes('w-full') ? 'w-full justify-center' : ''}`}
         >
           <span>📁</span>
           <span>Download Links</span>
@@ -214,7 +214,7 @@ export function DownloadLinks({ gameId, updateIndex, pendingUpdateId, className 
       {isOpen && (
         <div 
           ref={dropdownRef}
-          className="fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-96 overflow-y-auto"
+          className="fixed bg-white/90 dark:bg-gray-800/90 backdrop-blur-md border border-gray-200/50 dark:border-gray-700/50 rounded-lg shadow-2xl max-h-96 overflow-y-auto"
           style={{
             position: 'fixed',
             top: `${dropdownPosition.top}px`,
@@ -226,7 +226,7 @@ export function DownloadLinks({ gameId, updateIndex, pendingUpdateId, className 
           }}
         >
           {/* Header */}
-          <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+          <div className="p-3 border-b border-gray-200/50 dark:border-gray-700/50 bg-gradient-to-r from-blue-50/50 to-cyan-50/50 dark:from-blue-900/20 dark:to-cyan-900/20">
             <h3 className="font-semibold text-gray-900 dark:text-white">Download Links</h3>
             {context.gameTitle && (
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -278,19 +278,19 @@ export function DownloadLinks({ gameId, updateIndex, pendingUpdateId, className 
                     <div className="flex items-center gap-1 ml-2">
                       <button
                         onClick={() => copyToClipboard(link.url)}
-                        className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                          className="p-2 bg-blue-100/80 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 hover:bg-blue-200/80 dark:hover:bg-blue-800/60 transition-all duration-200 rounded-md text-sm backdrop-blur-sm"
                         title="Copy link"
                       >
-                        <span className="text-sm">📋</span>
+                          📋
                       </button>
                       <a
                         href={link.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                          className="p-2 bg-green-100/80 dark:bg-green-900/40 text-green-600 dark:text-green-400 hover:bg-green-200/80 dark:hover:bg-green-800/60 transition-all duration-200 rounded-md text-sm backdrop-blur-sm"
                         title="Open link"
                       >
-                        <span className="text-sm">🔗</span>
+                          🔗
                       </a>
                     </div>
                   </div>
@@ -301,7 +301,7 @@ export function DownloadLinks({ gameId, updateIndex, pendingUpdateId, className 
 
           {/* Footer */}
           {!loading && downloadLinks.length > 0 && (
-            <div className="p-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
+            <div className="p-3 border-t border-gray-200/50 dark:border-gray-700/50 bg-gradient-to-r from-gray-50/80 to-blue-50/80 dark:from-gray-700/50 dark:to-blue-900/20">
               <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
                 {downloadLinks.length} download link{downloadLinks.length !== 1 ? 's' : ''} available
               </p>

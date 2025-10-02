@@ -220,6 +220,31 @@ const trackedGameSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   },
+  
+  // Automatic version/build detection from title
+  detectedVersion: {
+    type: String,
+    default: ''
+  },
+  detectedBuild: {
+    type: String,
+    default: ''
+  },
+  isDateVersion: {
+    type: Boolean,
+    default: false
+  },
+  isDateBasedBuild: {
+    type: Boolean,
+    default: false
+  },
+  versionDetectionDate: {
+    type: Date
+  },
+  buildDetectionDate: {
+    type: Date
+  },
+  
   updateHistory: [{
     version: {
       type: String,

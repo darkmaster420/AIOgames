@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import connectDB from '@/lib/db';
 import { TrackedGame } from '@/lib/models';
 import { searchSteamGames } from '@/utils/steamApi';
+import { analyzeGameTitle } from '@/utils/versionDetection';
 
 /**
  * POST /api/games/steam-verify
@@ -86,6 +87,31 @@ export async function PATCH(request: NextRequest) {
 
     if (!updatedGame) {
       return NextResponse.json({ error: 'Game not found' }, { status: 404 });
+    }
+
+    // After manual Steam verification, perform semantic version and build detection
+    if (updatedGame.title) {
+      const versionAnalysis = analyzeGameTitle(updatedGame.title);
+      
+      // Update the game with detected version/build information if found
+      const versionUpdateData: Record<string, string | boolean | Date> = {};
+      
+      if (versionAnalysis.hasVersionNumber && versionAnalysis.detectedVersion) {
+        versionUpdateData.detectedVersion = versionAnalysis.detectedVersion;
+        versionUpdateData.isDateVersion = versionAnalysis.isDateVersion || false;
+        versionUpdateData.versionDetectionDate = new Date();
+      }
+      
+      if (versionAnalysis.hasBuildNumber && versionAnalysis.detectedBuild) {
+        versionUpdateData.detectedBuild = versionAnalysis.detectedBuild;
+        versionUpdateData.isDateBasedBuild = versionAnalysis.isDateBasedBuild || false;
+        versionUpdateData.buildDetectionDate = new Date();
+      }
+      
+      // If we detected version/build info, update the game
+      if (Object.keys(versionUpdateData).length > 0) {
+        await TrackedGame.findByIdAndUpdate(updatedGame._id, versionUpdateData);
+      }
     }
 
     return NextResponse.json({
