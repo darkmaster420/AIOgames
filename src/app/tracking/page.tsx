@@ -116,6 +116,8 @@ export default function TrackingDashboard() {
   const { showSuccess, showError, showInfo } = useNotification();
   const { confirm } = useConfirm();
   const [trackedGames, setTrackedGames] = useState<TrackedGame[]>([]);
+  const [filteredGames, setFilteredGames] = useState<TrackedGame[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [checkingSingleGame, setCheckingSingleGame] = useState<string | null>(null);
@@ -191,6 +193,22 @@ export default function TrackingDashboard() {
   };
 
   const [checkingUpdates, setCheckingUpdates] = useState(false);
+
+  // Filter games based on search query
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setFilteredGames(trackedGames);
+    } else {
+      const query = searchQuery.toLowerCase();
+      const filtered = trackedGames.filter(game => 
+        game.title.toLowerCase().includes(query) ||
+        game.originalTitle.toLowerCase().includes(query) ||
+        game.source.toLowerCase().includes(query) ||
+        (game.steamName && game.steamName.toLowerCase().includes(query))
+      );
+      setFilteredGames(filtered);
+    }
+  }, [trackedGames, searchQuery]);
 
   useEffect(() => {
     if (status === 'authenticated') {
@@ -307,7 +325,7 @@ export default function TrackingDashboard() {
             <button
               onClick={handleCheckForUpdates}
               disabled={checkingUpdates || trackedGames.length === 0}
-              className="px-6 py-3 btn-success disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm font-medium shadow-lg"
+              className="px-6 py-3 btn-success disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm font-medium shadow-lg min-h-[48px]"
             >
               {checkingUpdates ? (
                 <span className="flex items-center gap-2">
@@ -323,36 +341,42 @@ export default function TrackingDashboard() {
             <SequelNotifications />
           </div>
 
-        {/* Enhanced Summary Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 p-6 rounded-xl shadow-lg">
-            <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">📊 Total Tracked</h3>
-            <p className="text-3xl font-bold text-gradient">{trackedGames.length}</p>
-          </div>
-          <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 p-6 rounded-xl shadow-lg">
-            <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">✅ Active Tracking</h3>
-            <p className="text-3xl font-bold text-success-600 dark:text-success-400">{trackedGames.filter(g => g.isActive).length}</p>
-          </div>
-          <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 p-6 rounded-xl shadow-lg">
-            <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">🆕 Recent Updates</h3>
-            <p className="text-3xl font-bold text-warning-600 dark:text-warning-400">
-              {trackedGames.filter(g => 
-                g.updateHistory.length > 0 && 
-                new Date(g.updateHistory[g.updateHistory.length - 1].dateFound).getTime() > 
-                Date.now() - (7 * 24 * 60 * 60 * 1000) // Last 7 days
-              ).length}
-            </p>
-          </div>
-          <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 p-6 rounded-xl shadow-lg">
-            <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">🌐 Original Sources</h3>
-            <p className="text-3xl font-bold text-purple-600 dark:text-purple-400">
-              {new Set(trackedGames.map(g => g.source)).size}
-            </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Updates checked across all sites
-            </p>
-          </div>
-        </div>
+          {/* Search/Filter Bar */}
+          {trackedGames.length > 0 && (
+            <div className="mb-6">
+              <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
+                <div className="relative max-w-md w-full sm:w-auto">
+                  <input
+                    type="text"
+                    placeholder="Search tracked games..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full px-4 py-3 pl-10 card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-xl text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                  />
+                  <div className="absolute inset-y-0 left-0 flex items-center pl-3">
+                    <span className="text-gray-500 dark:text-gray-400">🔍</span>
+                  </div>
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 px-6 py-3 rounded-xl shadow-lg">
+                  <span className="text-sm font-medium text-slate-500 dark:text-slate-400">📊 Tracking: </span>
+                  <span className="text-lg font-bold text-gradient">{trackedGames.length} games</span>
+                </div>
+              </div>
+              {searchQuery && (
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 text-center sm:text-left">
+                  Found {filteredGames.length} game{filteredGames.length !== 1 ? 's' : ''} matching "{searchQuery}"
+                </p>
+              )}
+            </div>
+          )}
 
         {/* Enhanced Error Display */}
         {error && (
@@ -390,14 +414,29 @@ export default function TrackingDashboard() {
               </Link>
             </div>
           </div>
+        ) : !loading && searchQuery && filteredGames.length === 0 ? (
+          <div className="text-center py-16">
+            <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-xl p-8 max-w-md mx-auto">
+              <div className="text-6xl mb-4">🔍</div>
+              <h3 className="text-lg font-medium text-slate-700 dark:text-slate-300 mb-2">No games found</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">No tracked games match "{searchQuery}"</p>
+              <button
+                onClick={() => setSearchQuery('')}
+                className="btn-primary inline-flex items-center gap-2 px-6 py-3"
+              >
+                <span>✕</span>
+                <span>Clear Search</span>
+              </button>
+            </div>
+          </div>
         ) : (
-          <div className="space-y-4 sm:space-y-6">
-            {trackedGames.map((game) => (
-              <div key={game._id} className="game-card animate-fade-in">
-                <div className="flex flex-col sm:flex-row gap-4 p-4 sm:p-6">
-                  {/* Game Image - Mobile optimized */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
+            {filteredGames.map((game) => (
+              <div key={game._id} className="game-card animate-fade-in flex flex-col">
+                <div className="flex flex-col gap-4 p-4 sm:p-6 flex-1">
+                  {/* Game Image */}
                   {game.image && (
-                    <div className="flex-shrink-0 mx-auto sm:mx-0">
+                    <div className="flex-shrink-0 mx-auto">
                       <ImageWithFallback
                         src={game.image}
                         alt={game.title}
@@ -408,12 +447,12 @@ export default function TrackingDashboard() {
                     </div>
                   )}
                   
-                  {/* Game Details - Mobile optimized */}
+                  {/* Game Details */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-4">
+                    <div className="flex flex-col gap-2">
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-col gap-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white truncate">
                               {cleanGameTitle(game.title)}
                             </h3>
@@ -440,7 +479,7 @@ export default function TrackingDashboard() {
                             </div>
                           )}
                           <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
-                            <p>Original: {game.originalTitle}</p>
+                            <p>Source: {game.source}</p>
                           </div>
                         </div>
                         
@@ -480,38 +519,10 @@ export default function TrackingDashboard() {
                           />
                         </div>
                       </div>
-                      
-                      {/* Enhanced Action Buttons */}
-                      <div className="self-start flex flex-col gap-2">
-                        <button
-                          onClick={() => handleSingleGameUpdate(game._id, game.title)}
-                          disabled={checkingSingleGame === game._id}
-                          className="px-4 py-2 bg-gradient-to-r from-primary-500/20 to-accent-500/20 text-primary-700 dark:text-primary-300 hover:from-primary-500/30 hover:to-accent-500/30 text-sm rounded-lg transition-all duration-200 min-h-[42px] flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed backdrop-blur-sm border border-primary-300/30 hover:scale-105"
-                        >
-                          {checkingSingleGame === game._id ? (
-                            <>
-                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary-300/30 border-t-primary-600 mr-2"></div>
-                              Checking...
-                            </>
-                          ) : (
-                            <span className="flex items-center gap-2">
-                              🔄 <span>Check Updates</span>
-                            </span>
-                          )}
-                        </button>
-                        <button
-                          onClick={() => handleUntrack(game.gameId)}
-                          className="px-4 py-2 bg-gradient-to-r from-red-500/20 to-pink-500/20 text-red-700 dark:text-red-300 hover:from-red-500/30 hover:to-pink-500/30 text-sm rounded-lg transition-all duration-200 min-h-[42px] flex items-center justify-center backdrop-blur-sm border border-red-300/30 hover:scale-105"
-                        >
-                          <span className="flex items-center gap-2">
-                            🗑️ <span>Untrack</span>
-                          </span>
-                        </button>
-                      </div>
                     </div>
 
-                    {/* Tracking Info - Mobile optimized grid */}
-                    <div className="mt-3 sm:mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4 text-xs sm:text-sm">
+                    {/* Tracking Info */}
+                    <div className="mt-3 sm:mt-4 grid grid-cols-1 gap-2 text-xs sm:text-sm">
                       <div>
                         <span className="text-gray-500 dark:text-gray-400">Added:</span>
                         <span className="ml-1 sm:ml-2 text-gray-900 dark:text-white">
@@ -532,7 +543,7 @@ export default function TrackingDashboard() {
                       </div>
                     </div>
 
-                    {/* Latest Update Status - Mobile optimized */}
+                    {/* Latest Update Status */}
                     {game.latestApprovedUpdate && (
                       <div className="mt-3 sm:mt-4">
                         <h4 className="text-xs sm:text-sm font-medium text-green-700 dark:text-green-300 mb-2 flex items-center gap-2">
@@ -540,25 +551,19 @@ export default function TrackingDashboard() {
                           Current Version
                         </h4>
                         <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded">
-                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                          <div className="flex flex-col gap-2">
                             <div className="flex-1">
                               <span className="font-medium text-sm">v{game.latestApprovedUpdate.version}</span>
                               <span className="text-gray-500 dark:text-gray-400 text-xs ml-2">
                                 approved {formatDate(game.latestApprovedUpdate.dateFound)}
                               </span>
                             </div>
-                            <div className="self-start">
-                              <GameDownloadLinks 
-                                gameId={game._id} 
-                                className="inline-block"
-                              />
-                            </div>
                           </div>
                         </div>
                       </div>
                     )}
 
-                    {/* Previous Updates - Mobile optimized */}
+                    {/* Previous Updates */}
                     {game.updateHistory && game.updateHistory.length > 1 && (
                       (() => {
                         // Exclude the latest/current version from previous updates
@@ -573,19 +578,12 @@ export default function TrackingDashboard() {
                             <div className="space-y-1 sm:space-y-2">
                               {previousUpdates.slice(0, 2).map((update, updateIndex) => (
                                 <div key={updateIndex} className="text-xs sm:text-sm bg-gray-50 dark:bg-gray-900/20 p-2 rounded">
-                                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2">
+                                  <div className="flex flex-col gap-1">
                                     <div className="flex-1">
                                       <span className="font-medium">v{update.version}</span>
                                       <span className="text-gray-500 dark:text-gray-400 ml-2">
                                         found {formatDate(update.dateFound)}
                                       </span>
-                                    </div>
-                                    <div className="self-start sm:ml-2">
-                                      <GameDownloadLinks 
-                                        gameId={game._id} 
-                                        updateIndex={updateIndex + 1}
-                                        className="inline-block"
-                                      />
                                     </div>
                                   </div>
                                 </div>
@@ -596,28 +594,7 @@ export default function TrackingDashboard() {
                       })()
                     )}
 
-                    {/* Enhanced Action Links */}
-                    <div className="mt-3 sm:mt-4 flex flex-col sm:flex-row gap-2 sm:gap-3">
-                      <a
-                        href={game.gameLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-4 py-2 btn-glass text-sm transition-all text-center min-h-[42px] flex items-center justify-center w-full sm:w-auto group"
-                      >
-                        <span className="flex items-center gap-2">
-                          📖 <span>View Latest Post</span>
-                          <span className="transform transition-transform group-hover:translate-x-1">→</span>
-                        </span>
-                      </a>
-                      <div className="w-full sm:w-auto">
-                        <GameDownloadLinks 
-                          gameId={game._id} 
-                          className="w-full" 
-                        />
-                      </div>
-                    </div>
-
-                    {/* Pending Updates - Mobile optimized */}
+                    {/* Pending Updates */}
                     {game.pendingUpdates && game.pendingUpdates.length > 0 && (
                       <div className="mt-3 sm:mt-4">
                         <h4 className="text-xs sm:text-sm font-medium text-yellow-700 dark:text-yellow-300 mb-2 flex items-center gap-1 sm:gap-2">
@@ -627,7 +604,7 @@ export default function TrackingDashboard() {
                         <div className="space-y-1 sm:space-y-2">
                           {game.pendingUpdates.slice(0, 3).map((update) => (
                             <div key={update._id} className="text-xs sm:text-sm bg-yellow-50 dark:bg-yellow-900/20 p-2 rounded">
-                              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1 sm:gap-2">
+                              <div className="flex flex-col gap-1">
                                 <div className="flex-1">
                                   <span className="font-medium">{update.newTitle}</span>
                                   {update.detectedVersion && (
@@ -639,13 +616,6 @@ export default function TrackingDashboard() {
                                     {update.reason} • Found {formatDate(update.dateFound)}
                                   </div>
                                 </div>
-                                <div className="self-start sm:ml-2">
-                                  <GameDownloadLinks 
-                                    gameId={game._id} 
-                                    pendingUpdateId={update._id}
-                                    className="inline-block"
-                                  />
-                                </div>
                               </div>
                             </div>
                           ))}
@@ -653,6 +623,54 @@ export default function TrackingDashboard() {
                       </div>
                     )}
                   </div>
+                </div>
+
+                {/* Action Buttons - Always at bottom */}
+                <div className="p-4 sm:p-6 pt-0 flex flex-col gap-2">
+                  <button
+                    onClick={() => handleSingleGameUpdate(game._id, game.title)}
+                    disabled={checkingSingleGame === game._id}
+                    className="w-full px-4 py-2 bg-gradient-to-r from-primary-500/20 to-accent-500/20 text-primary-700 dark:text-primary-300 hover:from-primary-500/30 hover:to-accent-500/30 text-sm rounded-lg transition-all duration-200 min-h-[42px] flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed backdrop-blur-sm border border-primary-300/30 hover:scale-105"
+                  >
+                    {checkingSingleGame === game._id ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary-300/30 border-t-primary-600 mr-2"></div>
+                        Checking...
+                      </>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        🔄 <span>Check Updates</span>
+                      </span>
+                    )}
+                  </button>
+                  
+                  <a
+                    href={game.gameLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full px-4 py-2 btn-glass text-sm transition-all text-center min-h-[42px] flex items-center justify-center group"
+                  >
+                    <span className="flex items-center gap-2">
+                      📖 <span>View Latest Post</span>
+                      <span className="transform transition-transform group-hover:translate-x-1">→</span>
+                    </span>
+                  </a>
+                  
+                  <div className="w-full">
+                    <GameDownloadLinks 
+                      gameId={game._id} 
+                      className="w-full" 
+                    />
+                  </div>
+                  
+                  <button
+                    onClick={() => handleUntrack(game.gameId)}
+                    className="w-full px-4 py-2 bg-gradient-to-r from-red-500/20 to-pink-500/20 text-red-700 dark:text-red-300 hover:from-red-500/30 hover:to-pink-500/30 text-sm rounded-lg transition-all duration-200 min-h-[42px] flex items-center justify-center backdrop-blur-sm border border-red-300/30 hover:scale-105"
+                  >
+                    <span className="flex items-center gap-2">
+                      🗑️ <span>Untrack</span>
+                    </span>
+                  </button>
                 </div>
               </div>
             ))}

@@ -154,12 +154,12 @@ export function SequelNotifications({ className = '' }: SequelNotificationsProps
       {/* Toggle Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative px-4 py-2 text-sm bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors flex items-center gap-2 min-h-[40px]"
+        className="relative px-6 py-3 text-sm bg-gradient-to-r from-purple-500/20 to-purple-600/20 text-purple-700 dark:text-purple-300 hover:from-purple-500/30 hover:to-purple-600/30 rounded-lg transition-all duration-200 flex items-center gap-2 min-h-[48px] backdrop-blur-sm border border-purple-300/30 hover:scale-105 font-medium shadow-lg"
       >
         <span>🎮</span>
         <span>Sequels</span>
         {unreadCount > 0 && (
-          <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+          <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center animate-pulse">
             {unreadCount}
           </span>
         )}

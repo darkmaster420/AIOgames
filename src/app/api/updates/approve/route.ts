@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
 import { TrackedGame, User } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
-import { sendTelegramMessage, getTelegramConfig, formatGameUpdateMessage } from '../../../../utils/telegram';
+import { sendTelegramMessage, sendTelegramPhoto, getTelegramConfig, formatGameUpdateMessage } from '../../../../utils/telegram';
 
 // POST: Approve a pending update
 export async function POST(request: NextRequest) {
@@ -114,13 +114,14 @@ export async function POST(request: NextRequest) {
       const userIds = trackedGames.map(g => g.userId.toString());
             // Create notification data with proper change type
       const notificationData = {
-        title: game.title,
+        title: pendingUpdate.newTitle, // Use the new updated title
         version: versionString, // Using the version string from the approved update
-        previousVersion: game.version,
-        gameLink: pendingUpdate.newLink || game.link,
+        previousVersion: game.lastKnownVersion,
+        gameLink: pendingUpdate.newLink || game.gameLink,
         source: pendingUpdate.source || 'Game Tracker',
         changeType: 'user_approved', // Mark this as an approved update
-        downloadLinks: pendingUpdate.downloadLinks || []
+        downloadLinks: pendingUpdate.downloadLinks || [],
+        imageUrl: pendingUpdate.newImage || game.image // Include the image URL for Telegram photos
       };
 
       // Format the message using the game update formatter
@@ -131,7 +132,12 @@ export async function POST(request: NextRequest) {
         if (!user) continue; // Skip if user not found
         const telegramConfig = getTelegramConfig(user);
         if (telegramConfig) { // Only send if we have valid telegram config
-          await sendTelegramMessage(telegramConfig, message);
+          // Check if message includes photo
+          if ('photo' in message) {
+            await sendTelegramPhoto(telegramConfig, message);
+          } else {
+            await sendTelegramMessage(telegramConfig, message);
+          }
         }
       }
     } catch (notifyError) {

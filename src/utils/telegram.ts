@@ -41,6 +41,58 @@ export interface TelegramMessage {
   disable_web_page_preview?: boolean;
 }
 
+export interface TelegramPhotoMessage {
+  photo: string;
+  caption: string;
+  parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2';
+}
+
+/**
+ * Send a photo message via Telegram Bot API
+ */
+export async function sendTelegramPhoto(
+  config: TelegramConfig, 
+  message: TelegramPhotoMessage
+): Promise<{ success: boolean; error?: string }> {
+  if (!config.botToken || !config.chatId) {
+    return { success: false, error: 'Bot token and chat ID are required' };
+  }
+
+  try {
+    const url = `https://api.telegram.org/bot${config.botToken}/sendPhoto`;
+    
+    const payload = {
+      chat_id: config.chatId,
+      photo: message.photo,
+      caption: message.caption,
+      parse_mode: message.parse_mode || 'HTML'
+    };
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      const errorMessage = errorData?.description || `HTTP ${response.status}`;
+      console.error('Telegram API error:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+
+    await response.json();
+    return { success: true };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Telegram send photo error:', error);
+    return { success: false, error: errorMessage };
+  }
+}
+
 /**
  * Send a message via Telegram Bot API
  */
@@ -131,7 +183,7 @@ export async function testTelegramBot(config: TelegramConfig): Promise<{ success
 }
 
 /**
- * Format game update notification for Telegram
+ * Format game update notification for Telegram with optional poster
  */
 export function formatGameUpdateMessage(gameData: {
   title: string;
@@ -141,8 +193,9 @@ export function formatGameUpdateMessage(gameData: {
   source: string;
   changeType?: string;
   downloadLinks?: Array<{ service: string; url: string; type?: string }>;
-}): TelegramMessage {
-  const { title, version, previousVersion, gameLink, source, changeType, downloadLinks } = gameData;
+  imageUrl?: string;
+}): TelegramMessage | TelegramPhotoMessage {
+  const { title, version, previousVersion, gameLink, source, changeType, downloadLinks, imageUrl } = gameData;
   
   // Set message header and icon based on type
   let text = '';
@@ -216,6 +269,15 @@ export function formatGameUpdateMessage(gameData: {
     minute: '2-digit',
     hour12: true
   })}`;
+  
+  // Return photo message if image URL is provided, otherwise text message
+  if (imageUrl) {
+    return {
+      photo: imageUrl,
+      caption: text,
+      parse_mode: 'HTML'
+    };
+  }
   
   return {
     text,

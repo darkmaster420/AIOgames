@@ -2,9 +2,12 @@ import webpush from 'web-push';
 import { User } from '../lib/models';
 import { 
   sendTelegramMessage, 
+  sendTelegramPhoto,
   getTelegramConfig, 
   formatGameUpdateMessage, 
-  formatSequelNotificationMessage 
+  formatSequelNotificationMessage,
+  TelegramMessage,
+  TelegramPhotoMessage
 } from './telegram';
 import { configureWebPush, getVapidKeys } from './vapidKeys';
 
@@ -125,8 +128,14 @@ export async function sendUpdateNotification(
                 gameLink: updateData.gameLink || '/tracking',
                 source: 'Game Tracker',
                 changeType: 'automatic', // Auto-approved updates
-                downloadLinks: updateData.downloadLinks
-              });          const telegramResult = await sendTelegramMessage(telegramConfig, message);
+                downloadLinks: updateData.downloadLinks,
+                imageUrl: updateData.imageUrl
+              });
+          
+          // Check if message includes photo
+          const telegramResult = 'photo' in message 
+            ? await sendTelegramPhoto(telegramConfig, message as TelegramPhotoMessage)
+            : await sendTelegramMessage(telegramConfig, message as TelegramMessage);
           
           if (telegramResult.success) {
             console.log(`[Notifications] Telegram message sent successfully to user ${userId}`);

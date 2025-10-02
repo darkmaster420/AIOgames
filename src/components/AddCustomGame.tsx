@@ -102,7 +102,7 @@ export function AddCustomGame({ onGameAdded, className = '' }: AddCustomGameProp
     <div className={className}>
       <button
         onClick={() => setIsOpen(true)}
-        className="inline-flex items-center gap-2 px-6 py-3 text-sm btn-primary transition-all min-h-[48px] shadow-glow"
+        className="inline-flex items-center gap-2 px-6 py-3 text-sm btn-primary transition-all min-h-[48px] shadow-lg font-medium"
       >
         <span>✨</span>
         <span>Add Custom Game</span>
