@@ -515,6 +515,12 @@ export async function POST(request: Request) {
       const decodedTitle = decodeHtmlEntities(result.title);
       const similarity = calculateGameSimilarity(cleanTitle, decodedTitle);
 
+      // Skip if this is the same post we're already tracking
+      if (result.link === game.gameLink) {
+        console.log(`⏩ Skipping current tracked post: "${decodedTitle}"`);
+        continue;
+      }
+
       // --- Require a valid version/build pattern in the detected title ---
   // Use ESM import for detectVersionNumber
       const { detectVersionNumber } = await import('../../../../utils/versionDetection');

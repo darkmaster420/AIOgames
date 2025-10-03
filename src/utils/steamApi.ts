@@ -197,19 +197,39 @@ export async function resolveBuildFromVersion(appId: string | number, version: s
   const normalized = normalizeVersionString(version);
   if (!normalized) return null;
 
+  function getShortVersion(ver: string): string | null {
+    // Extract major.minor.patch (e.g., 0.6.7 from 0.6.7.79736)
+    const m = ver.match(/\d+\.\d+(?:\.\d+)?/);
+    return m ? m[0] : null;
+  }
+
   try {
     const details = await getSteamAppDetails(appId);
     const builds = details.builds || [];
     // 1) Prefer explicit version field match
-    const byField = builds.find(b => (b.version || '').toLowerCase() === normalized.toLowerCase());
+    let byField = builds.find(b => (b.version || '').toLowerCase() === normalized.toLowerCase());
     if (byField?.build_id) return byField.build_id;
     // 2) Fallback to title/description contains
-    const patterns = [normalized, `v${normalized}`];
-    const byText = builds.find(b => {
+    let patterns = [normalized, `v${normalized}`];
+    let byText = builds.find(b => {
       const hay = `${b.title || ''} ${b.description || ''}`.toLowerCase();
       return patterns.some(p => hay.includes(p.toLowerCase()));
     });
-    return byText?.build_id || null;
+    if (byText?.build_id) return byText.build_id;
+
+    // 3) Fallback: try with short version (major.minor.patch)
+    const shortVersion = getShortVersion(normalized);
+    if (shortVersion && shortVersion !== normalized) {
+      byField = builds.find(b => (b.version || '').toLowerCase() === shortVersion.toLowerCase());
+      if (byField?.build_id) return byField.build_id;
+      patterns = [shortVersion, `v${shortVersion}`];
+      byText = builds.find(b => {
+        const hay = `${b.title || ''} ${b.description || ''}`.toLowerCase();
+        return patterns.some(p => hay.includes(p.toLowerCase()));
+      });
+      if (byText?.build_id) return byText.build_id;
+    }
+    return null;
   } catch {
     return null;
   }

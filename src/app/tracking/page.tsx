@@ -372,7 +372,7 @@ export default function TrackingDashboard() {
               </div>
               {searchQuery && (
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 text-center sm:text-left">
-                  Found {filteredGames.length} game{filteredGames.length !== 1 ? 's' : ''} matching "{searchQuery}"
+                  Found {filteredGames.length} game{filteredGames.length !== 1 ? 's' : ''} matching &quot;{searchQuery}&quot;
                 </p>
               )}
             </div>
@@ -419,7 +419,7 @@ export default function TrackingDashboard() {
             <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-xl p-8 max-w-md mx-auto">
               <div className="text-6xl mb-4">🔍</div>
               <h3 className="text-lg font-medium text-slate-700 dark:text-slate-300 mb-2">No games found</h3>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">No tracked games match "{searchQuery}"</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">No tracked games match &quot;{searchQuery}&quot;</p>
               <button
                 onClick={() => setSearchQuery('')}
                 className="btn-primary inline-flex items-center gap-2 px-6 py-3"
@@ -479,7 +479,7 @@ export default function TrackingDashboard() {
                             </div>
                           )}
                           <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
-                            <p>Source: {game.source}</p>
+                            <p>Original: {game.originalTitle}</p>
                           </div>
                         </div>
                         

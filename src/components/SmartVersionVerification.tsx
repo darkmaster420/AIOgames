@@ -26,8 +26,9 @@ export function SmartVersionVerification({
   buildNumberVerified,
   currentVersionNumber,
   versionNumberVerified,
-  onVerified 
+  onVerified
 }: SmartVersionVerificationProps) {
+  const [pendingVerify, setPendingVerify] = useState<null | 'version' | 'build'>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'version' | 'build'>('version');
   const [versionNumber, setVersionNumber] = useState(currentVersionNumber || '');
@@ -38,26 +39,25 @@ export function SmartVersionVerification({
   const { showSuccess, showError } = useNotification();
   const { confirm } = useConfirm();
 
-  // Try to resolve missing side via API
+// removed stray text
+  // Effect to trigger verification after state is set
+  useEffect(() => {
+    if (pendingVerify === 'version' && versionNumber) {
+      setPendingVerify(null);
+      handleVerifyVersion();
+    } else if (pendingVerify === 'build' && buildNumber) {
+      setPendingVerify(null);
+      handleVerifyBuild();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingVerify, versionNumber, buildNumber]);
+
   const handleResolveMissing = async () => {
     if (!steamAppId) return;
     try {
       setIsLoading(true);
-      if (activeTab === 'version' && versionNumber && !buildNumber) {
-        const res = await fetch('/api/games/resolve', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ appId: steamAppId, version: versionNumber })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || data.message || 'Failed to resolve build');
-        if (data.build) {
-          setBuildNumber(String(data.build));
-          showSuccess('Resolved', `Matched build ${data.build} for version ${versionNumber}.`);
-        } else {
-          showError('Not Found', 'No matching build found for that version on SteamDB.');
-        }
-      } else if (activeTab === 'build' && buildNumber && !versionNumber) {
+      if (activeTab === 'version' && buildNumber && !versionNumber) {
+        // In Version tab, resolve version from build
         const res = await fetch('/api/games/resolve', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -67,9 +67,24 @@ export function SmartVersionVerification({
         if (!res.ok) throw new Error(data.error || data.message || 'Failed to resolve version');
         if (data.version) {
           setVersionNumber(String(data.version));
-          showSuccess('Resolved', `Matched version ${data.version} for build ${buildNumber}.`);
+          setPendingVerify('version');
         } else {
           showError('Not Found', 'No matching version found for that build on SteamDB.');
+        }
+      } else if (activeTab === 'build' && versionNumber && !buildNumber) {
+        // In Build tab, resolve build from version
+        const res = await fetch('/api/games/resolve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ appId: steamAppId, version: versionNumber })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || data.message || 'Failed to resolve build');
+        if (data.build) {
+          setBuildNumber(String(data.build));
+          setPendingVerify('build');
+        } else {
+          showError('Not Found', 'No matching build found for that version on SteamDB.');
         }
       }
     } catch (e) {
@@ -447,14 +462,14 @@ export function SmartVersionVerification({
                   steamdb.info/app/{steamAppId}/patchnotes/
                 </a> to find the version and build number that matches your game.
               </p>
-              {(versionNumber && !buildNumber) && (
+              {buildNumber && !versionNumber && (
                 <button
                   type="button"
                   onClick={handleResolveMissing}
                   disabled={isLoading}
-                  className="mt-2 px-2 py-1 bg-green-600 text-white rounded text-xs disabled:opacity-50"
+                  className="mt-2 px-2 py-1 bg-purple-600 text-white rounded text-xs disabled:opacity-50"
                 >
-                  {isLoading ? 'Resolving…' : 'Resolve Build from Version'}
+                  {isLoading ? 'Resolving…' : 'Resolve Version from Build'}
                 </button>
               )}
             </div>
@@ -517,14 +532,14 @@ export function SmartVersionVerification({
                   steamdb.info/app/{steamAppId}/patchnotes/
                 </a> to find the build number that matches your game version.
               </p>
-              {(buildNumber && !versionNumber) && (
+              {versionNumber && !buildNumber && (
                 <button
                   type="button"
                   onClick={handleResolveMissing}
                   disabled={isLoading}
-                  className="mt-2 px-2 py-1 bg-purple-600 text-white rounded text-xs disabled:opacity-50"
+                  className="mt-2 px-2 py-1 bg-green-600 text-white rounded text-xs disabled:opacity-50"
                 >
-                  {isLoading ? 'Resolving…' : 'Resolve Version from Build'}
+                  {isLoading ? 'Resolving…' : 'Resolve Build from Version'}
                 </button>
               )}
             </div>

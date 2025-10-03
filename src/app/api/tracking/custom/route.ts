@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
-import { TrackedGame } from '../../../../lib/models';
+import { TrackedGame, ReleaseGroupVariant } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { autoVerifyWithSteam } from '../../../../utils/autoSteamVerification';
-import { cleanGameTitle } from '../../../../utils/steamApi';
+import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild } from '../../../../utils/steamApi';
+import { updateScheduler } from '../../../../lib/scheduler';
+import { analyzeGameTitle, extractReleaseGroup } from '../../../../utils/versionDetection';
+import logger from '../../../../utils/logger';
 
 // POST: Add a custom game by name to tracking
 export async function POST(req: NextRequest) {
@@ -48,17 +51,49 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Find the best match (first result or exact title match)
-      let bestMatch = searchData.results[0];
+      // Find the best match that has version/build info
+      let bestMatch = null;
+      const { detectVersionNumber } = await import('../../../../utils/versionDetection');
       
-      // Look for exact title match (case insensitive)
-      const exactMatch = searchData.results.find((game: { title: string }) => 
+      // Try to find a result with version/build info, prioritizing exact matches
+      const exactMatches = searchData.results.filter((game: { title: string }) => 
         game.title.toLowerCase().includes(trimmedGameName.toLowerCase()) ||
         trimmedGameName.toLowerCase().includes(game.title.toLowerCase())
       );
       
-      if (exactMatch) {
-        bestMatch = exactMatch;
+      // Check exact matches first
+      for (const game of exactMatches) {
+        const { found: hasVersion } = detectVersionNumber(game.title);
+        const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(game.title);
+        
+        if (hasVersion || hasBuild) {
+          bestMatch = game;
+          break;
+        }
+      }
+      
+      // If no exact match with version/build found, check all results
+      if (!bestMatch) {
+        for (const game of searchData.results) {
+          const { found: hasVersion } = detectVersionNumber(game.title);
+          const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(game.title);
+          
+          if (hasVersion || hasBuild) {
+            bestMatch = game;
+            break;
+          }
+        }
+      }
+      
+      // If still no match found, return error with helpful message
+      if (!bestMatch) {
+        const sampleTitles = searchData.results.slice(0, 3).map((game: { title: string }) => `"${game.title}"`).join(', ');
+        return NextResponse.json(
+          { 
+            error: `No trackable versions found for "${trimmedGameName}". Found results like ${sampleTitles}, but none contain version or build information. Please search for a more specific release (e.g., "palworld v0.6.6" or "palworld build 12345").`
+          },
+          { status: 400 }
+        );
       }
 
       await connectDB();
@@ -84,15 +119,15 @@ export async function POST(req: NextRequest) {
       }
 
       // Create new tracked game
+
       const newTrackedGame = new TrackedGame({
         userId: user.id,
         gameId: bestMatch.id,
         title: bestMatch.title,
         source: bestMatch.source || bestMatch.siteType || 'Unknown',
         image: bestMatch.image,
-        description: bestMatch.description || bestMatch.excerpt || '',
+        description: decodeHtmlEntities(bestMatch.description || bestMatch.excerpt || ''),
         gameLink: bestMatch.link,
-        lastKnownVersion: 'Initial Release',
         dateAdded: new Date(),
         lastChecked: new Date(),
         notificationsEnabled: true,
@@ -107,7 +142,7 @@ export async function POST(req: NextRequest) {
 
       // Attempt automatic Steam verification
       try {
-        console.log(`🔍 Attempting auto Steam verification for newly added game: "${bestMatch.title}"`);
+        logger.info(`Auto Steam verification for newly added game: "${bestMatch.title}"`);
         
         // Try with original title first
         let autoVerification = await autoVerifyWithSteam(bestMatch.title, 0.85);
@@ -116,7 +151,7 @@ export async function POST(req: NextRequest) {
         if (!autoVerification.success) {
           const cleanedTitle = cleanGameTitle(bestMatch.title);
           if (cleanedTitle !== bestMatch.title.toLowerCase().trim()) {
-            console.log(`🔄 Retrying auto Steam verification with cleaned title: "${cleanedTitle}"`);
+            logger.debug(`Retry auto Steam verification with cleaned title: "${cleanedTitle}"`);
             autoVerification = await autoVerifyWithSteam(cleanedTitle, 0.80); // Slightly lower threshold for cleaned title
           }
         }
@@ -128,13 +163,126 @@ export async function POST(req: NextRequest) {
           newTrackedGame.steamName = autoVerification.steamName;
           await newTrackedGame.save();
           
-          console.log(`✅ Auto Steam verification successful for "${bestMatch.title}": ${autoVerification.steamName} (${autoVerification.steamAppId})`);
+          logger.info(`Auto Steam verification successful for "${bestMatch.title}": ${autoVerification.steamName} (${autoVerification.steamAppId})`);
         } else {
-          console.log(`⚠️ Auto Steam verification failed for "${bestMatch.title}": ${autoVerification.reason}`);
+          logger.warn(`Auto Steam verification failed for "${bestMatch.title}": ${autoVerification.reason}`);
         }
       } catch (verificationError) {
-        console.error(`❌ Auto Steam verification error for "${bestMatch.title}":`, verificationError);
+        logger.error(`Auto Steam verification error for "${bestMatch.title}":`, verificationError);
         // Don't fail the entire request if Steam verification fails
+      }
+
+      // Attempt automatic version detection and verification (and resolve via SteamDB)
+      try {
+        logger.debug(`Attempting auto version detection for newly added game: "${bestMatch.title}"`);
+        
+        const versionAnalysis = analyzeGameTitle(bestMatch.title);
+        
+        if (versionAnalysis.detectedVersion) {
+          // Auto-verify the detected version
+          newTrackedGame.currentVersionNumber = versionAnalysis.detectedVersion;
+          newTrackedGame.versionNumberVerified = true;
+          newTrackedGame.versionNumberSource = 'auto-detected';
+          logger.info(`Auto-detected and verified version for "${bestMatch.title}": v${versionAnalysis.detectedVersion}`);
+        }
+        
+        if (versionAnalysis.detectedBuild) {
+          // Auto-verify the detected build number
+          newTrackedGame.currentBuildNumber = versionAnalysis.detectedBuild;
+          newTrackedGame.buildNumberVerified = true;
+          newTrackedGame.buildNumberSource = 'auto-detected';
+          logger.info(`Auto-detected and verified build for "${bestMatch.title}": Build #${versionAnalysis.detectedBuild}`);
+        }
+
+        // If we have a Steam App ID and only one side, try to resolve the other via SteamDB
+        if (newTrackedGame.steamAppId) {
+          try {
+            if (newTrackedGame.currentVersionNumber && !newTrackedGame.currentBuildNumber) {
+              const build = await resolveBuildFromVersion(newTrackedGame.steamAppId, newTrackedGame.currentVersionNumber);
+              if (build) {
+                newTrackedGame.currentBuildNumber = build;
+                newTrackedGame.buildNumberVerified = true;
+                newTrackedGame.buildNumberSource = 'steamdb:auto';
+                logger.info(`Resolved build ${build} from version ${newTrackedGame.currentVersionNumber} via SteamDB`);
+              }
+            } else if (!newTrackedGame.currentVersionNumber && newTrackedGame.currentBuildNumber) {
+              const version = await resolveVersionFromBuild(newTrackedGame.steamAppId, newTrackedGame.currentBuildNumber);
+              if (version) {
+                newTrackedGame.currentVersionNumber = version;
+                newTrackedGame.versionNumberVerified = true;
+                newTrackedGame.versionNumberSource = 'steamdb:auto';
+                logger.info(`Resolved version ${version} from build ${newTrackedGame.currentBuildNumber} via SteamDB`);
+              }
+            }
+          } catch (e) {
+            logger.debug('SteamDB resolution skipped:', e instanceof Error ? e.message : 'unknown');
+          }
+        }
+        
+        // Compose a friendly lastKnownVersion for UI if any verified value exists
+        const hasVersion = !!newTrackedGame.currentVersionNumber;
+        const hasBuild = !!newTrackedGame.currentBuildNumber;
+        if (hasVersion || hasBuild) {
+          const versionLabel = hasVersion ? `v${newTrackedGame.currentVersionNumber}` : '';
+          const buildLabel = hasBuild ? `Build ${newTrackedGame.currentBuildNumber}` : '';
+          newTrackedGame.lastKnownVersion = [versionLabel, buildLabel].filter(Boolean).join(' · ');
+        }
+
+        // Save the updates
+        await newTrackedGame.save();
+        
+      } catch (versionError) {
+        logger.error(`Auto version detection error for "${bestMatch.title}":`, versionError);
+        // Don't fail the entire request if version detection fails
+      }
+
+      // Attempt to extract and store release group information
+      try {
+        logger.debug(`Attempting release group extraction for newly added game: "${bestMatch.title}"`);
+        
+        const releaseGroupResult = extractReleaseGroup(bestMatch.title);
+        
+        if (releaseGroupResult.releaseGroup && releaseGroupResult.releaseGroup !== 'UNKNOWN') {
+          logger.debug(`Detected release group: ${releaseGroupResult.releaseGroup}`);
+          
+          // Check if this release group variant already exists for this game
+          const existingVariant = await ReleaseGroupVariant.findOne({
+            trackedGameId: newTrackedGame._id,
+            releaseGroup: releaseGroupResult.releaseGroup
+          });
+
+          if (!existingVariant) {
+            const variant = new ReleaseGroupVariant({
+              trackedGameId: newTrackedGame._id,
+              gameId: bestMatch.id,
+              releaseGroup: releaseGroupResult.releaseGroup,
+              source: bestMatch.source || bestMatch.siteType || 'Unknown',
+              title: bestMatch.title,
+              gameLink: bestMatch.link,
+              version: newTrackedGame.currentVersionNumber || "",
+              buildNumber: newTrackedGame.currentBuildNumber || "",
+              dateFound: new Date()
+            });
+            await variant.save();
+            logger.debug(`Stored release group variant: ${releaseGroupResult.releaseGroup} for game "${bestMatch.title}"`);
+          } else {
+            logger.debug(`Release group variant ${releaseGroupResult.releaseGroup} already exists for this game`);
+          }
+        } else {
+          logger.debug(`No release group detected in title: "${bestMatch.title}"`);
+        }
+        
+      } catch (releaseGroupError) {
+        logger.error(`Release group extraction error for "${bestMatch.title}":`, releaseGroupError);
+        // Don't fail the entire request if release group extraction fails
+      }
+
+      // Update user's scheduler after adding a game
+      try {
+        await updateScheduler.updateUserSchedule(user.id);
+      } catch (schedulerError) {
+        logger.error('Failed to update scheduler:', schedulerError);
+        // Don't fail the request if scheduler update fails
       }
 
       return NextResponse.json({
