@@ -60,11 +60,66 @@ NEXTAUTH_SECRET=your-secret-key
 # APIs
 GAME_API_URL=https://gameapi.a7a8524.workers.dev
 
+# Telegram Bot (Optional)
+TELEGRAM_WEBHOOK_TOKEN=your-webhook-verification-token
+
 # Notifications (Optional)
-TELEGRAM_BOT_TOKEN=your-bot-token
 NEXT_PUBLIC_VAPID_PUBLIC_KEY=your-vapid-key
 VAPID_PRIVATE_KEY=your-vapid-private-key
 ```
+
+## 🤖 Telegram Bot Integration
+
+AIOgames features a powerful Telegram bot system that allows users to manage their game tracking directly from Telegram.
+
+### Setup Instructions
+
+1. **Create a Bot**:
+   - Message [@BotFather](https://t.me/BotFather) on Telegram
+   - Use `/newbot` to create a new bot
+   - Save the bot token
+
+2. **Get Your Chat ID**:
+   - Message [@userinfobot](https://t.me/userinfobot) 
+   - Copy your chat ID
+
+3. **Configure in App**:
+   - Go to User Settings → Telegram Bot Management
+   - Enter your bot token and chat ID
+   - Click "Setup Bot"
+
+4. **Start Using**:
+   - Message your bot with `/start`
+   - Use commands like `/help`, `/update`, `/track`, etc.
+
+### Available Bot Commands
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Welcome message and setup confirmation |
+| `/help` | Show all available commands |
+| `/update` | Check all tracked games for updates |
+| `/track <game title>` | Add a game to your tracking list |
+| `/untrack <game title>` | Remove a game from tracking |
+| `/search <query>` | Search for games to track |
+| `/list` | Show all your tracked games |
+| `/settings` | Get link to manage your settings |
+
+### Bot Features
+
+- **🎮 Game Sharing**: Send games from the web interface directly to Telegram
+- **📱 Mobile Management**: Full game tracking control from your phone
+- **🔄 Update Notifications**: Get instant updates when games are updated
+- **🔍 Smart Search**: Search and track games without opening the website
+- **📊 Status Overview**: View your tracking status and recent updates
+
+### Technical Details
+
+The Telegram integration uses:
+- **User-owned bots**: Each user configures their own bot (more reliable than shared bots)
+- **Webhook system**: Real-time command processing
+- **Secure authentication**: Commands are validated against registered users
+- **Rich messaging**: Formatted messages with game details and links
 
 ## 📖 How It Works
 

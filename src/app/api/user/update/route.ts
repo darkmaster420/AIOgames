@@ -23,7 +23,8 @@ export async function PATCH(req: Request) {
     notifyImmediately,
     telegramEnabled, 
     telegramBotToken, 
-    telegramChatId 
+    telegramChatId,
+    telegramBotManagementEnabled 
   } = body;
 
     await connectDB();
@@ -116,6 +117,12 @@ export async function PATCH(req: Request) {
       user.preferences = user.preferences || {};
       user.preferences.notifications = user.preferences.notifications || {};
       user.preferences.notifications.telegramChatId = telegramChatId;
+    }
+
+    if (typeof telegramBotManagementEnabled === 'boolean') {
+      user.preferences = user.preferences || {};
+      user.preferences.notifications = user.preferences.notifications || {};
+      user.preferences.notifications.telegramBotManagementEnabled = telegramBotManagementEnabled;
     }
 
     await user.save();

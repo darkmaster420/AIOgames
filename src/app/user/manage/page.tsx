@@ -25,7 +25,8 @@ export default function UserManagePage() {
     notifyImmediately: true,
     telegramEnabled: false,
     telegramBotToken: '',
-    telegramChatId: ''
+    telegramChatId: '',
+    telegramBotManagementEnabled: false
   });
 
   const router = useRouter();
@@ -49,7 +50,8 @@ export default function UserManagePage() {
             notifyImmediately: typeof data.preferences.notifications.notifyImmediately === 'boolean' ? data.preferences.notifications.notifyImmediately : true,
             telegramEnabled: data.preferences.notifications.telegramEnabled || false,
             telegramBotToken: data.preferences.notifications.telegramBotToken || '',
-            telegramChatId: data.preferences.notifications.telegramChatId || ''
+            telegramChatId: data.preferences.notifications.telegramChatId || '',
+            telegramBotManagementEnabled: data.preferences.notifications.telegramBotManagementEnabled || false
           }));
           // If provider is webpush and enabled, prompt for permission
           if ((data.preferences.notifications.provider === 'webpush' || !data.preferences.notifications.provider) && data.preferences.notifications.webpushEnabled !== false) {
@@ -157,6 +159,7 @@ export default function UserManagePage() {
         telegramEnabled?: boolean;
         telegramBotToken?: string;
         telegramChatId?: string;
+        telegramBotManagementEnabled?: boolean;
       } = { email: form.email };
 
       if (form.username) {
@@ -175,6 +178,7 @@ export default function UserManagePage() {
       payload.telegramEnabled = form.telegramEnabled;
       payload.telegramBotToken = form.telegramBotToken;
       payload.telegramChatId = form.telegramChatId;
+      payload.telegramBotManagementEnabled = form.telegramBotManagementEnabled;
 
       const res = await fetch('/api/user/update', {
         method: 'PATCH',
@@ -393,43 +397,44 @@ export default function UserManagePage() {
                         <p>3. Start a conversation with your bot first (send any message)</p>
                         <p>4. Use the &ldquo;Test Telegram&rdquo; button below to verify everything works</p>
                         <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-700">
-                          <p className="text-blue-700 dark:text-blue-300 font-medium">✨ New Feature:</p>
-                          <p className="text-blue-600 dark:text-blue-400">Once configured, you can send games from the homepage directly to your Telegram using the telegram icon next to each game!</p>
+                          <p className="text-blue-700 dark:text-blue-300 font-medium">✨ Features Available:</p>
+                          <p className="text-blue-600 dark:text-blue-400">• Send games from homepage directly to Telegram</p>
+                          <p className="text-blue-600 dark:text-blue-400">• Use bot commands to manage tracking</p>
+                        </div>
+                        
+                        {/* Bot Management Toggle */}
+                        <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-800 rounded border">
+                          <div className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              name="telegramBotManagementEnabled"
+                              checked={form.telegramBotManagementEnabled}
+                              onChange={(e) => setForm({ ...form, telegramBotManagementEnabled: e.target.checked })}
+                              className="w-4 h-4"
+                            />
+                            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">🤖 Enable Telegram Bot Management</label>
+                          </div>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            Allow your bot to respond to commands like /track, /untrack, /update, /search
+                          </p>
+                          {form.telegramBotManagementEnabled && (
+                            <div className="mt-2 text-xs text-purple-600 dark:text-purple-400 space-y-1">
+                              <p><strong>Available Bot Commands:</strong></p>
+                              <p>• /start - Welcome message</p>
+                              <p>• /track &lt;game&gt; - Track a game</p>
+                              <p>• /untrack &lt;game&gt; - Untrack a game</p>
+                              <p>• /list - Show tracked games</p>
+                              <p>• /update - Check for updates</p>
+                              <p>• /search &lt;query&gt; - Search games</p>
+                              <p>• /help - Show all commands</p>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </>
                   )}
                 </div>
               )}
-            </div>
-          </div>
-
-          <div className="pt-4 border-t">
-            <h2 className="text-lg font-medium text-gray-900 dark:text-white">Danger Zone</h2>
-            <p className="text-sm text-gray-600 dark:text-gray-300">Delete your account — this will deactivate your account and tracked games.</p>
-            <div className="mt-3">
-              <button
-                type="button"
-                onClick={async () => {
-                  const confirmed = await confirm('Delete Account', 'Are you sure you want to delete your account? This action cannot be undone.');
-                  if (!confirmed) return;
-                  try {
-                    const res = await fetch('/api/user/delete', { method: 'DELETE' });
-                    const data = await res.json();
-                    if (!res.ok) {
-                      showError('Account Deletion Failed', data?.error || 'Failed to delete account');
-                      return;
-                    }
-                    // Redirect to home after deletion
-                    window.location.href = '/';
-                  } catch {
-                    showError('Account Deletion Failed', 'Failed to delete account');
-                  }
-                }}
-                className="px-4 py-2 bg-red-600 text-white rounded-md"
-              >
-                Delete Account
-              </button>
             </div>
           </div>
 
@@ -528,6 +533,36 @@ export default function UserManagePage() {
             </button>
           </div>
         </form>
+
+        {/* Danger Zone - Moved to Bottom */}
+        <div className="mt-8 pt-6 border-t border-red-200 dark:border-red-800">
+          <h2 className="text-lg font-medium text-red-900 dark:text-red-100">⚠️ Danger Zone</h2>
+          <p className="text-sm text-red-600 dark:text-red-300 mt-1">Delete your account — this will permanently remove your account and all tracked games.</p>
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={async () => {
+                const confirmed = await confirm('Delete Account', 'Are you sure you want to delete your account? This action cannot be undone.');
+                if (!confirmed) return;
+                try {
+                  const res = await fetch('/api/user/delete', { method: 'DELETE' });
+                  const data = await res.json();
+                  if (!res.ok) {
+                    showError('Account Deletion Failed', data?.error || 'Failed to delete account');
+                    return;
+                  }
+                  // Redirect to home after deletion
+                  window.location.href = '/';
+                } catch {
+                  showError('Account Deletion Failed', 'Failed to delete account');
+                }
+              }}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md font-medium transition-colors"
+            >
+              🗑️ Delete Account
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
