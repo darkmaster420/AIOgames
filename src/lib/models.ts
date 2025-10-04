@@ -2,6 +2,23 @@ import mongoose from 'mongoose';
 
 // User Schema
 const userSchema = new mongoose.Schema({
+  username: {
+    type: String,
+    required: false,
+    unique: true,
+    sparse: true, // allow existing users without username
+    lowercase: true,
+    trim: true,
+    minlength: 3,
+    maxlength: 24,
+    validate: {
+      validator: function(v: string) {
+        if (!v) return true; // optional
+        return /^[a-z0-9_]+$/.test(v);
+      },
+      message: 'Username can only contain lowercase letters, numbers, and underscores'
+    }
+  },
   email: {
     type: String,
     required: true,

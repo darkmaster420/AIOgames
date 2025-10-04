@@ -5,7 +5,7 @@ import { User } from '../../../../lib/models';
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password, name } = await request.json();
+  const { email, password, name, username } = await request.json();
 
     // Validation
     if (!email || !password || !name) {
@@ -13,6 +13,24 @@ export async function POST(request: NextRequest) {
         { error: 'Email, password, and name are required' },
         { status: 400 }
       );
+    }
+
+    // Username validation (optional but if provided must be valid)
+    let normalizedUsername: string | undefined = undefined;
+    if (username) {
+      normalizedUsername = String(username).toLowerCase().trim();
+      if (normalizedUsername.length < 3 || normalizedUsername.length > 24) {
+        return NextResponse.json(
+          { error: 'Username must be between 3 and 24 characters' },
+          { status: 400 }
+        );
+      }
+      if (!/^[a-z0-9_]+$/.test(normalizedUsername)) {
+        return NextResponse.json(
+          { error: 'Username can only contain lowercase letters, numbers, and underscores' },
+          { status: 400 }
+        );
+      }
     }
 
     if (password.length < 6) {
@@ -33,14 +51,17 @@ export async function POST(request: NextRequest) {
 
     await connectDB();
 
-    // Check if user already exists
+    // Check if user/email/username already exists
     const existingUser = await User.findOne({ 
-      email: email.toLowerCase() 
+      $or: [
+        { email: email.toLowerCase() },
+        ...(normalizedUsername ? [{ username: normalizedUsername }] : [])
+      ]
     });
 
     if (existingUser) {
       return NextResponse.json(
-        { error: 'User with this email already exists' },
+        { error: existingUser.email === email.toLowerCase() ? 'User with this email already exists' : 'Username already taken' },
         { status: 400 }
       );
     }
@@ -54,6 +75,7 @@ export async function POST(request: NextRequest) {
       email: email.toLowerCase(),
       password: hashedPassword,
       name: name.trim(),
+      ...(normalizedUsername ? { username: normalizedUsername } : {}),
     });
 
     await user.save();
@@ -64,6 +86,7 @@ export async function POST(request: NextRequest) {
         id: user._id,
         email: user.email,
         name: user.name,
+        username: user.username,
       }
     }, { status: 201 });
 

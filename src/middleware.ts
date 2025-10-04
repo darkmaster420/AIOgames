@@ -2,40 +2,45 @@ import { getToken } from 'next-auth/jwt';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function middleware(request: NextRequest) {
-  // Public routes that don't require authentication
-  const publicRoutes = [
-    '/auth/signin',
-    '/auth/signup',
-    '/api/auth',
-    '/api/health',  // Health check endpoint should be public
-  ];
-
   const { pathname } = request.nextUrl;
 
-  // Allow access to public routes
+  // Public routes (excluding /auth/signin which needs special handling for redirect-after-login)
+  const publicRoutes = [
+    '/auth/signup',
+    '/api/auth',
+    '/api/health', // Health check endpoint should be public
+  ];
+
+  // Always allow static assets and public routes straight through
   if (publicRoutes.some(route => pathname.startsWith(route))) {
     return NextResponse.next();
   }
 
-  // Get the session token
+  // Get session token (JWT strategy)
   const token = await getToken({
     req: request,
     secret: process.env.NEXTAUTH_SECRET,
   });
 
-  // If no token and trying to access protected route, redirect to signin
+  // Signed-in users visiting the sign-in page should be redirected away
+  if (pathname.startsWith('/auth/signin')) {
+    if (token) {
+      const redirectUrl = new URL('/', request.url);
+      return NextResponse.redirect(redirectUrl);
+    }
+    return NextResponse.next();
+  }
+
+  // If unauthenticated and accessing a non-public route, redirect to sign-in
   if (!token) {
     const signInUrl = new URL('/auth/signin', request.url);
     signInUrl.searchParams.set('callbackUrl', pathname);
     return NextResponse.redirect(signInUrl);
   }
 
-  // Admin routes require admin role
-  if (pathname.startsWith('/admin') || pathname.startsWith('/api/admin')) {
-    if (token.role !== 'admin') {
-      // Redirect non-admin users to main dashboard
-      return NextResponse.redirect(new URL('/', request.url));
-    }
+  // Admin route protection
+  if ((pathname.startsWith('/admin') || pathname.startsWith('/api/admin')) && token.role !== 'admin') {
+    return NextResponse.redirect(new URL('/', request.url));
   }
 
   return NextResponse.next();

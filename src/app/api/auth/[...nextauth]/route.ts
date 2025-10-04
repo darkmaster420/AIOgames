@@ -25,8 +25,13 @@ export const authOptions: AuthOptions = {
             throw new Error('Database connection failed');
           }
           
-          const user = await User.findOne({ 
-            email: credentials.email.toLowerCase() 
+          // Support login with either email OR username in the same field.
+          const loginId = credentials.email.toLowerCase();
+          const user = await User.findOne({
+            $or: [
+              { email: loginId },
+              { username: loginId }
+            ]
           });
 
           if (!user) {
@@ -52,6 +57,13 @@ export const authOptions: AuthOptions = {
             email: user.email,
             name: user.name,
             role: user.role || 'user',
+            username: user.username,
+          } as {
+            id: string;
+            email: string;
+            name: string;
+            role: string;
+            username?: string;
           };
         } catch (error) {
           console.error('Auth error:', error);
@@ -69,15 +81,17 @@ export const authOptions: AuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.id = user.id;
-        token.role = (user as { role?: string }).role;
+        token.id = (user as unknown as { id: string }).id;
+        token.role = (user as unknown as { role?: string }).role;
+        token.username = (user as unknown as { username?: string }).username;
       }
       return token;
     },
     async session({ session, token }) {
       if (token) {
-        session.user.id = token.id as string;
+        (session.user as { id: string }).id = token.id as string;
         (session.user as { role?: string }).role = token.role as string;
+        (session.user as { username?: string }).username = token.username as string | undefined;
       }
       return session;
     },

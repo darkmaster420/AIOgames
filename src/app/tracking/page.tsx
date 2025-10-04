@@ -6,13 +6,15 @@ import { useSession } from 'next-auth/react';
 import { GameDownloadLinks } from '../../components/GameDownloadLinks';
 import { SteamVerification } from '../../components/SteamVerification';
 import { SmartVersionVerification } from '../../components/SmartVersionVerification';
-import { ReleaseGroupSelector } from '../../components/ReleaseGroupSelector';
+import ReleaseGroupInsight from '../../components/ReleaseGroupInsight';
 import { SequelNotifications } from '../../components/SequelNotifications';
 import { AddCustomGame } from '../../components/AddCustomGame';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { ImageWithFallback } from '../../utils/imageProxy';
 import { cleanGameTitle } from '../../utils/steamApi';
+
 import { useNotification } from '../../contexts/NotificationContext';
+import { ExternalLinkIcon } from '../../components/ExternalLinkIcon';
 
 
 
@@ -432,8 +434,63 @@ export default function TrackingDashboard() {
         ) : (
           <div className="grid grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4 lg:gap-6">
             {filteredGames.map((game) => (
-              <div key={game._id} className="game-card animate-fade-in flex flex-col">
-                <div className="flex flex-col gap-4 p-4 sm:p-6 flex-1">
+              <div key={game._id} className="relative game-card animate-fade-in flex flex-col rounded-lg shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden pb-16 bg-white dark:bg-gray-800">
+                {/* Blended background image */}
+                {game.image && (
+                  <div
+                    className="absolute inset-0 z-0"
+                    aria-hidden="true"
+                    style={{
+                      backgroundImage: `url('${game.image}')`,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                      filter: 'blur(24px) brightness(0.7) saturate(1.2)',
+                      opacity: 0.25,
+                      transition: 'opacity 0.3s',
+                    }}
+                  />
+                )}
+                {/* Corner Action Icons (top-right) */}
+                <div className="absolute top-2 right-2 flex flex-col gap-2 z-20">
+                  <button
+                    onClick={() => handleSingleGameUpdate(game._id, game.title)}
+                    disabled={checkingSingleGame === game._id}
+                    title="Check updates now"
+                    className="h-10 w-10 flex items-center justify-center rounded-lg bg-white/90 dark:bg-gray-900/80 border border-gray-300 dark:border-gray-600 text-sm hover:bg-blue-100 dark:hover:bg-blue-800/40 transition disabled:opacity-50 disabled:cursor-not-allowed shadow"
+                  >
+                    {checkingSingleGame === game._id ? (
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-400 border-t-transparent" />
+                    ) : (
+                      <span role="img" aria-label="refresh">🔄</span>
+                    )}
+                  </button>
+                  <a
+                    href={game.gameLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Open latest post"
+                    className="h-10 w-10 flex items-center justify-center rounded-lg bg-white/90 dark:bg-gray-900/80 border border-gray-300 dark:border-gray-600 text-sm hover:bg-green-100 dark:hover:bg-green-800/40 transition shadow"
+                  >
+                    <ExternalLinkIcon className="w-6 h-6" />
+                  </a>
+                </div>
+                {/* Top-left Untrack Icon */}
+                <button
+                  onClick={async () => {
+                    const confirmed = await confirm(
+                      'Remove Game from Tracking',
+                      `Are you sure you want to stop tracking "${cleanGameTitle(game.title)}"? This action cannot be undone.`,
+                      { confirmText: 'Remove', cancelText: 'Close', type: 'danger' }
+                    );
+                    if (!confirmed) return;
+                    handleUntrack(game.gameId);
+                  }}
+                  title="Untrack game"
+                  className="absolute top-2 left-2 h-10 w-10 flex items-center justify-center rounded-lg bg-white/90 dark:bg-gray-900/80 border border-red-300 dark:border-red-600 text-sm hover:bg-red-100 dark:hover:bg-red-800/40 text-red-600 dark:text-red-300 transition z-20 shadow"
+                >
+                  <span role="img" aria-label="trash">🗑️</span>
+                </button>
+                <div className="flex flex-col gap-4 p-4 sm:p-6 flex-1 relative z-10">
                   {/* Game Image */}
                   {game.image && (
                     <div className="flex-shrink-0 mx-auto">
@@ -509,14 +566,9 @@ export default function TrackingDashboard() {
                           />
                         </div>
 
-                        {/* Release Group Selector */}
+                        {/* Release Group Insight */}
                         <div className="mt-2">
-                          <ReleaseGroupSelector
-                            gameId={game._id}
-                            onReleaseGroupChange={() => {
-                              // You can add logic here to handle release group changes
-                            }}
-                          />
+                          <ReleaseGroupInsight gameId={game._id} />
                         </div>
                       </div>
                     </div>
@@ -625,52 +677,9 @@ export default function TrackingDashboard() {
                   </div>
                 </div>
 
-                {/* Action Buttons - Always at bottom */}
-                <div className="p-4 sm:p-6 pt-0 flex flex-col gap-2">
-                  <button
-                    onClick={() => handleSingleGameUpdate(game._id, game.title)}
-                    disabled={checkingSingleGame === game._id}
-                    className="w-full px-4 py-2 bg-gradient-to-r from-primary-500/20 to-accent-500/20 text-primary-700 dark:text-primary-300 hover:from-primary-500/30 hover:to-accent-500/30 text-sm rounded-lg transition-all duration-200 min-h-[42px] flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed backdrop-blur-sm border border-primary-300/30 hover:scale-105"
-                  >
-                    {checkingSingleGame === game._id ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary-300/30 border-t-primary-600 mr-2"></div>
-                        Checking...
-                      </>
-                    ) : (
-                      <span className="flex items-center gap-2">
-                        🔄 <span>Check Updates</span>
-                      </span>
-                    )}
-                  </button>
-                  
-                  <a
-                    href={game.gameLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full px-4 py-2 btn-glass text-sm transition-all text-center min-h-[42px] flex items-center justify-center group"
-                  >
-                    <span className="flex items-center gap-2">
-                      📖 <span>View Latest Post</span>
-                      <span className="transform transition-transform group-hover:translate-x-1">→</span>
-                    </span>
-                  </a>
-                  
-                  <div className="w-full">
-                    <GameDownloadLinks 
-                      gameId={game._id} 
-                      className="w-full" 
-                    />
-                  </div>
-                  
-                  <button
-                    onClick={() => handleUntrack(game.gameId)}
-                    className="w-full px-4 py-2 bg-gradient-to-r from-red-500/20 to-pink-500/20 text-red-700 dark:text-red-300 hover:from-red-500/30 hover:to-pink-500/30 text-sm rounded-lg transition-all duration-200 min-h-[42px] flex items-center justify-center backdrop-blur-sm border border-red-300/30 hover:scale-105"
-                  >
-                    <span className="flex items-center gap-2">
-                      🗑️ <span>Untrack</span>
-                    </span>
-                  </button>
+                {/* Download Links sticky at bottom */}
+                <div className="absolute left-0 right-0 bottom-0 z-10 p-4 pt-0 bg-gradient-to-t from-white/90 dark:from-gray-900/90 to-transparent">
+                  <GameDownloadLinks gameId={game._id} className="w-full" />
                 </div>
               </div>
             ))}

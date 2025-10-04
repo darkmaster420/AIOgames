@@ -15,6 +15,7 @@ export async function PATCH(req: Request) {
   const body = await req.json();
   const { 
     email, 
+    username,
     currentPassword, 
     newPassword, 
     provider, 
@@ -40,6 +41,23 @@ export async function PATCH(req: Request) {
         return NextResponse.json({ error: 'Email already in use' }, { status: 400 });
       }
       user.email = email.toLowerCase();
+    }
+
+    // Update username if provided and different (unlimited changes allowed)
+    if (typeof username === 'string' && username.toLowerCase() !== (user.username || '')) {
+      const normalized = username.toLowerCase().trim();
+      if (normalized.length < 3 || normalized.length > 24) {
+        return NextResponse.json({ error: 'Username must be 3-24 characters' }, { status: 400 });
+      }
+      if (!/^[a-z0-9_]+$/.test(normalized)) {
+        return NextResponse.json({ error: 'Username can only contain lowercase letters, numbers, and underscores' }, { status: 400 });
+      }
+      // Exclude current user from uniqueness check
+      const existsUsername = await User.findOne({ username: normalized, _id: { $ne: user._id } });
+      if (existsUsername) {
+        return NextResponse.json({ error: 'Username already taken' }, { status: 400 });
+      }
+      user.username = normalized;
     }
 
     // Handle password change

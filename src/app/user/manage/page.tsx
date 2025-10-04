@@ -15,6 +15,7 @@ export default function UserManagePage() {
 
   const [form, setForm] = useState({
     email: '',
+    username: '',
     currentPassword: '',
     newPassword: '',
     confirmNewPassword: '',
@@ -38,7 +39,7 @@ export default function UserManagePage() {
         if (!res.ok) throw new Error('Failed to load user');
         const data = await res.json();
         if (!mounted) return;
-        setForm((f) => ({ ...f, email: data.email || '' }));
+  setForm((f) => ({ ...f, email: data.email || '', username: data.username || f.username }));
         // initialize notification settings from preferences if available
         if (data.preferences?.notifications) {
           setForm((f) => ({
@@ -147,6 +148,7 @@ export default function UserManagePage() {
     try {
       const payload: { 
         email: string; 
+        username?: string;
         currentPassword?: string; 
         newPassword?: string; 
         provider?: string; 
@@ -156,6 +158,10 @@ export default function UserManagePage() {
         telegramBotToken?: string;
         telegramChatId?: string;
       } = { email: form.email };
+
+      if (form.username) {
+        payload.username = form.username.toLowerCase();
+      }
       
       if (form.newPassword) {
         payload.currentPassword = form.currentPassword;
@@ -183,6 +189,7 @@ export default function UserManagePage() {
         setError(data?.error || 'Update failed');
       } else {
         setSuccess('Profile updated');
+        try { router.refresh(); } catch { /* ignore */ }
         // clear password fields
         setForm((f) => ({ ...f, currentPassword: '', newPassword: '', confirmNewPassword: '' }));
       }
@@ -205,6 +212,18 @@ export default function UserManagePage() {
         <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">Update your email, change password, and configure notification options (coming soon).</p>
 
         <form className="mt-6 space-y-6" onSubmit={handleSubmit}>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Username</label>
+            <input
+              name="username"
+              type="text"
+              value={form.username}
+              onChange={handleChange}
+              placeholder="your_username"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+            />
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Lowercase letters, numbers & underscores. Can be changed anytime.</p>
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
             <input

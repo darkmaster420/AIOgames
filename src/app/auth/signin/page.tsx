@@ -1,16 +1,28 @@
 'use client';
 
-import { useState } from 'react';
-import { signIn, getSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { signIn, useSession } from 'next-auth/react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
-export default function SignIn() {
+import { Suspense } from 'react';
+
+function SignInInner() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get('callbackUrl') || '/';
+  const { status } = useSession();
+
+  // If already authenticated, redirect away quickly
+  useEffect(() => {
+    if (status === 'authenticated') {
+      router.replace(callbackUrl);
+    }
+  }, [status, router, callbackUrl]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,22 +30,25 @@ export default function SignIn() {
     setError('');
 
     try {
-      const result = await signIn('credentials', {
-        email,
-        password,
-        redirect: false,
-      });
+      const result = await signIn('credentials', { email, password, redirect: false });
 
       if (result?.error) {
         setError('Invalid email or password');
-      } else {
-        // Wait for session to be updated
-        await new Promise(resolve => setTimeout(resolve, 100));
-        const session = await getSession();
-        if (session) {
-          router.push('/');
-        }
+        return;
       }
+
+      // Poll for session becoming available (sometimes immediate getSession isn't updated yet in App Router)
+      let attempts = 0;
+      const maxAttempts = 10;
+      const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+      while (attempts < maxAttempts) {
+        attempts++;
+        if (status === 'authenticated') {
+          break;
+        }
+        await delay(100);
+      }
+      router.replace(callbackUrl);
     } catch {
       setError('An error occurred during sign in');
     } finally {
@@ -62,7 +77,7 @@ export default function SignIn() {
           <div className="rounded-md shadow-sm space-y-4">
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Email address
+                Email or Username
               </label>
               <input
                 id="email"
@@ -73,7 +88,7 @@ export default function SignIn() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white bg-white dark:bg-gray-800 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="Enter your email"
+                placeholder="Enter email or username"
               />
             </div>
             <div>
@@ -114,5 +129,13 @@ export default function SignIn() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function SignIn() {
+  return (
+    <Suspense>
+      <SignInInner />
+    </Suspense>
   );
 }

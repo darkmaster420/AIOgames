@@ -3,16 +3,20 @@
  */
 export function extractReleaseGroup(title: string): { releaseGroup: string; cleanTitle: string } {
   const releaseGroupPatterns = [
-    // Common release groups (case insensitive)
-    /[-\s]*(GOG|P2P|CODEX|SKIDROW|REPACK|FITGIRL|DODI|EMPRESS|RUNE|PLAZA|HOODLUM|RAZOR1911|STEAMPUNKS|DARKSiDERS|GOLDBERG|ALI213|3DM|PROPHET|CPY|SCENE|CRACKED|FULL|UNLOCKED)[-\s]*$/i,
+    // Common + updated release groups (case insensitive)
+    /[-\s]*(GOG|P2P|CODEX|SKIDROW|REPACK|FITGIRL|DODI|EMPRESS|RUNE|TENOKE|PLAZA|HOODLUM|RAZOR1911|STEAMPUNKS|DARKSIDERS|GOLDBERG|ALI213|3DM|PROPHET|CPY|SCENE|CRACKED|UNLOCKED|FLT|FAIRLIGHT|ELAMIGOS|TINYISO|0XDEADCODE)[-\s]*$/i,
     // Version with release group like v1.0-GOG
-    /[-\s]+(GOG|P2P|CODEX|SKIDROW|REPACK|FITGIRL|DODI|EMPRESS|RUNE|PLAZA|HOODLUM|RAZOR1911|STEAMPUNKS|DARKSiDERS|GOLDBERG|ALI213|3DM|PROPHET|CPY|SCENE|CRACKED|FULL|UNLOCKED)$/i
+    /[-\s]+(GOG|P2P|CODEX|SKIDROW|REPACK|FITGIRL|DODI|EMPRESS|RUNE|TENOKE|PLAZA|HOODLUM|RAZOR1911|STEAMPUNKS|DARKSIDERS|GOLDBERG|ALI213|3DM|PROPHET|CPY|SCENE|CRACKED|UNLOCKED|FLT|FAIRLIGHT|ELAMIGOS|TINYISO|0XDEADCODE)$/i
   ];
 
   for (const pattern of releaseGroupPatterns) {
     const match = title.match(pattern);
     if (match) {
-      const releaseGroup = match[1].toUpperCase();
+      let releaseGroup = match[1].toUpperCase();
+      if (releaseGroup === '0XDEADCODE') {
+        // Normalize special alias (online-fix)
+        releaseGroup = '0xdeadcode';
+      }
       const cleanTitle = title.replace(pattern, '').trim();
       return { releaseGroup, cleanTitle };
     }

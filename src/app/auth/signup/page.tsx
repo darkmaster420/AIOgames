@@ -9,6 +9,7 @@ export default function SignUp() {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    username: '',
     password: '',
     confirmPassword: ''
   });
@@ -43,6 +44,7 @@ export default function SignUp() {
         body: JSON.stringify({
           name: formData.name,
           email: formData.email,
+          username: formData.username || undefined,
           password: formData.password,
         }),
       });
@@ -114,6 +116,21 @@ export default function SignUp() {
                 className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white bg-white dark:bg-gray-800 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
                 placeholder="Enter your full name"
               />
+            </div>
+            <div>
+              <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Username (optional)
+              </label>
+              <input
+                id="username"
+                name="username"
+                type="text"
+                value={formData.username}
+                onChange={handleInputChange}
+                className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white bg-white dark:bg-gray-800 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                placeholder="Choose a username"
+              />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Lowercase letters, numbers & underscores, 3-24 chars.</p>
             </div>
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300">

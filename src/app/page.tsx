@@ -368,7 +368,14 @@ function DashboardInner() {
                 })
                 .map((game: Game) => {
               return (
-                <div key={game.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-200 dark:border-gray-700 flex flex-col h-full">
+                <div key={game.id} className="relative bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-200 dark:border-gray-700 flex flex-col h-full">
+                  {trackedGames.has(game.id) && (
+                    <div className="absolute top-2 left-2 z-10">
+                      <div className="flex items-center gap-1 bg-green-500/90 text-white text-xs font-semibold px-2 py-1 rounded-md shadow">
+                        ✅ <span className="hidden sm:inline">Tracked</span>
+                      </div>
+                    </div>
+                  )}
                   <ImageWithFallback
                     src={game.image}
                     alt={game.title}

@@ -9,7 +9,10 @@ interface AuthProviderProps {
 
 export default function AuthProvider({ children }: AuthProviderProps) {
   return (
-    <SessionProvider>
+    <SessionProvider
+      refetchOnWindowFocus={true}
+      refetchInterval={5 * 60} // refresh every 5 minutes to keep role/claims fresh
+    >
       {children}
     </SessionProvider>
   );

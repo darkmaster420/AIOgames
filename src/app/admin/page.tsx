@@ -89,6 +89,8 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'games'>('overview');
+  const [trustedGroups, setTrustedGroups] = useState<string[]>([]);
+  const [newGroup, setNewGroup] = useState('');
 
   useEffect(() => {
     if (status === 'authenticated') {
@@ -97,6 +99,7 @@ export default function AdminDashboard() {
       if (activeTab === 'games') {
         // loadTrackedGames will be called via the second useEffect
       }
+      loadTrustedGroups();
     }
   }, [status, activeTab]);
 
@@ -161,6 +164,43 @@ export default function AdminDashboard() {
       setError(err instanceof Error ? err.message : 'Failed to load tracked games');
     }
   }, [gamesFilter]);
+
+  // Release group management functions
+  const loadTrustedGroups = async () => {
+    try {
+      const res = await fetch('/api/admin/release-groups');
+      if (!res.ok) return;
+      const data = await res.json();
+      setTrustedGroups(data.trusted || []);
+    } catch {/* ignore */}
+  };
+
+  const handleAddGroup = async () => {
+    if (!newGroup.trim()) return;
+    try {
+      const res = await fetch('/api/admin/release-groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ group: newGroup.trim() })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTrustedGroups(data.trusted || []);
+        setNewGroup('');
+      }
+    } catch {/* ignore */}
+  };
+
+  const handleRemoveGroup = async (group: string) => {
+    if (!window.confirm(`Remove release group "${group}"?`)) return;
+    try {
+      const res = await fetch(`/api/admin/release-groups?group=${encodeURIComponent(group)}`, { method: 'DELETE' });
+      if (res.ok) {
+        const data = await res.json();
+        setTrustedGroups(data.trusted || []);
+      }
+    } catch {/* ignore */}
+  };
 
   const handleDeleteUser = async (userId: string, userName: string) => {
     const confirmed = await confirm(
@@ -392,6 +432,43 @@ export default function AdminDashboard() {
                       ))}
                     </div>
                   </div>
+                </div>
+                {/* Release Group Management */}
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                  <span>🎛️</span> Release Group Management
+                </h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Trusted release groups influence reliability scoring in tracking. Add groups in UPPERCASE.</p>
+                <div className="flex flex-col sm:flex-row gap-3 mb-4">
+                  <input
+                    type="text"
+                    value={newGroup}
+                    onChange={e => setNewGroup(e.target.value.toUpperCase())}
+                    placeholder="NEWGROUP"
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100"
+                  />
+                  <button
+                    onClick={handleAddGroup}
+                    disabled={!newGroup.trim()}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm disabled:opacity-50"
+                  >Add</button>
+                </div>
+                {trustedGroups.length === 0 ? (
+                  <div className="text-sm text-gray-500 dark:text-gray-400">No groups configured.</div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {trustedGroups.map(g => (
+                      <div key={g} className="group relative px-3 py-2 rounded-md bg-gray-100 dark:bg-gray-700 text-xs font-mono text-gray-700 dark:text-gray-200 flex items-center justify-between gap-2">
+                        <span className="truncate" title={g}>{g}</span>
+                        <button
+                          onClick={() => handleRemoveGroup(g)}
+                          className="opacity-60 group-hover:opacity-100 text-red-600 dark:text-red-400 hover:scale-110 transition"
+                          title="Remove"
+                        >✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 </div>
               </div>
             )}

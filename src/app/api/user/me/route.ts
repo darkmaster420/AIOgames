@@ -12,7 +12,7 @@ export async function GET() {
     }
 
     await connectDB();
-    const user = await User.findById(session.user.id).select('email name role preferences');
+  const user = await User.findById(session.user.id).select('email name role preferences username');
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
@@ -22,6 +22,7 @@ export async function GET() {
       email: user.email,
       name: user.name,
       role: user.role,
+      username: user.username,
       preferences: user.preferences || {}
     });
   } catch (error) {
