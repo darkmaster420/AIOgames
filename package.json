@@ -10,8 +10,8 @@
     "start": "node .next/standalone/server.js",
     "start:next": "next start",
     "lint": "eslint",
-    "mock-ai-worker": "node scripts/mock-ai-worker.js",
-    "test:ai": "node scripts/test-ai-detect.js"
+    "mock-ai-worker": "node scripts/mock-ai-worker.js"
+
   },
   "dependencies": {
     "@types/bcryptjs": "^3.0.0",

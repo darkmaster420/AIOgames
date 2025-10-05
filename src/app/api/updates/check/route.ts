@@ -34,6 +34,16 @@ interface VersionInfo {
   needsUserConfirmation: boolean;
 }
 
+interface EnhancedMatch {
+  game: GameSearchResult;
+  similarity: number;
+  versionInfo: VersionInfo;
+  gate: string;
+  aiConfidence?: number;
+  aiReason?: string;
+  enhancedScore?: number;
+}
+
 // Helper functions - enhanced for comprehensive piracy tag handling
 function calculateGameSimilarity(title1: string, title2: string): number {
   const clean1 = cleanGameTitle(title1).toLowerCase();
@@ -402,7 +412,7 @@ export async function POST(request: Request) {
           ...(originalTitle ? [{ label: 'original', value: originalTitle }] : [])
         ];
 
-  const potentialMatches: Array<{game: GameSearchResult, similarity: number, versionInfo: VersionInfo, gate: string}> = [];
+  const potentialMatches: EnhancedMatch[] = [];
         let bestMatch: GameSearchResult | null = null;
         let bestSimilarity = 0;
         let bestGate = '';
@@ -465,15 +475,17 @@ export async function POST(request: Request) {
 
         // Now select the best match based on what the tracked game has verified
   logger.debug(`Found ${potentialMatches.length} potential matches for "${game.title}" (gate: ${bestGate})`);
+        
+        let selectedMatch: EnhancedMatch | null = null;
 
         if (potentialMatches.length > 0) {
-          let sortedMatches = [...potentialMatches];
+          let sortedMatches: EnhancedMatch[] = [...potentialMatches];
           const hasVerifiedVersion = game.versionNumberVerified && game.currentVersionNumber;
           const hasVerifiedBuild = game.buildNumberVerified && game.currentBuildNumber;
           logger.debug(`Game verification status: Version=${hasVerifiedVersion ? game.currentVersionNumber : 'No'}, Build=${hasVerifiedBuild ? game.currentBuildNumber : 'No'}`);
           
           // Enhanced sorting with AI assistance for uncertain matches
-          const aiEnhancedMatches = [];
+          const aiEnhancedMatches: EnhancedMatch[] = [];
           const uncertainMatches = sortedMatches.filter(m => 
             m.similarity >= 0.8 && m.similarity < 0.95 && 
             (!hasVerifiedVersion && !hasVerifiedBuild)
@@ -593,10 +605,11 @@ export async function POST(request: Request) {
           }
           bestMatch = sortedMatches[0]?.game || null;
           bestSimilarity = sortedMatches[0]?.similarity || 0;
+          selectedMatch = sortedMatches[0] || null;
           if (bestMatch) {
             logger.debug(`Selected best match: "${bestMatch.title}" (similarity: ${bestSimilarity.toFixed(2)}, gate: ${bestGate})`);
-            if (sortedMatches[0].aiConfidence) {
-              logger.debug(`🤖 AI confidence: ${sortedMatches[0].aiConfidence.toFixed(2)} - ${sortedMatches[0].aiReason}`);
+            if (selectedMatch?.aiConfidence) {
+              logger.debug(`🤖 AI confidence: ${selectedMatch.aiConfidence.toFixed(2)} - ${selectedMatch.aiReason}`);
             }
           }
         }
@@ -739,7 +752,6 @@ export async function POST(request: Request) {
               
 
               // Get AI detection data if available
-              const selectedMatch = sortedMatches[0];
               const aiData = selectedMatch?.aiConfidence ? {
                 aiDetectionConfidence: selectedMatch.aiConfidence,
                 aiDetectionReason: selectedMatch.aiReason,
@@ -808,7 +820,6 @@ export async function POST(request: Request) {
                 updatesFound++;
               } else {
                 // Add to pending updates with AI data
-                const selectedMatch = sortedMatches[0];
                 const aiData = selectedMatch?.aiConfidence ? {
                   aiDetectionConfidence: selectedMatch.aiConfidence,
                   aiDetectionReason: selectedMatch.aiReason,

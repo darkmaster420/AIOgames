@@ -91,8 +91,16 @@ export async function detectUpdatesWithAI(
   }
 
   try {
-    // Call AI detection API
-    const response = await fetch('/api/updates/ai-detect', {
+    // Call AI detection API directly (external worker)
+    const workerUrl = process.env.AI_DETECTION_WORKER_URL;
+    if (!workerUrl) {
+      if (debugLogging) {
+        console.log('⚠️ AI worker URL not configured, falling back to regex');
+      }
+      return fallbackToRegexDetection(gameTitle, filteredCandidates, context, options);
+    }
+
+    const response = await fetch(workerUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -263,16 +271,16 @@ async function fallbackToRegexDetection(
  */
 export async function isAIDetectionAvailable(): Promise<boolean> {
   try {
-    const response = await fetch('/api/updates/ai-detect', {
-      method: 'GET'
-    });
-
-    if (!response.ok) {
+    const workerUrl = process.env.AI_DETECTION_WORKER_URL;
+    if (!workerUrl) {
       return false;
     }
 
-    const result = await response.json();
-    return result.configured && result.status === 'available';
+    const response = await fetch(`${workerUrl.replace('/ai', '')}/ai/health`, {
+      method: 'GET'
+    });
+
+    return response.ok;
     
   } catch {
     return false;

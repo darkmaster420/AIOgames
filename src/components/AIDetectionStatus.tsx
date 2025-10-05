@@ -4,9 +4,10 @@ import { useState, useEffect } from 'react';
 
 interface AIDetectionStatus {
   configured: boolean;
-  status: 'available' | 'unavailable' | 'unreachable' | 'not_configured';
+  status: 'available' | 'unavailable' | 'unreachable' | 'not_configured' | 'integrated';
   message: string;
   workerInfo?: Record<string, unknown>;
+  workerUrl?: string;
 }
 
 export function AIDetectionStatus() {
@@ -19,13 +20,24 @@ export function AIDetectionStatus() {
       setLoading(true);
       setError(null);
 
-      const response = await fetch('/api/updates/ai-detect');
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      // AI detection is now integrated into the main update pipeline
+      // Check if the worker URL is configured
+      const workerUrl = process.env.NEXT_PUBLIC_AI_DETECTION_WORKER_URL;
+      
+      if (workerUrl) {
+        setStatus({
+          configured: true,
+          status: 'integrated',
+          message: 'AI detection integrated into update pipeline',
+          workerUrl: workerUrl
+        });
+      } else {
+        setStatus({
+          configured: false,
+          status: 'not_configured',
+          message: 'AI detection worker URL not configured'
+        });
       }
-
-      const data = await response.json();
-      setStatus(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load AI detection status');
     } finally {
