@@ -437,7 +437,7 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log(`🎮 Checking updates for single game: ${game.title}`);
+    logger.info(`🎮 Checking updates for single game: ${game.title}`);
 
     let updatesFound = 0;
     let sequelsFound = 0;
@@ -585,7 +585,53 @@ export async function POST(request: Request) {
         
         const comparison = compareVersions(currentVersionInfo, newVersionInfo);
         
-        if (comparison.isNewer || newVersionInfo.needsUserConfirmation) {
+        // Enhanced update detection with AI assistance
+        let isUpdateCandidate = comparison.isNewer || newVersionInfo.needsUserConfirmation;
+        let aiConfidence = 0;
+        let aiReason = '';
+        
+        // If regex detection is uncertain, try AI detection for better accuracy
+        if (!comparison.isNewer && similarity >= 0.8) {
+          try {
+            console.log(`🤖 Trying AI detection for uncertain case: "${decodedTitle}"`);
+            
+            const { detectUpdatesWithAI, prepareCandidatesForAI } = await import('../../../../utils/aiUpdateDetection');
+            
+            const candidates = prepareCandidatesForAI(
+              [{ title: decodedTitle, link: result.link, date: result.date }],
+              game.title,
+              { maxCandidates: 1, minSimilarity: 0.8 }
+            );
+
+            const aiResults = await detectUpdatesWithAI(
+              game.title,
+              candidates,
+              {
+                lastKnownVersion: game.lastKnownVersion,
+                releaseGroup: game.releaseGroup,
+                gameLink: game.gameLink
+              },
+              {
+                minConfidence: 0.6,
+                debugLogging: false
+              }
+            );
+
+            if (aiResults.length > 0 && aiResults[0].isUpdate) {
+              isUpdateCandidate = true;
+              aiConfidence = aiResults[0].confidence;
+              aiReason = aiResults[0].reason;
+              console.log(`🤖✨ AI detected update with confidence ${aiConfidence.toFixed(2)}: ${aiReason}`);
+            } else {
+              console.log(`🤖 AI analysis: not an update`);
+            }
+            
+          } catch (aiError) {
+            console.log(`⚠️ AI detection failed, using regex result: ${aiError instanceof Error ? aiError.message : 'unknown error'}`);
+          }
+        }
+        
+        if (isUpdateCandidate) {
           console.log(`✨ Potential update found: ${decodedTitle}`);
           console.log(`🔗 Download links in result:`, result.downloadLinks);
           
@@ -599,7 +645,7 @@ export async function POST(request: Request) {
             const autoApproveResult = await canAutoApprove(game, newVersionInfo);
             console.log(`\n🤖 Auto-approval decision:`, autoApproveResult);
             
-              // Create base update data
+              // Create base update data (enhanced with AI information)
             const updateData = {
               version: decodedTitle,
               build: newVersionInfo.build,
@@ -614,7 +660,13 @@ export async function POST(request: Request) {
               steamEnhanced: false,
               steamAppId: game.steamAppId,
               needsUserConfirmation: !autoApproveResult.canApprove && (newVersionInfo.needsUserConfirmation || comparison.significance < 2),
-              autoApprovalReason: autoApproveResult.reason
+              autoApprovalReason: autoApproveResult.reason,
+              // AI enhancement data
+              ...(aiConfidence > 0 && {
+                aiDetectionConfidence: aiConfidence,
+                aiDetectionReason: aiReason,
+                detectionMethod: 'ai_enhanced'
+              })
             };
 
             if (autoApproveResult.canApprove) {

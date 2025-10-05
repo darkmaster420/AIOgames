@@ -11,6 +11,11 @@ export async function middleware(request: NextRequest) {
     '/api/health', // Health check endpoint should be public
   ];
 
+  // Conditionally allow AI detection endpoint to be public for testing
+  if (['true','1','yes'].includes((process.env.AI_DETECTION_PUBLIC || '').toLowerCase())) {
+    publicRoutes.push('/api/updates/ai-detect');
+  }
+
   // Always allow static assets and public routes straight through
   if (publicRoutes.some(route => pathname.startsWith(route))) {
     return NextResponse.next();

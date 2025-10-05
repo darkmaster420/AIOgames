@@ -299,6 +299,26 @@ export async function POST(request: Request) {
 
     await connectDB();
 
+    // Get the full user object with preferences for AI detection settings
+    const { User } = await import('../../../../lib/models');
+    const fullUser = await User.findById(user.id);
+    if (!fullUser) {
+      return NextResponse.json(
+        { error: 'User not found' },
+        { status: 404 }
+      );
+    }
+
+    // Get AI detection preferences
+    const aiPreferences = fullUser.preferences?.aiDetection || {
+      enabled: true,
+      autoApprovalThreshold: 0.8,
+      fallbackToRegex: true,
+      debugLogging: false
+    };
+
+    logger.debug(`AI Detection preferences: enabled=${aiPreferences.enabled}, threshold=${aiPreferences.autoApprovalThreshold}`);
+
     // Get all active tracked games for this user
     const trackedGames = await TrackedGame.find({ 
       userId: user.id,
@@ -451,6 +471,85 @@ export async function POST(request: Request) {
           const hasVerifiedVersion = game.versionNumberVerified && game.currentVersionNumber;
           const hasVerifiedBuild = game.buildNumberVerified && game.currentBuildNumber;
           logger.debug(`Game verification status: Version=${hasVerifiedVersion ? game.currentVersionNumber : 'No'}, Build=${hasVerifiedBuild ? game.currentBuildNumber : 'No'}`);
+          
+          // Enhanced sorting with AI assistance for uncertain matches
+          const aiEnhancedMatches = [];
+          const uncertainMatches = sortedMatches.filter(m => 
+            m.similarity >= 0.8 && m.similarity < 0.95 && 
+            (!hasVerifiedVersion && !hasVerifiedBuild)
+          );
+
+          if (uncertainMatches.length > 0 && aiPreferences.enabled) {
+            try {
+              // Use AI to analyze uncertain matches
+              logger.debug(`🤖 Analyzing ${uncertainMatches.length} uncertain matches with AI`);
+              
+              const { detectUpdatesWithAI, prepareCandidatesForAI } = await import('../../../../utils/aiUpdateDetection');
+              
+              const candidates = prepareCandidatesForAI(
+                uncertainMatches.map(m => ({
+                  title: m.game.title,
+                  link: m.game.link,
+                  date: m.game.date,
+                  similarity: m.similarity
+                })),
+                game.title,
+                { maxCandidates: Math.min(5, uncertainMatches.length), minSimilarity: 0.8 }
+              );
+
+              const aiResults = await detectUpdatesWithAI(
+                game.title,
+                candidates,
+                {
+                  lastKnownVersion: game.lastKnownVersion,
+                  releaseGroup: game.releaseGroup,
+                  gameLink: game.gameLink
+                },
+                {
+                  minConfidence: 0.6,
+                  debugLogging: aiPreferences.debugLogging
+                }
+              );
+
+              // Enhance matches with AI confidence
+              for (const match of uncertainMatches) {
+                const aiResult = aiResults.find(ai => ai.title === match.game.title);
+                if (aiResult && aiResult.isUpdate) {
+                  aiEnhancedMatches.push({
+                    ...match,
+                    aiConfidence: aiResult.confidence,
+                    aiReason: aiResult.reason,
+                    enhancedScore: match.similarity * 0.7 + aiResult.confidence * 0.3
+                  });
+                  logger.debug(`🤖✨ AI enhanced match: "${match.game.title}" (confidence: ${aiResult.confidence.toFixed(2)})`);
+                } else {
+                  aiEnhancedMatches.push({
+                    ...match,
+                    aiConfidence: 0,
+                    aiReason: 'Not detected as update by AI',
+                    enhancedScore: match.similarity * 0.9
+                  });
+                }
+              }
+
+              // Replace uncertain matches with AI-enhanced ones
+              sortedMatches = [
+                ...sortedMatches.filter(m => !uncertainMatches.includes(m)),
+                ...aiEnhancedMatches
+              ];
+
+            } catch (aiError) {
+              logger.warn(`⚠️ AI enhancement failed: ${aiError instanceof Error ? aiError.message : 'unknown error'}`);
+              // Continue with original matches if AI fails and fallback is enabled
+              if (!aiPreferences.fallbackToRegex) {
+                logger.warn('AI fallback disabled, skipping uncertain matches');
+                sortedMatches = sortedMatches.filter(m => !uncertainMatches.includes(m));
+              }
+            }
+          } else if (uncertainMatches.length > 0 && !aiPreferences.enabled) {
+            logger.debug('🤖 AI detection disabled, using regex-only for uncertain matches');
+          }
+
           if (hasVerifiedVersion && hasVerifiedBuild) {
             logger.debug('Using both version and build number comparison');
             sortedMatches.sort((a, b) => {
@@ -478,9 +577,12 @@ export async function POST(request: Request) {
               return bBuild - aBuild;
             });
           } else {
-            logger.debug('Using similarity-based comparison (no verification)');
+            logger.debug('Using AI-enhanced similarity-based comparison');
             sortedMatches.sort((a, b) => {
-              if (b.similarity !== a.similarity) return b.similarity - a.similarity;
+              // Use AI-enhanced score if available, otherwise fall back to similarity
+              const aScore = a.enhancedScore || a.similarity;
+              const bScore = b.enhancedScore || b.similarity;
+              if (bScore !== aScore) return bScore - aScore;
               const aVersion = parseFloat(a.versionInfo.version || '0');
               const bVersion = parseFloat(b.versionInfo.version || '0');
               const aBuild = parseInt(a.versionInfo.build || '0');
@@ -493,6 +595,9 @@ export async function POST(request: Request) {
           bestSimilarity = sortedMatches[0]?.similarity || 0;
           if (bestMatch) {
             logger.debug(`Selected best match: "${bestMatch.title}" (similarity: ${bestSimilarity.toFixed(2)}, gate: ${bestGate})`);
+            if (sortedMatches[0].aiConfidence) {
+              logger.debug(`🤖 AI confidence: ${sortedMatches[0].aiConfidence.toFixed(2)} - ${sortedMatches[0].aiReason}`);
+            }
           }
         }
         
@@ -633,12 +738,22 @@ export async function POST(request: Request) {
               }
               
 
+              // Get AI detection data if available
+              const selectedMatch = sortedMatches[0];
+              const aiData = selectedMatch?.aiConfidence ? {
+                aiDetectionConfidence: selectedMatch.aiConfidence,
+                aiDetectionReason: selectedMatch.aiReason,
+                detectionMethod: 'ai_enhanced'
+              } : {};
+
               // Auto-approve if:
               // - We have verified info and it's clearly higher, or
-              // - Similarity is 100% and significance >= 2 (robust match)
+              // - Similarity is 100% and significance >= 2 (robust match), or
+              // - AI has high confidence (>= user threshold) for the update
               const shouldAutoApprove = (
                 ((hasVerifiedVersion || hasVerifiedBuild) && isActuallyNewer && bestSimilarity >= 0.85) ||
-                (bestSimilarity === 1.0 && isActuallyNewer)
+                (bestSimilarity === 1.0 && isActuallyNewer) ||
+                (selectedMatch?.aiConfidence && selectedMatch.aiConfidence >= aiPreferences.autoApprovalThreshold)
               );
 
               if (shouldAutoApprove) {
@@ -655,7 +770,8 @@ export async function POST(request: Request) {
                   previousVersion: game.lastKnownVersion || game.title,
                   downloadLinks: bestMatch.downloadLinks || [],
                   autoApproved: true,
-                  verificationReason: comparisonReason
+                  verificationReason: comparisonReason,
+                  ...aiData  // Include AI detection data if available
                 };
 
                 const updateFields: Record<string, unknown> = {
@@ -691,7 +807,14 @@ export async function POST(request: Request) {
                 logger.info(`Auto-approved update for ${game.title}: ${versionString}`);
                 updatesFound++;
               } else {
-                // Add to pending updates
+                // Add to pending updates with AI data
+                const selectedMatch = sortedMatches[0];
+                const aiData = selectedMatch?.aiConfidence ? {
+                  aiDetectionConfidence: selectedMatch.aiConfidence,
+                  aiDetectionReason: selectedMatch.aiReason,
+                  detectionMethod: 'ai_enhanced'
+                } : {};
+
                 const pendingUpdate = {
                   detectedVersion: newVersionInfo.version || '',
                   build: newVersionInfo.build || '',
@@ -702,8 +825,9 @@ export async function POST(request: Request) {
                   newImage: bestMatch.image || '',
                   dateFound: new Date(),
                   confidence: bestSimilarity,
-                  reason: `${comparisonReason} | Similarity: ${Math.round(bestSimilarity * 100)}%`,
-                  downloadLinks: bestMatch.downloadLinks || []
+                  reason: `${comparisonReason} | Similarity: ${Math.round(bestSimilarity * 100)}%${selectedMatch?.aiConfidence ? ` | AI: ${Math.round(selectedMatch.aiConfidence * 100)}%` : ''}`,
+                  downloadLinks: bestMatch.downloadLinks || [],
+                  ...aiData  // Include AI detection data if available
                 };
 
                 await TrackedGame.findByIdAndUpdate(game._id, {

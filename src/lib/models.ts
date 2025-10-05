@@ -110,6 +110,26 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: true
       }
+    },
+    aiDetection: {
+      enabled: {
+        type: Boolean,
+        default: true
+      },
+      autoApprovalThreshold: {
+        type: Number,
+        min: 0.5,
+        max: 1.0,
+        default: 0.8
+      },
+      fallbackToRegex: {
+        type: Boolean,
+        default: true
+      },
+      debugLogging: {
+        type: Boolean,
+        default: false
+      }
     }
   },
   pushSubscriptions: [{
@@ -284,6 +304,18 @@ const trackedGameSchema = new mongoose.Schema({
       type: Boolean,
       default: false
     },
+    // AI Detection Enhancement Fields
+    aiDetectionConfidence: {
+      type: Number,
+      min: 0,
+      max: 1
+    },
+    aiDetectionReason: String,
+    detectionMethod: {
+      type: String,
+      enum: ['regex_only', 'ai_enhanced', 'ai_primary'],
+      default: 'regex_only'
+    },
     downloadLinks: [{
       service: {
         type: String,
@@ -365,6 +397,18 @@ const trackedGameSchema = new mongoose.Schema({
     reason: {
       type: String,
       default: 'Needs manual confirmation'
+    },
+    // AI Detection Enhancement Fields
+    aiDetectionConfidence: {
+      type: Number,
+      min: 0,
+      max: 1
+    },
+    aiDetectionReason: String,
+    detectionMethod: {
+      type: String,
+      enum: ['regex_only', 'ai_enhanced', 'ai_primary'],
+      default: 'regex_only'
     },
     downloadLinks: [{
       service: {

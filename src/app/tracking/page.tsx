@@ -104,6 +104,9 @@ interface TrackedGame {
     detectedVersion: string;
     reason: string;
     dateFound: string;
+    aiDetectionConfidence?: number;
+    aiDetectionReason?: string;
+    detectionMethod?: string;
     downloadLinks?: Array<{
       service: string;
       url: string;
@@ -664,8 +667,18 @@ export default function TrackingDashboard() {
                                       v{update.detectedVersion}
                                     </span>
                                   )}
+                                  {update.aiDetectionConfidence && (
+                                    <span className="inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs">
+                                      🤖 {Math.round(update.aiDetectionConfidence * 100)}%
+                                    </span>
+                                  )}
                                   <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                                     {update.reason} • Found {formatDate(update.dateFound)}
+                                    {update.aiDetectionReason && (
+                                      <div className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
+                                        🤖 AI: {update.aiDetectionReason}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               </div>
