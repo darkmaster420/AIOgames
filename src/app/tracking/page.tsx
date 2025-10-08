@@ -6,7 +6,7 @@ import { useSession } from 'next-auth/react';
 import { GameDownloadLinks } from '../../components/GameDownloadLinks';
 import { SteamVerification } from '../../components/SteamVerification';
 import { SmartVersionVerification } from '../../components/SmartVersionVerification';
-import ReleaseGroupInsight from '../../components/ReleaseGroupInsight';
+
 import { SequelNotifications } from '../../components/SequelNotifications';
 import { AddCustomGame } from '../../components/AddCustomGame';
 import { FrequencySelector } from '../../components/FrequencySelector';
@@ -666,11 +666,6 @@ export default function TrackingDashboard() {
                             versionNumberVerified={game.versionNumberVerified || false}
                             onVerified={loadTrackedGames}
                           />
-                        </div>
-
-                        {/* Release Group Insight */}
-                        <div className="mt-2">
-                          <ReleaseGroupInsight gameId={game._id} />
                         </div>
                       </div>
                     </div>

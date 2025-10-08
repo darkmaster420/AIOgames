@@ -1,39 +1,4 @@
 /**
- * Extract release group from game title
- */
-export function extractReleaseGroup(title: string): { releaseGroup: string; cleanTitle: string } {
-  const releaseGroupPatterns = [
-    // Common + updated release groups (case insensitive)
-    /[-\s]*(GOG|P2P|CODEX|SKIDROW|REPACK|FITGIRL|DODI|EMPRESS|RUNE|TENOKE|PLAZA|HOODLUM|RAZOR1911|STEAMPUNKS|DARKSIDERS|GOLDBERG|ALI213|3DM|PROPHET|CPY|SCENE|CRACKED|UNLOCKED|FLT|FAIRLIGHT|ELAMIGOS|TINYISO|0XDEADCODE)[-\s]*$/i,
-    // Version with release group like v1.0-GOG
-    /[-\s]+(GOG|P2P|CODEX|SKIDROW|REPACK|FITGIRL|DODI|EMPRESS|RUNE|TENOKE|PLAZA|HOODLUM|RAZOR1911|STEAMPUNKS|DARKSIDERS|GOLDBERG|ALI213|3DM|PROPHET|CPY|SCENE|CRACKED|UNLOCKED|FLT|FAIRLIGHT|ELAMIGOS|TINYISO|0XDEADCODE)$/i
-  ];
-
-  for (const pattern of releaseGroupPatterns) {
-    const match = title.match(pattern);
-    if (match) {
-      let releaseGroup = match[1].toUpperCase();
-      if (releaseGroup === '0XDEADCODE') {
-        // Normalize special alias (online-fix)
-        releaseGroup = '0xdeadcode';
-      }
-      const cleanTitle = title.replace(pattern, '').trim();
-      return { releaseGroup, cleanTitle };
-    }
-  }
-
-  // Default to source-based classification if no explicit release group
-  if (title.toLowerCase().includes('gog')) {
-    return { releaseGroup: 'GOG', cleanTitle: title.replace(/[-\s]*gog[-\s]*/i, '').trim() };
-  }
-  if (title.toLowerCase().includes('p2p')) {
-    return { releaseGroup: 'P2P', cleanTitle: title.replace(/[-\s]*p2p[-\s]*/i, '').trim() };
-  }
-
-  return { releaseGroup: 'UNKNOWN', cleanTitle: title };
-}
-
-/**
  * Utility functions for detecting and parsing version and build numbers from game titles
  */
 
@@ -512,14 +477,12 @@ export function testVersionDetection() {
   testCases.forEach((testCase, index) => {
     console.log(`\n${index + 1}. "${testCase}"`);
     const analysis = analyzeGameTitle(testCase);
-    const releaseGroup = extractReleaseGroup(testCase);
     
     console.log(`   Version: ${analysis.detectedVersion || 'None'}`);
     console.log(`   Build: ${analysis.detectedBuild || 'None'}`);
     console.log(`   Is Date Version: ${analysis.isDateVersion ? 'Yes' : 'No'}`);
     console.log(`   Is Stale Date: ${analysis.isStaleDateVersion ? 'Yes' : 'No'}`);
     console.log(`   Has Preferred: ${analysis.hasPreferredVersion ? 'Yes' : 'No'}`);
-    console.log(`   Release Group: ${releaseGroup.releaseGroup}`);
     if (analysis.suggestions.message) {
       console.log(`   Suggestion: ${analysis.suggestions.message}`);
     }

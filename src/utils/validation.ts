@@ -14,7 +14,6 @@ export const schemas = {
   
   gameAdd: z.object({
     gameName: z.string().min(1).max(100).regex(/^[a-zA-Z0-9\s\-_.:()[\]&+]+$/, 'Invalid characters in game name'),
-    releaseGroup: z.string().max(50).optional(),
     forceAdd: z.boolean().optional()
   }),
   

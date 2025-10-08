@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
-import { TrackedGame, ReleaseGroupVariant } from '../../../../lib/models';
+import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { autoVerifyWithSteam } from '../../../../utils/autoSteamVerification';
 import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild } from '../../../../utils/steamApi';
 import { updateScheduler } from '../../../../lib/scheduler';
-import { analyzeGameTitle, extractReleaseGroup } from '../../../../utils/versionDetection';
+import { analyzeGameTitle } from '../../../../utils/versionDetection';
 import logger from '../../../../utils/logger';
 import { rateLimit, validateInput, schemas } from '../../../../utils/validation';
 
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { gameName } = validation.data!;
-    // TODO: Implement releaseGroup and forceAdd functionality
+    // TODO: Implement forceAdd functionality
     const authenticatedUser = user as { id: string; email: string; name: string };
 
     const trimmedGameName = gameName.trim();
@@ -285,47 +285,6 @@ export async function POST(req: NextRequest) {
       } catch (versionError) {
         logger.error(`Auto version detection error for "${bestMatch.title}":`, versionError);
         // Don't fail the entire request if version detection fails
-      }
-
-      // Attempt to extract and store release group information
-      try {
-        logger.debug(`Attempting release group extraction for newly added game: "${bestMatch.title}"`);
-        
-        const releaseGroupResult = extractReleaseGroup(bestMatch.title);
-        
-        if (releaseGroupResult.releaseGroup && releaseGroupResult.releaseGroup !== 'UNKNOWN') {
-          logger.debug(`Detected release group: ${releaseGroupResult.releaseGroup}`);
-          
-          // Check if this release group variant already exists for this game
-          const existingVariant = await ReleaseGroupVariant.findOne({
-            trackedGameId: newTrackedGame._id,
-            releaseGroup: releaseGroupResult.releaseGroup
-          });
-
-          if (!existingVariant) {
-            const variant = new ReleaseGroupVariant({
-              trackedGameId: newTrackedGame._id,
-              gameId: bestMatch.id,
-              releaseGroup: releaseGroupResult.releaseGroup,
-              source: bestMatch.source || bestMatch.siteType || 'Unknown',
-              title: bestMatch.title,
-              gameLink: bestMatch.link,
-              version: newTrackedGame.currentVersionNumber || "",
-              buildNumber: newTrackedGame.currentBuildNumber || "",
-              dateFound: new Date()
-            });
-            await variant.save();
-            logger.debug(`Stored release group variant: ${releaseGroupResult.releaseGroup} for game "${bestMatch.title}"`);
-          } else {
-            logger.debug(`Release group variant ${releaseGroupResult.releaseGroup} already exists for this game`);
-          }
-        } else {
-          logger.debug(`No release group detected in title: "${bestMatch.title}"`);
-        }
-        
-      } catch (releaseGroupError) {
-        logger.error(`Release group extraction error for "${bestMatch.title}":`, releaseGroupError);
-        // Don't fail the entire request if release group extraction fails
       }
 
       // Update user's scheduler after adding a game

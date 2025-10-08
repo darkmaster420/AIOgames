@@ -6,8 +6,7 @@ import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVer
 import logger from '../../../utils/logger';
 import { autoVerifyWithSteam } from '../../../utils/autoSteamVerification';
 import { updateScheduler } from '../../../lib/scheduler';
-import { analyzeGameTitle, extractReleaseGroup } from '../../../utils/versionDetection';
-import { ReleaseGroupVariant } from '../../../lib/models';
+import { analyzeGameTitle } from '../../../utils/versionDetection';
 
 // GET - Fetch all tracked games for the current user
 export async function GET() {
@@ -187,47 +186,6 @@ export async function POST(request: NextRequest) {
     } catch (versionError) {
   logger.error(`Auto version detection error for "${title}":`, versionError);
       // Don't fail the entire request if version detection fails
-    }
-
-    // Attempt to extract and store release group information
-    try {
-  logger.debug(`Attempting release group extraction for newly added game: "${title}"`);
-      
-      const releaseGroupResult = extractReleaseGroup(title);
-      
-      if (releaseGroupResult.releaseGroup && releaseGroupResult.releaseGroup !== 'UNKNOWN') {
-  logger.debug(`Detected release group: ${releaseGroupResult.releaseGroup}`);
-        
-        // Check if this release group variant already exists for this game
-        const existingVariant = await ReleaseGroupVariant.findOne({
-          trackedGameId: trackedGame._id,
-          releaseGroup: releaseGroupResult.releaseGroup
-        });
-
-        if (!existingVariant) {
-          const variant = new ReleaseGroupVariant({
-            trackedGameId: trackedGame._id,
-            gameId: gameId,
-            releaseGroup: releaseGroupResult.releaseGroup,
-            source: source,
-            title: title,
-            gameLink: gameLink,
-            version: trackedGame.currentVersionNumber || "",
-            buildNumber: trackedGame.currentBuildNumber || "",
-            dateFound: new Date()
-          });
-          await variant.save();
-          logger.debug(`Stored release group variant: ${releaseGroupResult.releaseGroup} for game "${title}"`);
-        } else {
-          logger.debug(`Release group variant ${releaseGroupResult.releaseGroup} already exists for this game`);
-        }
-      } else {
-  logger.debug(`No release group detected in title: "${title}"`);
-      }
-      
-    } catch (releaseGroupError) {
-  logger.error(`Release group extraction error for "${title}":`, releaseGroupError);
-      // Don't fail the entire request if release group extraction fails
     }
 
     // Update user's scheduler after adding a game

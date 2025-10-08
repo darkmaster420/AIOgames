@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
-import { TrackedGame, ReleaseGroupVariant } from '../../../../lib/models';
+import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel } from '../../../../utils/sequelDetection';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
 import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
-import { extractReleaseGroup, analyzeGameTitle } from '../../../../utils/versionDetection';
 import { detectUpdatesWithAI, isAIDetectionAvailable, prepareCandidatesForAI } from '../../../../utils/aiUpdateDetection';
 
 interface GameSearchResult {
@@ -921,57 +920,6 @@ export async function POST(request: Request) {
                 logger.info(`Update notification sent for ${game.title}`);
               } catch (notificationError) {
                 logger.error('Failed to send update notification:', notificationError);
-              }
-
-              // Collect release group variant from the new update
-              try {
-                logger.debug(`Attempting release group extraction for update: "${decodedTitle}"`);
-                
-                const releaseGroupResult = extractReleaseGroup(decodedTitle);
-                
-                if (releaseGroupResult.releaseGroup && releaseGroupResult.releaseGroup !== 'UNKNOWN') {
-                  logger.debug(`Detected release group in update: ${releaseGroupResult.releaseGroup}`);
-                  
-                  // Analyze the new title for version/build information
-                  const analysis = analyzeGameTitle(decodedTitle);
-                  
-                  // Check if this release group variant already exists for this game
-                  const existingVariant = await ReleaseGroupVariant.findOne({
-                    trackedGameId: game._id,
-                    releaseGroup: releaseGroupResult.releaseGroup
-                  });
-
-                  if (!existingVariant) {
-                    const variant = new ReleaseGroupVariant({
-                      trackedGameId: game._id,
-                      gameId: bestMatch.id,
-                      releaseGroup: releaseGroupResult.releaseGroup,
-                      source: bestMatch.source,
-                      title: decodedTitle,
-                      gameLink: bestMatch.link,
-                      version: analysis.detectedVersion || "",
-                      buildNumber: analysis.detectedBuild || "",
-                      dateFound: new Date()
-                    });
-                    await variant.save();
-                    logger.debug(`Stored new release group variant from update: ${releaseGroupResult.releaseGroup} for game "${game.title}"`);
-                  } else {
-                    // Update existing variant with latest information
-                    existingVariant.title = decodedTitle;
-                    existingVariant.gameLink = bestMatch.link;
-                    if (analysis.detectedVersion) existingVariant.version = analysis.detectedVersion;
-                    if (analysis.detectedBuild) existingVariant.buildNumber = analysis.detectedBuild;
-                    existingVariant.lastSeen = new Date();
-                    await existingVariant.save();
-                    logger.debug(`Updated existing release group variant: ${releaseGroupResult.releaseGroup} for game "${game.title}"`);
-                  }
-                } else {
-                  logger.debug(`No release group detected in update title: "${decodedTitle}"`);
-                }
-                
-              } catch (releaseGroupError) {
-                logger.error('Release group extraction error:', releaseGroupError);
-                // Don't fail the entire request if release group extraction fails
               }
             }
           }

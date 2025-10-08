@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server';
 
 import connectDB from '../../../../lib/db';
-import { TrackedGame, ReleaseGroupVariant } from '../../../../lib/models';
+import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel } from '../../../../utils/sequelDetection';
 import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
-import { extractReleaseGroup, analyzeGameTitle } from '../../../../utils/versionDetection';
 import { detectUpdatesWithAI, isAIDetectionAvailable, prepareCandidatesForAI } from '../../../../utils/aiUpdateDetection';
 
 interface GameSearchResult {
@@ -805,57 +804,6 @@ export async function POST(request: Request) {
                 $push: { pendingUpdates: updateData },
                 lastChecked: new Date()
               });
-            }
-
-            // Collect release group variant from the new update
-            try {
-              logger.debug(`🔍 Attempting release group extraction for update: "${result.title}"`);
-              
-              const releaseGroupResult = extractReleaseGroup(result.title);
-              
-              if (releaseGroupResult.releaseGroup && releaseGroupResult.releaseGroup !== 'UNKNOWN') {
-                logger.debug(`✅ Detected release group in update: ${releaseGroupResult.releaseGroup}`);
-                
-                // Analyze the new title for version/build information
-                const analysis = analyzeGameTitle(result.title);
-                
-                // Check if this release group variant already exists for this game
-                const existingVariant = await ReleaseGroupVariant.findOne({
-                  trackedGameId: game._id,
-                  releaseGroup: releaseGroupResult.releaseGroup
-                });
-
-                if (!existingVariant) {
-                  const variant = new ReleaseGroupVariant({
-                    trackedGameId: game._id,
-                    gameId: result.id,
-                    releaseGroup: releaseGroupResult.releaseGroup,
-                    source: result.source,
-                    title: result.title,
-                    gameLink: result.link,
-                    version: analysis.detectedVersion || "",
-                    buildNumber: analysis.detectedBuild || "",
-                    dateFound: new Date()
-                  });
-                  await variant.save();
-                  logger.debug(`✅ Stored new release group variant from update: ${releaseGroupResult.releaseGroup} for game "${game.title}"`);
-                } else {
-                  // Update existing variant with latest information
-                  existingVariant.title = result.title;
-                  existingVariant.gameLink = result.link;
-                  if (analysis.detectedVersion) existingVariant.version = analysis.detectedVersion;
-                  if (analysis.detectedBuild) existingVariant.buildNumber = analysis.detectedBuild;
-                  existingVariant.lastSeen = new Date();
-                  await existingVariant.save();
-                  logger.debug(`✅ Updated existing release group variant: ${releaseGroupResult.releaseGroup} for game "${game.title}"`);
-                }
-              } else {
-                logger.debug(`ℹ️ No release group detected in update title: "${result.title}"`);
-              }
-              
-            } catch (releaseGroupError) {
-              logger.error(`❌ Release group extraction error for update "${result.title}":`, releaseGroupError);
-              // Don't fail the entire request if release group extraction fails
             }
 
             // Send notification for the update
