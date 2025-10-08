@@ -505,7 +505,7 @@ export default function TrackingDashboard() {
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white truncate">
+                            <h3 className="font-bold text-base sm:text-lg text-gray-900 dark:text-white line-clamp-2 leading-tight bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-200/50 dark:border-gray-700/50 shadow-sm flex-1 min-w-0">
                               {cleanGameTitle(game.title)}
                             </h3>
                             {game.hasNewUpdate && !game.newUpdateSeen && (
@@ -530,8 +530,15 @@ export default function TrackingDashboard() {
                               </span>
                             </div>
                           )}
-                          <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
-                            <p>Original: {game.originalTitle}</p>
+                          
+                          {/* Source and Info Section */}
+                          <div className="flex flex-wrap items-center gap-2 mt-2">
+                            <span className="inline-block px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full">
+                              {game.source}
+                            </span>
+                            <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
+                              <span>Original: {game.originalTitle}</span>
+                            </div>
                           </div>
                         </div>
                         
@@ -582,15 +589,13 @@ export default function TrackingDashboard() {
                           {getTimeSince(game.lastChecked)}
                         </span>
                       </div>
-                    </div>
-
-                    {/* Frequency Selector */}
-                    <div className="mt-3 sm:mt-4">
-                      <FrequencySelector
-                        gameId={game._id}
-                        currentFrequency={game.checkFrequency}
-                        onFrequencyChanged={loadTrackedGames}
-                      />
+                      <div className="flex items-center justify-between">
+                        <FrequencySelector
+                          gameId={game._id}
+                          currentFrequency={game.checkFrequency}
+                          onFrequencyChanged={loadTrackedGames}
+                        />
+                      </div>
                     </div>
 
                     {/* Latest Update Status */}

@@ -10,10 +10,10 @@ interface FrequencySelectorProps {
 }
 
 const frequencyOptions = [
-  { value: 'hourly', label: '⏰ Hourly', description: 'Check every hour (recommended)' },
-  { value: 'daily', label: '📅 Daily', description: 'Check once per day' },
-  { value: 'weekly', label: '📆 Weekly', description: 'Check once per week' },
-  { value: 'manual', label: '🔧 Manual', description: 'No automatic checking' }
+  { value: 'hourly', label: '1hr', icon: '⚡', description: 'Every hour' },
+  { value: 'daily', label: '1d', icon: '📅', description: 'Every day' },
+  { value: 'weekly', label: '1w', icon: '📆', description: 'Every week' },
+  { value: 'manual', label: 'Manual', icon: '🔧', description: 'Manual only' }
 ];
 
 export function FrequencySelector({ gameId, currentFrequency, onFrequencyChanged }: FrequencySelectorProps) {
@@ -21,8 +21,15 @@ export function FrequencySelector({ gameId, currentFrequency, onFrequencyChanged
   const [selectedFrequency, setSelectedFrequency] = useState(currentFrequency);
   const { showSuccess, showError } = useNotification();
 
-  const handleFrequencyChange = async (newFrequency: string) => {
-    if (newFrequency === selectedFrequency || isUpdating) return;
+  const currentIndex = frequencyOptions.findIndex(opt => opt.value === selectedFrequency);
+  const currentOption = frequencyOptions[currentIndex] || frequencyOptions[0];
+
+  const handleFrequencyToggle = async () => {
+    if (isUpdating) return;
+
+    // Cycle to next frequency
+    const nextIndex = (currentIndex + 1) % frequencyOptions.length;
+    const nextFrequency = frequencyOptions[nextIndex].value;
 
     setIsUpdating(true);
     try {
@@ -33,14 +40,14 @@ export function FrequencySelector({ gameId, currentFrequency, onFrequencyChanged
         },
         body: JSON.stringify({
           gameId,
-          frequency: newFrequency
+          frequency: nextFrequency
         }),
       });
 
       if (response.ok) {
-        const result = await response.json();
-        setSelectedFrequency(newFrequency);
-        showSuccess('Frequency Updated', result.message);
+        setSelectedFrequency(nextFrequency);
+        const newOption = frequencyOptions[nextIndex];
+        showSuccess('Frequency Updated', `Now checking ${newOption.description.toLowerCase()}`);
         onFrequencyChanged?.();
       } else {
         const error = await response.json();
@@ -55,58 +62,38 @@ export function FrequencySelector({ gameId, currentFrequency, onFrequencyChanged
   };
 
   return (
-    <div className="space-y-2">
-      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-        Update Frequency
-      </label>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        {frequencyOptions.map((option) => (
-          <button
-            key={option.value}
-            onClick={() => handleFrequencyChange(option.value)}
-            disabled={isUpdating}
-            className={`
-              relative p-3 rounded-lg border text-left transition-all duration-200 text-sm
-              ${selectedFrequency === option.value
-                ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
-                : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:border-primary-300 dark:hover:border-primary-600'
-              }
-              ${isUpdating ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:shadow-sm'}
-            `}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex-1">
-                <div className="font-medium">{option.label}</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  {option.description}
-                </div>
-              </div>
-              {selectedFrequency === option.value && (
-                <div className="ml-2 text-primary-500">
-                  ✓
-                </div>
-              )}
-            </div>
-            {isUpdating && selectedFrequency === option.value && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white/50 dark:bg-gray-800/50 rounded-lg">
-                <div className="w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
-              </div>
-            )}
-          </button>
-        ))}
-      </div>
-      
-      {selectedFrequency === 'manual' && (
-        <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-xs text-yellow-700 dark:text-yellow-300">
-          ⚠️ Manual mode disables automatic updates. You&apos;ll need to check manually.
-        </div>
-      )}
-      
-      {selectedFrequency === 'hourly' && (
-        <div className="mt-2 p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded text-xs text-green-700 dark:text-green-300">
-          ⚡ Hourly checking provides the fastest update notifications.
-        </div>
-      )}
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-gray-500 dark:text-gray-400">Check:</span>
+      <button
+        onClick={handleFrequencyToggle}
+        disabled={isUpdating}
+        className={`
+          inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium
+          transition-all duration-200 min-w-[70px] justify-center
+          ${selectedFrequency === 'hourly' 
+            ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-700' 
+            : selectedFrequency === 'daily'
+            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700'
+            : selectedFrequency === 'weekly'
+            ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 border border-yellow-200 dark:border-yellow-700'
+            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-600'
+          }
+          ${isUpdating 
+            ? 'opacity-50 cursor-not-allowed' 
+            : 'cursor-pointer hover:scale-105 hover:shadow-sm active:scale-95'
+          }
+        `}
+        title={`Currently: ${currentOption.description}. Click to cycle to next frequency.`}
+      >
+        {isUpdating ? (
+          <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin"></div>
+        ) : (
+          <>
+            <span className="text-xs">{currentOption.icon}</span>
+            <span>{currentOption.label}</span>
+          </>
+        )}
+      </button>
     </div>
   );
 }
