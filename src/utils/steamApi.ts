@@ -417,6 +417,8 @@ export function cleanGameTitle(title: string): string {
     // Remove DLC and content indicators  
     .replace(/\b(all dlc|with dlc|dlc included|\+\s*dlc|dlc pack)\b/gi, '')
     .replace(/\b(season pass|deluxe content|bonus content|soundtrack included)\b/gi, '')
+    .replace(/\bdlc\b/gi, '') // Remove standalone DLC tag
+    .replace(/\b(expansion pack|expansion|add-on content|add-on|addon|content pack|character pack)\b/gi, "") // Additional content indicators
     
     // Remove installation and format tags
     .replace(/\b(pre-installed|preinstalled|pre\sinstalled)\b/gi, '')
@@ -465,6 +467,10 @@ export function cleanGameTitle(title: string): string {
     .replace(/\br\d+/gi, '') // r123 (revision format)
     .replace(/\b20\d{2}[-\.]\d{1,2}[-\.]\d{1,2}/gi, '') // Date formats 2024-01-15, 2024.1.15
     .replace(/\b\d{8}/gi, '') // Date formats 20240115
+    
+    // Remove orphaned version letters at end of titles (like "Game Title C" from "Game Title v1.2.3c")
+    .replace(/\s+[a-h]$/gi, '') // Remove common version letters a-h at end preceded by space
+    .replace(/\s+[a-h]\s/gi, ' ') // Remove common version letters a-h in middle preceded and followed by space
     
     // Remove year tags like (2025), [2024] etc - but preserve years that are part of game names
     .replace(/\(20\d{2}\)/g, '') // (2025)
@@ -548,6 +554,8 @@ export function cleanGameTitlePreserveEdition(title: string): string {
     // Remove DLC and content indicators  
     .replace(/\b(all dlc|with dlc|dlc included|\+\s*dlc|dlc pack)\b/gi, '')
     .replace(/\b(season pass|deluxe content|bonus content|soundtrack included)\b/gi, '')
+    .replace(/\bdlc\b/gi, '') // Remove standalone DLC tag
+    .replace(/\b(expansion pack|expansion|add-on content|add-on|addon|content pack|character pack)\b/gi, "") // Additional content indicators
     
     // Remove installation and format tags
     .replace(/\b(pre-installed|preinstalled|pre\sinstalled)\b/gi, '')
@@ -594,6 +602,10 @@ export function cleanGameTitlePreserveEdition(title: string): string {
     .replace(/\bbuild\s*\d+/gi, '') // build 20035145
     .replace(/\bb\d{4,}/gi, '') // b20035145 (build numbers)
     .replace(/\bupdate\s*\d+(\.\d+)*/gi, '') // update 1.5
+    
+    // Remove orphaned version letters at end of titles (like "Game Title C" from "Game Title v1.2.3c")
+    .replace(/\s+[a-h]$/gi, '') // Remove common version letters a-h at end preceded by space
+    .replace(/\s+[a-h]\s/gi, ' ') // Remove common version letters a-h in middle preceded and followed by space
     
     // Remove year tags like (2025), [2024] etc
     .replace(/\(20\d{2}\)/g, '') // (2025)

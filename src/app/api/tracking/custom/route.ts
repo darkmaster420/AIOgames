@@ -6,6 +6,7 @@ import { autoVerifyWithSteam } from '../../../../utils/autoSteamVerification';
 import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild } from '../../../../utils/steamApi';
 import { updateScheduler } from '../../../../lib/scheduler';
 import { analyzeGameTitle } from '../../../../utils/versionDetection';
+import { searchIGDB, type IGDBSearchResult } from '../../../../utils/igdb';
 import logger from '../../../../utils/logger';
 import { rateLimit, validateInput, schemas } from '../../../../utils/validation';
 
@@ -84,67 +85,109 @@ export async function POST(req: NextRequest) {
 
       const searchData = await searchResponse.json();
 
-      if (!searchData.success || !searchData.results || searchData.results.length === 0) {
+      let bestMatch = null;
+      let isFromIGDB = false;
+      const { detectVersionNumber } = await import('../../../../utils/versionDetection');
+
+      // First try piracy sites
+      if (searchData.success && searchData.results && searchData.results.length > 0) {
+        // Calculate similarity scores for all results
+        const scoredResults = searchData.results.map((game: { title: string; id: string }) => {
+          const similarity = calculateSimilarity(trimmedGameName, game.title);
+          const { found: hasVersion } = detectVersionNumber(game.title);
+          const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(game.title);
+          
+          return {
+            ...game,
+            similarity,
+            hasVersion: hasVersion || hasBuild
+          };
+        });
+
+        // Sort by version status first, then by similarity
+        scoredResults.sort((a: typeof scoredResults[0], b: typeof scoredResults[0]) => {
+          if (a.hasVersion && !b.hasVersion) return -1;
+          if (!a.hasVersion && b.hasVersion) return 1;
+          return b.similarity - a.similarity;
+        });
+
+        // For versioned games, accept any similarity > 0.3
+        // For unreleased games, require much higher similarity (> 0.7)
+        for (const game of scoredResults) {
+          if (game.hasVersion && game.similarity > 0.3) {
+            bestMatch = game;
+            logger.info(`Selected versioned game from piracy sites: "${game.title}" (similarity: ${game.similarity.toFixed(2)})`);
+            break;
+          }
+        }
+
+        // If no versioned game found, check for unreleased games with high similarity
+        if (!bestMatch) {
+          logger.info(`No versioned games found for "${trimmedGameName}", checking for unreleased games on piracy sites`);
+          
+          const unreleasedCandidates = scoredResults.filter((game: typeof scoredResults[0]) => !game.hasVersion && game.similarity > 0.7);
+          
+          if (unreleasedCandidates.length > 0) {
+            bestMatch = unreleasedCandidates[0];
+            logger.info(`Selected unreleased game from piracy sites: "${bestMatch.title}" (similarity: ${bestMatch.similarity.toFixed(2)})`);
+          }
+        }
+      }
+
+      // If no suitable match found in piracy sites, try IGDB for unreleased/upcoming games
+      if (!bestMatch) {
+        logger.info(`No suitable matches found on piracy sites for "${trimmedGameName}", searching IGDB for unreleased games...`);
+        
+        try {
+          const igdbResults = await searchIGDB(trimmedGameName);
+          
+          if (igdbResults.length > 0) {
+            // Find the best IGDB match
+            const igdbScoredResults = igdbResults.map((game: IGDBSearchResult) => {
+              const similarity = calculateSimilarity(trimmedGameName, game.title);
+              return {
+                ...game,
+                similarity
+              };
+            });
+
+            // Sort by similarity and pick the best match (require > 0.5 similarity for IGDB)
+            igdbScoredResults.sort((a, b) => b.similarity - a.similarity);
+            
+            if (igdbScoredResults[0].similarity > 0.5) {
+              const igdbMatch = igdbScoredResults[0];
+              bestMatch = {
+                id: igdbMatch.id,
+                title: igdbMatch.title,
+                description: igdbMatch.description,
+                image: igdbMatch.image,
+                link: igdbMatch.url || `https://www.igdb.com/games/${igdbMatch.title.toLowerCase().replace(/\s+/g, '-')}`,
+                source: 'IGDB',
+                siteType: 'IGDB',
+                similarity: igdbMatch.similarity
+              };
+              isFromIGDB = true;
+              logger.info(`Selected game from IGDB: "${bestMatch.title}" (similarity: ${bestMatch.similarity.toFixed(2)})`);
+            }
+          }
+        } catch (igdbError) {
+          logger.error('IGDB search error:', igdbError);
+          // Continue with the original error flow if IGDB fails
+        }
+      }
+
+      // If still no match found after both piracy sites and IGDB
+      if (!bestMatch) {
+        const piracySitesMessage = searchData.results && searchData.results.length > 0 
+          ? `Found ${searchData.results.length} results on piracy sites but none were suitable matches.`
+          : 'No results found on piracy sites.';
+        
         return NextResponse.json(
-          { error: `No games found matching "${trimmedGameName}"` },
+          { 
+            error: `No suitable match found for "${trimmedGameName}". ${piracySitesMessage} IGDB search also yielded no matches. Please try a more specific search term that closely matches the exact game title.`
+          },
           { status: 404 }
         );
-      }
-
-      // Find the best match with more strict similarity requirements
-      let bestMatch = null;
-      const { detectVersionNumber } = await import('../../../../utils/versionDetection');
-      
-      // Calculate similarity scores for all results
-      const scoredResults = searchData.results.map((game: { title: string; id: string }) => {
-        const similarity = calculateSimilarity(trimmedGameName, game.title);
-        const { found: hasVersion } = detectVersionNumber(game.title);
-        const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(game.title);
-        
-        return {
-          ...game,
-          similarity,
-          hasVersion: hasVersion || hasBuild
-        };
-      });
-
-      // Sort by version status first, then by similarity
-      scoredResults.sort((a: typeof scoredResults[0], b: typeof scoredResults[0]) => {
-        if (a.hasVersion && !b.hasVersion) return -1;
-        if (!a.hasVersion && b.hasVersion) return 1;
-        return b.similarity - a.similarity;
-      });
-
-      // For versioned games, accept any similarity > 0.3
-      // For unreleased games, require much higher similarity (> 0.7)
-      for (const game of scoredResults) {
-        if (game.hasVersion && game.similarity > 0.3) {
-          bestMatch = game;
-          logger.info(`Selected versioned game: "${game.title}" (similarity: ${game.similarity.toFixed(2)})`);
-          break;
-        }
-      }
-
-      // If no versioned game found, check for unreleased games with high similarity
-      if (!bestMatch) {
-        logger.info(`No versioned games found for "${trimmedGameName}", checking for unreleased games`);
-        
-        const unreleasedCandidates = scoredResults.filter((game: typeof scoredResults[0]) => !game.hasVersion && game.similarity > 0.7);
-        
-        if (unreleasedCandidates.length > 0) {
-          bestMatch = unreleasedCandidates[0];
-          logger.info(`Selected unreleased game: "${bestMatch.title}" (similarity: ${bestMatch.similarity.toFixed(2)})`);
-        } else {
-          const bestSimilarity = scoredResults[0]?.similarity || 0;
-          const sampleTitles = scoredResults.slice(0, 3).map((game: { title: string }) => `"${game.title}"`).join(', ');
-          
-          return NextResponse.json(
-            { 
-              error: `No suitable match found for "${trimmedGameName}". Best similarity was ${(bestSimilarity * 100).toFixed(0)}% with ${sampleTitles}. Please try a more specific search term that closely matches the exact game title.`
-            },
-            { status: 400 }
-          );
-        }
       }
 
       await connectDB();
@@ -301,9 +344,14 @@ export async function POST(req: NextRequest) {
       const isUnreleased = !hasVersion && !hasBuild;
       const similarity = bestMatch.similarity || calculateSimilarity(trimmedGameName, bestMatch.title);
       
-      const successMessage = isUnreleased
-        ? `Successfully added unreleased game "${bestMatch.title}" to your tracking list (${(similarity * 100).toFixed(0)}% match). Update detection will be limited until a versioned release is available.`
-        : `Successfully added "${bestMatch.title}" to your tracking list (${(similarity * 100).toFixed(0)}% match)`;
+      let successMessage;
+      if (isFromIGDB) {
+        successMessage = `Successfully added upcoming/unreleased game "${bestMatch.title}" from IGDB to your tracking list (${(similarity * 100).toFixed(0)}% match). You'll be notified when it becomes available on piracy sites.`;
+      } else {
+        successMessage = isUnreleased
+          ? `Successfully added unreleased game "${bestMatch.title}" to your tracking list (${(similarity * 100).toFixed(0)}% match). Update detection will be limited until a versioned release is available.`
+          : `Successfully added "${bestMatch.title}" to your tracking list (${(similarity * 100).toFixed(0)}% match)`;
+      }
 
       return NextResponse.json({
         message: successMessage,
@@ -316,7 +364,7 @@ export async function POST(req: NextRequest) {
           description: newTrackedGame.description,
           dateAdded: newTrackedGame.dateAdded
         },
-        searchResults: searchData.results.slice(0, 5).map((game: {
+        searchResults: isFromIGDB ? [] : (searchData.results || []).slice(0, 5).map((game: {
           id: string;
           title: string;
           source?: string;
