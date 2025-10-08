@@ -19,39 +19,6 @@ import { ExternalLinkIcon } from '../../components/ExternalLinkIcon';
 
 
 
-// Utility to format version/build badge
-function formatVersionBadge(version: string): string {
-  if (!version) return '';
-  // Only extract the build/version number, not the full string
-  // Build number
-  const buildMatch = version.match(/Build\s*(\d+)/i);
-  if (buildMatch) {
-    return `Build ${buildMatch[1]}`;
-  }
-  // v1.2.3, v20106408, etc.
-  const vMatch = version.match(/v?(\d+(?:\.\d+)+)/i);
-  if (vMatch) {
-    return `v${vMatch[1]}`;
-  }
-  // Just a long number (6+ digits)
-  const numMatch = version.match(/(\d{6,})/);
-  if (numMatch) {
-    return `v${numMatch[1]}`;
-  }
-  // If the string contains 'Build' and a number, extract just that
-  const buildOnly = version.match(/(Build\s*\d+)/i);
-  if (buildOnly) {
-    return buildOnly[1];
-  }
-  // Fallback: extract the last number in the string
-  const lastNum = version.match(/(\d+)/g);
-  if (lastNum && lastNum.length > 0) {
-    return lastNum[lastNum.length - 1];
-  }
-  // Fallback to a trimmed version
-  return version.length > 16 ? version.slice(0, 16) + '…' : version;
-}
-
 interface TrackedGame {
   _id: string;
   gameId: string;
