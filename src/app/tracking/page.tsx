@@ -637,7 +637,7 @@ export default function TrackingDashboard() {
                               {game.source}
                             </span>
                             <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
-                              <span>Original: {game.originalTitle}</span>
+                              <span>Latest: {cleanGameTitle(game.title)}</span>
                             </div>
                           </div>
                         </div>
