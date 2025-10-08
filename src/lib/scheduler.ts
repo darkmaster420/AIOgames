@@ -15,6 +15,7 @@ interface ScheduledCheck {
 class UpdateScheduler {
   private isRunning = false;
   private checkInterval: NodeJS.Timeout | null = null;
+  private cacheWarmInterval: NodeJS.Timeout | null = null;
   private scheduledChecks = new Map<string, ScheduledCheck>();
 
   constructor() {
@@ -47,8 +48,20 @@ class UpdateScheduler {
       }
     }, 5 * 60 * 1000); // 5 minutes
 
+    // Warm cache every 30 minutes to keep data fresh
+    this.cacheWarmInterval = setInterval(async () => {
+      try {
+        await this.warmCache();
+      } catch (error) {
+        console.error('❌ Error in cache warming:', error);
+      }
+    }, 30 * 60 * 1000); // 30 minutes
+
     // Initial load of scheduled checks
     this.loadScheduledChecks();
+    
+    // Initial cache warming (delayed by 30 seconds to let app start)
+    setTimeout(() => this.warmCache(), 30000);
     
     console.log('✅ Update scheduler started successfully');
   }
@@ -63,6 +76,10 @@ class UpdateScheduler {
     if (this.checkInterval) {
       clearInterval(this.checkInterval);
       this.checkInterval = null;
+    }
+    if (this.cacheWarmInterval) {
+      clearInterval(this.cacheWarmInterval);
+      this.cacheWarmInterval = null;
     }
     console.log('⏹️ Update scheduler stopped');
   }
@@ -126,12 +143,12 @@ class UpdateScheduler {
         const frequencies: { [key: string]: number } = {};
         
         for (const game of user.trackedGames) {
-          const freq = game.checkFrequency || 'daily';
+          const freq = game.checkFrequency || 'hourly';
           frequencies[freq] = (frequencies[freq] || 0) + 1;
         }
 
         // Use the most frequent schedule (prioritize: hourly > daily > weekly)
-        let userFrequency: 'hourly' | 'daily' | 'weekly' = 'daily';
+        let userFrequency: 'hourly' | 'daily' | 'weekly' = 'hourly';
         if (frequencies.hourly > 0) {
           userFrequency = 'hourly';
         } else if (frequencies.daily > 0) {
@@ -234,6 +251,33 @@ class UpdateScheduler {
   }
 
   /**
+   * Warm the game API cache proactively
+   */
+  private async warmCache(): Promise<void> {
+    try {
+      console.log('🔥 Warming cache...');
+      
+      const baseUrl = process.env.NODE_ENV === 'production' 
+        ? process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+        : `http://localhost:${process.env.PORT || 3000}`;
+      
+      const response = await fetch(`${baseUrl}/api/cache/warm`, {
+        method: 'GET'
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log(`🔥✅ Cache warmed: ${result.gameCount} games loaded in ${result.duration}`);
+      } else {
+        console.warn(`⚠️ Cache warming failed: ${response.status}`);
+      }
+
+    } catch (error) {
+      console.error('❌ Cache warming error:', error);
+    }
+  }
+
+  /**
    * Calculate the next check time based on frequency
    */
   private calculateNextCheck(lastCheck: Date, frequency: 'hourly' | 'daily' | 'weekly'): Date {
@@ -276,8 +320,8 @@ class UpdateScheduler {
       }
 
       // Determine the most frequent schedule needed
-      const frequencies = trackedGames.map(game => game.checkFrequency || 'daily');
-      let userFrequency: 'hourly' | 'daily' | 'weekly' = 'daily';
+      const frequencies = trackedGames.map(game => game.checkFrequency || 'hourly');
+      let userFrequency: 'hourly' | 'daily' | 'weekly' = 'hourly';
       
       if (frequencies.includes('hourly')) {
         userFrequency = 'hourly';

@@ -71,14 +71,30 @@ export function detectVersionNumber(title: string): { found: boolean; version?: 
 
   const regularVersionPatterns = [
     // Special patterns like v1.0a, v2.1b, v1.5-beta, v1.0alpha (check these BEFORE simple patterns)
-    /\bv(\d+(?:\.\d+)*(?:[a-z]|(?:\-?(?:alpha|beta|rc|final|release))))\b/i,
+    /\bv(\d+(?:\.\d+)*(?:[a-z]|(?:\-?(?:alpha|beta|rc|final|release|hotfix|patch))))\b/i,
     // v1.2.3, v1.2, v1.0.0 (simple numeric patterns) - exclude long numbers that look like dates
     /\bv(\d{1,2}(?:\.\d+){1,3})\b/i, // Require at least one dot and limit first number to 1-2 digits
     /\bv(\d{1,3})\b/i, // Single number versions (1-3 digits only)
-    // Version 1.2.3, Ver 1.2
-    /\b(?:version|ver)[\s\-\.]?(\d+(?:\.\d+){0,3})\b/i,
-    // 1.2.3 (standalone version numbers)
-    /\b(\d+\.\d+(?:\.\d+)*)\b/
+    // Enhanced version patterns for scene releases
+    /\bversion[\s\-\.]?(\d+(?:\.\d+){0,3}(?:[a-z]|(?:\-?(?:alpha|beta|rc|final|release|hotfix|patch)))?)\b/i,
+    /\bver[\s\-\.]?(\d+(?:\.\d+){0,3}(?:[a-z]|(?:\-?(?:alpha|beta|rc|final|release|hotfix|patch)))?)\b/i,
+    /\bupdate[\s\-\.]?(\d+(?:\.\d+){0,3})\b/i,  // Update 1.5, Update 2.0.1
+    /\bpatch[\s\-\.]?(\d+(?:\.\d+){0,3})\b/i,   // Patch 1.2, Patch 3.0.1
+    /\bhotfix[\s\-\.]?(\d+(?:\.\d+){0,3})\b/i,  // Hotfix 1.1, Hotfix 2.0.5
+    /\brev[\s\-\.]?(\d+(?:\.\d+){0,3})\b/i,     // Rev 1.2, Rev 2.1.0
+    /\br(\d+(?:\.\d+){0,3})\b/i,                // r1.5, r2.0.1
+    // Enhanced bracketed and delimited versions
+    /\[v?(\d+(?:\.\d+){1,3})\]/i,               // [v1.2.3], [1.2.3]
+    /\-v?(\d+(?:\.\d+){1,3})\-/i,               // -v1.2.3-, -1.2.3-
+    /\_v?(\d+(?:\.\d+){1,3})\_/i,               // _v1.2.3_, _1.2.3_
+    // Scene-specific version patterns
+    /\b(\d+\.\d+(?:\.\d+)*)\s*(?:repack|proper|real|uncut|extended|complete|goty|definitive)\b/i,
+    /\b(?:repack|proper|real|uncut|extended|complete|goty|definitive)\s*(\d+\.\d+(?:\.\d+)*)\b/i,
+    // 1.2.3 (standalone version numbers) - be more selective to avoid false positives
+    /\b(\d{1,2}\.\d{1,3}(?:\.\d{1,3})*)\b/,    // Limit digit counts to avoid date confusion
+    // Build-version combinations
+    /\bb(\d+)v(\d+(?:\.\d+)*)/i,                // b1234v1.5
+    /\bv(\d+(?:\.\d+)*)b(\d+)/i                 // v1.5b1234 (captures version part)
   ];
 
   let dateVersionResult: { found: boolean; version: string; isDateVersion: boolean; isStaleDateVersion?: boolean; dateValue?: Date } | null = null;
@@ -201,13 +217,29 @@ export function detectVersionNumber(title: string): { found: boolean; version?: 
 export function detectBuildNumber(title: string): { found: boolean; build?: string; isDateBasedBuild?: boolean; hasPreferredBuild?: boolean } {
   const explicitBuildPatterns = [
     // Build 12345, Build#12345 - these are clearly marked as builds
-    /\bbuild[\s\-\#]?(\d+)\b/i,
+    /\bbuild[\s\-\#\.]?(\d+)\b/i,
     // b12345, B12345 - explicitly marked with 'b'
     /\bb(\d{4,})\b/i,
     // #12345 (hash followed by numbers) - explicitly marked
     /\#(\d{4,})\b/,
     // (12345) - numbers in parentheses that look like builds
-    /\((\d{6,})\)/
+    /\((\d{6,})\)/,
+    // Enhanced build patterns for scene releases
+    /\bbuild[\s\-\#\.]?no[\s\-\.]?(\d+)\b/i,     // Build No 12345, Build-No.12345
+    /\brev[\s\-\.]?(\d{4,})\b/i,                 // Rev 12345, Rev.12345
+    /\br(\d{4,})\b/i,                            // r12345
+    /\brelease[\s\-\.]?(\d{4,})\b/i,             // Release 12345
+    // Bracketed and delimited builds
+    /\[b(\d{4,})\]/i,                            // [b12345]
+    /\[build[\s\-\#\.]?(\d+)\]/i,                // [build 12345]
+    /\-b(\d{4,})\-/i,                            // -b12345-
+    /\_b(\d{4,})\_/i,                            // _b12345_
+    // Steam build patterns
+    /\bsteam[\s\-\.]?build[\s\-\.]?(\d+)\b/i,    // Steam Build 12345
+    /\bdepot[\s\-\.]?(\d{6,})\b/i,               // Depot 123456
+    // Date-based build patterns (but explicitly marked)
+    /\bbuild[\s\-\#\.]?(\d{8})\b/i,              // build 20241007
+    /\bb(\d{8})\b/i                              // b20241007
   ];
 
   const ambiguousBuildPatterns = [

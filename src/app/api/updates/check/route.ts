@@ -7,6 +7,7 @@ import { sendUpdateNotification, createUpdateNotificationData } from '../../../.
 import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
 import { extractReleaseGroup, analyzeGameTitle } from '../../../../utils/versionDetection';
+import { detectUpdatesWithAI, isAIDetectionAvailable, prepareCandidatesForAI } from '../../../../utils/aiUpdateDetection';
 
 interface GameSearchResult {
   id: string;
@@ -473,8 +474,8 @@ export async function POST(request: Request) {
           }
         }
 
-        // Now select the best match based on what the tracked game has verified
-  logger.debug(`Found ${potentialMatches.length} potential matches for "${game.title}" (gate: ${bestGate})`);
+        // Now select the best match with AI-enhanced detection
+        logger.debug(`Found ${potentialMatches.length} potential matches for "${game.title}" (gate: ${bestGate})`);
         
         let selectedMatch: EnhancedMatch | null = null;
 
@@ -484,29 +485,27 @@ export async function POST(request: Request) {
           const hasVerifiedBuild = game.buildNumberVerified && game.currentBuildNumber;
           logger.debug(`Game verification status: Version=${hasVerifiedVersion ? game.currentVersionNumber : 'No'}, Build=${hasVerifiedBuild ? game.currentBuildNumber : 'No'}`);
           
-          // Enhanced sorting with AI assistance for uncertain matches
-          const aiEnhancedMatches: EnhancedMatch[] = [];
-          const uncertainMatches = sortedMatches.filter(m => 
-            m.similarity >= 0.8 && m.similarity < 0.95 && 
-            (!hasVerifiedVersion && !hasVerifiedBuild)
-          );
-
-          if (uncertainMatches.length > 0 && aiPreferences.enabled) {
+          // AI-First Enhanced Detection Strategy
+          const aiAvailable = await isAIDetectionAvailable();
+          
+          if (aiAvailable && aiPreferences.enabled && sortedMatches.length > 0) {
             try {
-              // Use AI to analyze uncertain matches
-              logger.debug(`🤖 Analyzing ${uncertainMatches.length} uncertain matches with AI`);
+              logger.debug(`🤖 Using AI-first detection for ${sortedMatches.length} candidates`);
               
-              const { detectUpdatesWithAI, prepareCandidatesForAI } = await import('../../../../utils/aiUpdateDetection');
-              
+              // Prepare ALL matches for AI analysis, not just uncertain ones
               const candidates = prepareCandidatesForAI(
-                uncertainMatches.map(m => ({
+                sortedMatches.map(m => ({
                   title: m.game.title,
                   link: m.game.link,
                   date: m.game.date,
                   similarity: m.similarity
                 })),
                 game.title,
-                { maxCandidates: Math.min(5, uncertainMatches.length), minSimilarity: 0.8 }
+                { 
+                  maxCandidates: Math.min(10, sortedMatches.length), 
+                  minSimilarity: 0.75,  // Lower threshold for AI analysis
+                  includeDate: true 
+                }
               );
 
               const aiResults = await detectUpdatesWithAI(
@@ -518,97 +517,145 @@ export async function POST(request: Request) {
                   gameLink: game.gameLink
                 },
                 {
-                  minConfidence: 0.6,
-                  requireVersionPattern: true, // Only consider candidates with version/build patterns
-                  debugLogging: aiPreferences.debugLogging
+                  minConfidence: 0.5,  // Lower AI confidence threshold
+                  requireVersionPattern: false,  // Let AI decide what constitutes an update
+                  debugLogging: aiPreferences.debugLogging,
+                  maxCandidates: 10
                 }
               );
 
-              // Enhance matches with AI confidence
-              for (const match of uncertainMatches) {
+              // Create AI-enhanced matches with much higher AI weighting
+              const aiEnhancedMatches: EnhancedMatch[] = [];
+              
+              for (const match of sortedMatches) {
                 const aiResult = aiResults.find(ai => ai.title === match.game.title);
-                if (aiResult && aiResult.isUpdate) {
+                if (aiResult) {
+                  // High AI weighting: 60% AI confidence, 40% similarity
+                  const enhancedScore = match.similarity * 0.4 + aiResult.confidence * 0.6;
+                  
                   aiEnhancedMatches.push({
                     ...match,
                     aiConfidence: aiResult.confidence,
                     aiReason: aiResult.reason,
-                    enhancedScore: match.similarity * 0.7 + aiResult.confidence * 0.3
+                    enhancedScore: aiResult.isUpdate ? enhancedScore : match.similarity * 0.3 // Penalize non-updates
                   });
-                  logger.debug(`🤖✨ AI enhanced match: "${match.game.title}" (confidence: ${aiResult.confidence.toFixed(2)})`);
+                  
+                  logger.debug(`🤖 AI analysis: "${match.game.title}" - Update: ${aiResult.isUpdate}, Confidence: ${aiResult.confidence.toFixed(2)}, Reason: ${aiResult.reason}`);
                 } else {
+                  // No AI result, lower the score significantly
                   aiEnhancedMatches.push({
                     ...match,
                     aiConfidence: 0,
-                    aiReason: 'Not detected as update by AI',
-                    enhancedScore: match.similarity * 0.9
+                    aiReason: 'No AI analysis available',
+                    enhancedScore: match.similarity * 0.5
                   });
                 }
               }
 
-              // Replace uncertain matches with AI-enhanced ones
-              sortedMatches = [
-                ...sortedMatches.filter(m => !uncertainMatches.includes(m)),
-                ...aiEnhancedMatches
-              ];
+              // Replace matches with AI-enhanced ones
+              sortedMatches = aiEnhancedMatches;
+              logger.info(`🤖✨ AI-enhanced ${sortedMatches.length} matches using AI-first strategy`);
 
             } catch (aiError) {
               logger.warn(`⚠️ AI enhancement failed: ${aiError instanceof Error ? aiError.message : 'unknown error'}`);
-              // Continue with original matches if AI fails and fallback is enabled
+              // Fallback to regex-only if AI fails
               if (!aiPreferences.fallbackToRegex) {
-                logger.warn('AI fallback disabled, skipping uncertain matches');
-                sortedMatches = sortedMatches.filter(m => !uncertainMatches.includes(m));
+                logger.warn('AI fallback disabled, using reduced confidence scores');
+                sortedMatches = sortedMatches.map(m => ({
+                  ...m,
+                  enhancedScore: m.similarity * 0.6  // Reduce confidence without AI
+                }));
               }
             }
-          } else if (uncertainMatches.length > 0 && !aiPreferences.enabled) {
-            logger.debug('🤖 AI detection disabled, using regex-only for uncertain matches');
+          } else {
+            logger.debug('🤖 AI detection not available or disabled, using enhanced regex detection');
+            
+            // Enhanced regex-only detection with better patterns
+            for (const match of sortedMatches) {
+              let regexScore = match.similarity;
+              let updateIndicators = 0;
+              
+              // Enhanced update detection keywords
+              const updateKeywords = [
+                'update', 'patch', 'hotfix', 'build', 'version', 'v\\d', 'rev', 'fixed',
+                'bugfix', 'new version', 'latest', 'improved', 'enhanced', 'repack',
+                'director.*cut', 'goty', 'complete.*edition', 'final.*cut'
+              ];
+              
+              // Enhanced version pattern detection
+              const versionPatterns = [
+                /v\d+\.\d+\.\d+/i,      // v1.2.3
+                /\d+\.\d+\.\d+/,        // 1.2.3
+                /build\s*\d+/i,         // build 1234
+                /patch\s*\d+/i,         // patch 12
+                /update\s*\d+/i,        // update 5
+                /rev\s*\d+/i,           // rev 123
+                /r\d+/i,                // r123
+                /v\d{8}/i,              // v20241007 (date version)
+                /\d{4}[-\.]\d{2}[-\.]\d{2}/  // 2024-10-07
+              ];
+              
+              const titleLower = match.game.title.toLowerCase();
+              const gameTitle = game.title.toLowerCase();
+              
+              // Check for update keywords not in original
+              for (const keyword of updateKeywords) {
+                const regex = new RegExp(keyword, 'i');
+                if (regex.test(titleLower) && !regex.test(gameTitle)) {
+                  updateIndicators++;
+                  regexScore += 0.1; // Boost score for update keywords
+                }
+              }
+              
+              // Check for version patterns
+              for (const pattern of versionPatterns) {
+                if (pattern.test(match.game.title)) {
+                  updateIndicators++;
+                  regexScore += 0.15; // Higher boost for version patterns
+                }
+              }
+              
+              match.enhancedScore = Math.min(regexScore, 1.0);
+              match.aiReason = `Regex analysis: ${updateIndicators} update indicators`;
+            }
           }
 
-          if (hasVerifiedVersion && hasVerifiedBuild) {
-            logger.debug('Using both version and build number comparison');
-            sortedMatches.sort((a, b) => {
+          // Sort by enhanced scores (AI-weighted or regex-enhanced)
+          sortedMatches.sort((a, b) => {
+            const aScore = a.enhancedScore || a.similarity;
+            const bScore = b.enhancedScore || b.similarity;
+            
+            // Primary sort by enhanced score
+            if (Math.abs(bScore - aScore) > 0.05) return bScore - aScore;
+            
+            // Secondary sort by verification-specific criteria
+            if (hasVerifiedVersion && hasVerifiedBuild) {
               const aVersion = parseFloat(a.versionInfo.version || '0');
               const bVersion = parseFloat(b.versionInfo.version || '0');
+              if (bVersion !== aVersion) return bVersion - aVersion;
               const aBuild = parseInt(a.versionInfo.build || '0');
               const bBuild = parseInt(b.versionInfo.build || '0');
-              if (bVersion !== aVersion) return bVersion - aVersion;
               return bBuild - aBuild;
-            });
-          } else if (hasVerifiedVersion) {
-            logger.debug('Using version number comparison only');
-            sortedMatches = sortedMatches.filter(m => m.versionInfo.version);
-            sortedMatches.sort((a, b) => {
+            } else if (hasVerifiedVersion) {
               const aVersion = parseFloat(a.versionInfo.version || '0');
               const bVersion = parseFloat(b.versionInfo.version || '0');
               return bVersion - aVersion;
-            });
-          } else if (hasVerifiedBuild) {
-            logger.debug('Using build number comparison only');
-            sortedMatches = sortedMatches.filter(m => m.versionInfo.build);
-            sortedMatches.sort((a, b) => {
+            } else if (hasVerifiedBuild) {
               const aBuild = parseInt(a.versionInfo.build || '0');
               const bBuild = parseInt(b.versionInfo.build || '0');
               return bBuild - aBuild;
-            });
-          } else {
-            logger.debug('Using AI-enhanced similarity-based comparison');
-            sortedMatches.sort((a, b) => {
-              // Use AI-enhanced score if available, otherwise fall back to similarity
-              const aScore = a.enhancedScore || a.similarity;
-              const bScore = b.enhancedScore || b.similarity;
-              if (bScore !== aScore) return bScore - aScore;
-              const aVersion = parseFloat(a.versionInfo.version || '0');
-              const bVersion = parseFloat(b.versionInfo.version || '0');
-              const aBuild = parseInt(a.versionInfo.build || '0');
-              const bBuild = parseInt(b.versionInfo.build || '0');
-              if (bVersion !== aVersion) return bVersion - aVersion;
-              return bBuild - aBuild;
-            });
-          }
+            }
+            
+            // Tertiary sort by original similarity
+            return b.similarity - a.similarity;
+          });
+
           bestMatch = sortedMatches[0]?.game || null;
           bestSimilarity = sortedMatches[0]?.similarity || 0;
           selectedMatch = sortedMatches[0] || null;
+          
           if (bestMatch) {
-            logger.debug(`Selected best match: "${bestMatch.title}" (similarity: ${bestSimilarity.toFixed(2)}, gate: ${bestGate})`);
+            logger.debug(`Selected best match: "${bestMatch.title}" (similarity: ${bestSimilarity.toFixed(2)}, enhanced: ${(selectedMatch?.enhancedScore || 0).toFixed(2)}, gate: ${bestGate})`);
             if (selectedMatch?.aiConfidence) {
               logger.debug(`🤖 AI confidence: ${selectedMatch.aiConfidence.toFixed(2)} - ${selectedMatch.aiReason}`);
             }

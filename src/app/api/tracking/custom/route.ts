@@ -172,7 +172,7 @@ export async function POST(req: NextRequest) {
         dateAdded: new Date(),
         lastChecked: new Date(),
         notificationsEnabled: true,
-        checkFrequency: 'daily',
+        checkFrequency: 'hourly',
         updateHistory: [],
         isActive: true,
         originalTitle: bestMatch.title,

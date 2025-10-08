@@ -8,6 +8,7 @@ import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities, reso
 import logger from '../../../../utils/logger';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
 import { extractReleaseGroup, analyzeGameTitle } from '../../../../utils/versionDetection';
+import { detectUpdatesWithAI, isAIDetectionAvailable, prepareCandidatesForAI } from '../../../../utils/aiUpdateDetection';
 
 interface GameSearchResult {
   id: string;
@@ -585,22 +586,23 @@ export async function POST(request: Request) {
         
         const comparison = compareVersions(currentVersionInfo, newVersionInfo);
         
-        // Enhanced update detection with AI assistance
-        let isUpdateCandidate = comparison.isNewer || newVersionInfo.needsUserConfirmation;
+        // AI-First Enhanced Update Detection
+        let isUpdateCandidate = false;
         let aiConfidence = 0;
         let aiReason = '';
+        let enhancedScore = similarity;
         
-        // If regex detection is uncertain, try AI detection for better accuracy
-        if (!comparison.isNewer && similarity >= 0.8) {
+        // Try AI detection first if available
+        const aiAvailable = await isAIDetectionAvailable();
+        
+        if (aiAvailable && similarity >= 0.75) {
           try {
-            console.log(`🤖 Trying AI detection for uncertain case: "${decodedTitle}"`);
-            
-            const { detectUpdatesWithAI, prepareCandidatesForAI } = await import('../../../../utils/aiUpdateDetection');
+            console.log(`🤖 Using AI-first detection for: "${decodedTitle}" (similarity: ${similarity.toFixed(2)})`);
             
             const candidates = prepareCandidatesForAI(
-              [{ title: decodedTitle, link: result.link, date: result.date }],
+              [{ title: decodedTitle, link: result.link, date: result.date, similarity }],
               game.title,
-              { maxCandidates: 1, minSimilarity: 0.8 }
+              { maxCandidates: 1, minSimilarity: 0.75, includeDate: true }
             );
 
             const aiResults = await detectUpdatesWithAI(
@@ -612,24 +614,84 @@ export async function POST(request: Request) {
                 gameLink: game.gameLink
               },
               {
-                minConfidence: 0.6,
-                requireVersionPattern: true, // Only consider candidates with version/build patterns
-                debugLogging: false
+                minConfidence: 0.4,  // Lower threshold for single game check
+                requireVersionPattern: false,  // Let AI decide
+                debugLogging: true,
+                maxCandidates: 1
               }
             );
 
-            if (aiResults.length > 0 && aiResults[0].isUpdate) {
-              isUpdateCandidate = true;
-              aiConfidence = aiResults[0].confidence;
-              aiReason = aiResults[0].reason;
-              console.log(`🤖✨ AI detected update with confidence ${aiConfidence.toFixed(2)}: ${aiReason}`);
+            if (aiResults.length > 0) {
+              const aiResult = aiResults[0];
+              aiConfidence = aiResult.confidence;
+              aiReason = aiResult.reason;
+              
+              // Enhanced scoring: 40% similarity, 60% AI confidence
+              enhancedScore = similarity * 0.4 + aiResult.confidence * 0.6;
+              
+              // AI decides if it's an update
+              isUpdateCandidate = aiResult.isUpdate && aiResult.confidence >= 0.5;
+              
+              console.log(`🤖 AI analysis: Update=${aiResult.isUpdate}, Confidence=${aiConfidence.toFixed(2)}, Enhanced Score=${enhancedScore.toFixed(2)}, Reason=${aiReason}`);
             } else {
-              console.log(`🤖 AI analysis: not an update`);
+              console.log(`🤖 AI analysis: No results returned`);
+              // Fallback to regex if AI returns no results
+              isUpdateCandidate = comparison.isNewer || newVersionInfo.needsUserConfirmation;
+              aiReason = 'AI provided no analysis, using regex fallback';
             }
             
           } catch (aiError) {
-            console.log(`⚠️ AI detection failed, using regex result: ${aiError instanceof Error ? aiError.message : 'unknown error'}`);
+            console.log(`⚠️ AI detection failed: ${aiError instanceof Error ? aiError.message : 'unknown error'}`);
+            // Fallback to enhanced regex detection
+            isUpdateCandidate = comparison.isNewer || newVersionInfo.needsUserConfirmation;
+            
+            // Enhanced regex scoring when AI fails
+            const titleLower = decodedTitle.toLowerCase();
+            const gameTitle = game.title.toLowerCase();
+            
+            // Enhanced update keyword detection
+            const updateKeywords = [
+              'update', 'patch', 'hotfix', 'build', 'version', 'v\\d', 'rev', 'fixed',
+              'bugfix', 'new version', 'latest', 'improved', 'enhanced', 'repack',
+              'director.*cut', 'goty', 'complete.*edition', 'final.*cut'
+            ];
+            
+            let updateIndicators = 0;
+            for (const keyword of updateKeywords) {
+              const regex = new RegExp(keyword, 'i');
+              if (regex.test(titleLower) && !regex.test(gameTitle)) {
+                updateIndicators++;
+                enhancedScore += 0.1;
+              }
+            }
+            
+            // Enhanced version pattern detection
+            const versionPatterns = [
+              /v\d+\.\d+\.\d+/i, /\d+\.\d+\.\d+/, /build\s*\d+/i, /patch\s*\d+/i,
+              /update\s*\d+/i, /rev\s*\d+/i, /r\d+/i, /v\d{8}/i, /\d{4}[-\.]\d{2}[-\.]\d{2}/
+            ];
+            
+            for (const pattern of versionPatterns) {
+              if (pattern.test(decodedTitle)) {
+                updateIndicators++;
+                enhancedScore += 0.15;
+              }
+            }
+            
+            enhancedScore = Math.min(enhancedScore, 1.0);
+            aiReason = `Enhanced regex analysis: ${updateIndicators} update indicators (AI unavailable)`;
+            
+            // Boost confidence if we have strong indicators
+            if (updateIndicators >= 2 && similarity >= 0.85) {
+              isUpdateCandidate = true;
+            }
           }
+        } else {
+          // AI not available or similarity too low - use enhanced regex only
+          isUpdateCandidate = comparison.isNewer || newVersionInfo.needsUserConfirmation;
+          aiReason = aiAvailable ? 'Similarity below AI threshold (0.75)' : 'AI detection not available';
+          
+          console.log(`🤖 ${aiReason}, using regex detection: ${isUpdateCandidate}`);
         }
         
         if (isUpdateCandidate) {

@@ -9,6 +9,7 @@ import { SmartVersionVerification } from '../../components/SmartVersionVerificat
 import ReleaseGroupInsight from '../../components/ReleaseGroupInsight';
 import { SequelNotifications } from '../../components/SequelNotifications';
 import { AddCustomGame } from '../../components/AddCustomGame';
+import { FrequencySelector } from '../../components/FrequencySelector';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { ImageWithFallback } from '../../utils/imageProxy';
 import { cleanGameTitle } from '../../utils/steamApi';
@@ -237,21 +238,12 @@ export default function TrackingDashboard() {
 
   const handleUntrack = async (gameId: string) => {
     try {
-      const gameTitle = trackedGames.find(g => g.gameId === gameId)?.title || 'Game';
-      
-      const confirmed = await confirm(
-        'Remove Game from Tracking',
-        `Are you sure you want to stop tracking "${gameTitle}"? This action cannot be undone.`,
-        { confirmText: 'Remove', cancelText: 'Close', type: 'danger' }
-      );
-
-      if (!confirmed) return;
-
       const response = await fetch(`/api/tracking?gameId=${gameId}`, {
         method: 'DELETE'
       });
 
       if (response.ok) {
+        const gameTitle = trackedGames.find(g => g.gameId === gameId)?.title || 'Game';
         setTrackedGames(prev => prev.filter(game => game.gameId !== gameId));
         showSuccess('Game Removed!', `${gameTitle} has been removed from tracking.`);
       } else {
@@ -590,12 +582,15 @@ export default function TrackingDashboard() {
                           {getTimeSince(game.lastChecked)}
                         </span>
                       </div>
-                      <div>
-                        <span className="text-gray-500 dark:text-gray-400">Check Frequency:</span>
-                        <span className="ml-1 sm:ml-2 text-gray-900 dark:text-white capitalize">
-                          {game.checkFrequency}
-                        </span>
-                      </div>
+                    </div>
+
+                    {/* Frequency Selector */}
+                    <div className="mt-3 sm:mt-4">
+                      <FrequencySelector
+                        gameId={game._id}
+                        currentFrequency={game.checkFrequency}
+                        onFrequencyChanged={loadTrackedGames}
+                      />
                     </div>
 
                     {/* Latest Update Status */}
