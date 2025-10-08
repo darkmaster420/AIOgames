@@ -732,7 +732,7 @@ export function calculateGameSimilarity(title1: string, title2: string): number 
   }
   
   const totalMatches = exactMatches.length + fuzzyMatches;
-  const union = [...new Set([...words1, ...words2])];
+  const union = Array.from(new Set([...words1, ...words2]));
   const jaccard = totalMatches / union.length;
   
   // Boost score for games with similar word count

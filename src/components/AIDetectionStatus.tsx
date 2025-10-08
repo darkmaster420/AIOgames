@@ -20,24 +20,14 @@ export function AIDetectionStatus() {
       setLoading(true);
       setError(null);
 
-      // AI detection is now integrated into the main update pipeline
-      // Check if the worker URL is configured
-      const workerUrl = process.env.NEXT_PUBLIC_AI_DETECTION_WORKER_URL;
-      
-      if (workerUrl) {
-        setStatus({
-          configured: true,
-          status: 'integrated',
-          message: 'AI detection integrated into update pipeline',
-          workerUrl: workerUrl
-        });
-      } else {
-        setStatus({
-          configured: false,
-          status: 'not_configured',
-          message: 'AI detection worker URL not configured'
-        });
+      // Check AI detection status via API endpoint
+      const response = await fetch('/api/admin/ai-detection-status');
+      if (!response.ok) {
+        throw new Error('Failed to fetch AI detection status');
       }
+      
+      const statusData = await response.json();
+      setStatus(statusData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load AI detection status');
     } finally {

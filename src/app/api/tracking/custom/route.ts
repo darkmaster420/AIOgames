@@ -8,6 +8,33 @@ import { updateScheduler } from '../../../../lib/scheduler';
 import { analyzeGameTitle, extractReleaseGroup } from '../../../../utils/versionDetection';
 import logger from '../../../../utils/logger';
 
+// Helper function to calculate similarity between two strings
+function calculateSimilarity(str1: string, str2: string): number {
+  const s1 = str1.toLowerCase().trim();
+  const s2 = str2.toLowerCase().trim();
+  
+  // Exact match
+  if (s1 === s2) return 1.0;
+  
+  // Check if one is contained in the other (but with length consideration)
+  if (s1.includes(s2) || s2.includes(s1)) {
+    const longer = s1.length > s2.length ? s1 : s2;
+    const shorter = s1.length <= s2.length ? s1 : s2;
+    return shorter.length / longer.length;
+  }
+  
+  // Word-based similarity
+  const words1 = s1.split(/\s+/).filter(w => w.length > 2); // Filter out short words
+  const words2 = s2.split(/\s+/).filter(w => w.length > 2);
+  
+  if (words1.length === 0 || words2.length === 0) return 0;
+  
+  const intersection = words1.filter(word => words2.includes(word));
+  const union = Array.from(new Set([...words1, ...words2]));
+  
+  return intersection.length / union.length;
+}
+
 // POST: Add a custom game by name to tracking
 export async function POST(req: NextRequest) {
   try {
@@ -18,6 +45,9 @@ export async function POST(req: NextRequest) {
         { status: 401 }
       );
     }
+
+    // Cast user to include id property
+    const authenticatedUser = user as { id: string; email: string; name: string };
 
     const { gameName } = await req.json();
 
@@ -51,51 +81,59 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Find the best match, prioritizing games with version/build info but allowing unreleased games
+      // Find the best match with more strict similarity requirements
       let bestMatch = null;
       const { detectVersionNumber } = await import('../../../../utils/versionDetection');
       
-      // Try to find a result with version/build info, prioritizing exact matches
-      const exactMatches = searchData.results.filter((game: { title: string }) => 
-        game.title.toLowerCase().includes(trimmedGameName.toLowerCase()) ||
-        trimmedGameName.toLowerCase().includes(game.title.toLowerCase())
-      );
-      
-      // Check exact matches first for versions/builds
-      for (const game of exactMatches) {
+      // Calculate similarity scores for all results
+      const scoredResults = searchData.results.map((game: { title: string; id: string }) => {
+        const similarity = calculateSimilarity(trimmedGameName, game.title);
         const { found: hasVersion } = detectVersionNumber(game.title);
         const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(game.title);
         
-        if (hasVersion || hasBuild) {
+        return {
+          ...game,
+          similarity,
+          hasVersion: hasVersion || hasBuild
+        };
+      });
+
+      // Sort by version status first, then by similarity
+      scoredResults.sort((a: typeof scoredResults[0], b: typeof scoredResults[0]) => {
+        if (a.hasVersion && !b.hasVersion) return -1;
+        if (!a.hasVersion && b.hasVersion) return 1;
+        return b.similarity - a.similarity;
+      });
+
+      // For versioned games, accept any similarity > 0.3
+      // For unreleased games, require much higher similarity (> 0.7)
+      for (const game of scoredResults) {
+        if (game.hasVersion && game.similarity > 0.3) {
           bestMatch = game;
+          logger.info(`Selected versioned game: "${game.title}" (similarity: ${game.similarity.toFixed(2)})`);
           break;
         }
       }
-      
-      // If no exact match with version/build found, check all results for versions/builds
+
+      // If no versioned game found, check for unreleased games with high similarity
       if (!bestMatch) {
-        for (const game of searchData.results) {
-          const { found: hasVersion } = detectVersionNumber(game.title);
-          const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(game.title);
-          
-          if (hasVersion || hasBuild) {
-            bestMatch = game;
-            break;
-          }
-        }
-      }
-      
-      // If still no versioned game found, allow unreleased games (pick best exact match or first result)
-      if (!bestMatch) {
-        logger.info(`No versioned games found for "${trimmedGameName}", allowing unreleased game tracking`);
+        logger.info(`No versioned games found for "${trimmedGameName}", checking for unreleased games`);
         
-        // Prefer exact matches for unreleased games
-        if (exactMatches.length > 0) {
-          bestMatch = exactMatches[0];
-          logger.info(`Selected exact match for unreleased game: "${bestMatch.title}"`);
+        const unreleasedCandidates = scoredResults.filter((game: typeof scoredResults[0]) => !game.hasVersion && game.similarity > 0.7);
+        
+        if (unreleasedCandidates.length > 0) {
+          bestMatch = unreleasedCandidates[0];
+          logger.info(`Selected unreleased game: "${bestMatch.title}" (similarity: ${bestMatch.similarity.toFixed(2)})`);
         } else {
-          bestMatch = searchData.results[0];
-          logger.info(`Selected first result for unreleased game: "${bestMatch.title}"`);
+          const bestSimilarity = scoredResults[0]?.similarity || 0;
+          const sampleTitles = scoredResults.slice(0, 3).map((game: { title: string }) => `"${game.title}"`).join(', ');
+          
+          return NextResponse.json(
+            { 
+              error: `No suitable match found for "${trimmedGameName}". Best similarity was ${(bestSimilarity * 100).toFixed(0)}% with ${sampleTitles}. Please try a more specific search term that closely matches the exact game title.`
+            },
+            { status: 400 }
+          );
         }
       }
 
@@ -103,7 +141,7 @@ export async function POST(req: NextRequest) {
 
       // Check if game is already being tracked
       const existingGame = await TrackedGame.findOne({
-        userId: user.id,
+        userId: authenticatedUser.id,
         gameId: bestMatch.id
       });
 
@@ -124,7 +162,7 @@ export async function POST(req: NextRequest) {
       // Create new tracked game
 
       const newTrackedGame = new TrackedGame({
-        userId: user.id,
+        userId: authenticatedUser.id,
         gameId: bestMatch.id,
         title: bestMatch.title,
         source: bestMatch.source || bestMatch.siteType || 'Unknown',
@@ -282,7 +320,7 @@ export async function POST(req: NextRequest) {
 
       // Update user's scheduler after adding a game
       try {
-        await updateScheduler.updateUserSchedule(user.id);
+        await updateScheduler.updateUserSchedule(authenticatedUser.id);
       } catch (schedulerError) {
         logger.error('Failed to update scheduler:', schedulerError);
         // Don't fail the request if scheduler update fails
@@ -292,10 +330,11 @@ export async function POST(req: NextRequest) {
       const { found: hasVersion } = detectVersionNumber(bestMatch.title);
       const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(bestMatch.title);
       const isUnreleased = !hasVersion && !hasBuild;
+      const similarity = bestMatch.similarity || calculateSimilarity(trimmedGameName, bestMatch.title);
       
       const successMessage = isUnreleased
-        ? `Successfully added unreleased game "${bestMatch.title}" to your tracking list. Update detection will be limited until a versioned release is available.`
-        : `Successfully added "${bestMatch.title}" to your tracking list`;
+        ? `Successfully added unreleased game "${bestMatch.title}" to your tracking list (${(similarity * 100).toFixed(0)}% match). Update detection will be limited until a versioned release is available.`
+        : `Successfully added "${bestMatch.title}" to your tracking list (${(similarity * 100).toFixed(0)}% match)`;
 
       return NextResponse.json({
         message: successMessage,
