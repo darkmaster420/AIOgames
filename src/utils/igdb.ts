@@ -85,29 +85,77 @@ export async function searchIGDB(query: string): Promise<IGDBSearchResult[]> {
       throw new Error('IGDB_CLIENT_ID not configured');
     }
 
-    // Search for games using IGDB API
-    const response = await fetch('https://api.igdb.com/v4/games', {
-      method: 'POST',
-      headers: {
-        'Client-ID': clientId,
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: `
-        search "${query}";
-        fields name,summary,cover.url,first_release_date,release_dates.date,release_dates.platform,genres.name,platforms.name,url;
-        limit 10;
-        where category = 0;
-      `,
-    });
+    console.log(`[IGDB] Searching for: "${query}"`);
 
-    if (!response.ok) {
-      throw new Error(`IGDB API error: ${response.status} ${response.statusText}`);
+    // Try multiple search approaches for better results
+    const searchApproaches = [
+      // Approach 1: Basic search with minimal filters
+      {
+        name: 'basic_search',
+        query: `search "${query}"; fields name,summary,cover.url,first_release_date,release_dates.date,release_dates.platform,genres.name,platforms.name,url; limit 10;`
+      },
+      // Approach 2: Name-based wildcard search (most flexible)
+      {
+        name: 'wildcard_search',
+        query: `fields name,summary,cover.url,first_release_date,release_dates.date,release_dates.platform,genres.name,platforms.name,url; where name ~ *"${query}"*; limit 10;`
+      },
+      // Approach 3: Exact name search 
+      {
+        name: 'exact_search',
+        query: `fields name,summary,cover.url,first_release_date,release_dates.date,release_dates.platform,genres.name,platforms.name,url; where name = "${query}"; limit 10;`
+      },
+      // Approach 4: Search with category filter (main games only)
+      {
+        name: 'category_filtered',
+        query: `search "${query}"; fields name,summary,cover.url,first_release_date,release_dates.date,release_dates.platform,genres.name,platforms.name,url; where category = 0; limit 10;`
+      }
+    ];
+
+    let allResults: IGDBGame[] = [];
+
+    for (const approach of searchApproaches) {
+      try {
+        console.log(`[IGDB] Trying ${approach.name} approach...`);
+        
+        const response = await fetch('https://api.igdb.com/v4/games', {
+          method: 'POST',
+          headers: {
+            'Client-ID': clientId,
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'text/plain',
+          },
+          body: approach.query,
+        });
+
+        if (!response.ok) {
+          console.log(`[IGDB] ${approach.name} failed: ${response.status} ${response.statusText}`);
+          continue;
+        }
+
+        const games: IGDBGame[] = await response.json();
+        console.log(`[IGDB] ${approach.name} returned ${games.length} results`);
+        
+        if (games.length > 0) {
+          // Add unique games to results (avoid duplicates)
+          const newGames = games.filter(game => 
+            !allResults.some(existing => existing.id === game.id)
+          );
+          allResults.push(...newGames);
+          
+          // If we found results with the basic or category search, use those primarily
+          if (approach.name === 'basic_search' || approach.name === 'category_filtered') {
+            break;
+          }
+        }
+      } catch (err) {
+        console.log(`[IGDB] ${approach.name} error:`, err);
+        continue;
+      }
     }
 
-    const games: IGDBGame[] = await response.json();
+    console.log(`[IGDB] Total unique results found: ${allResults.length}`);
 
-    return games.map(game => ({
+    const results = allResults.map(game => ({
       id: `igdb_${game.id}`,
       title: game.name,
       description: game.summary || 'No description available',
@@ -117,6 +165,13 @@ export async function searchIGDB(query: string): Promise<IGDBSearchResult[]> {
       platforms: game.platforms?.map(p => p.name) || [],
       url: game.url
     }));
+
+    // Log the results for debugging
+    results.forEach((game, index) => {
+      console.log(`[IGDB] Result ${index + 1}: "${game.title}" (ID: ${game.id})`);
+    });
+
+    return results;
 
   } catch (error) {
     console.error('IGDB search error:', error);
@@ -138,7 +193,7 @@ export async function getIGDBGameDetails(igdbId: number): Promise<IGDBSearchResu
       headers: {
         'Client-ID': clientId,
         'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
+        'Content-Type': 'text/plain',
       },
       body: `
         where id = ${igdbId};
