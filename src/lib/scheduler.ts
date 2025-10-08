@@ -269,8 +269,13 @@ class UpdateScheduler {
       });
 
       if (response.ok) {
-        const result = await response.json();
-        logger.info(`🔥✅ Cache warmed: ${result.gameCount} games loaded in ${result.duration}`);
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const result = await response.json();
+          logger.info(`🔥✅ Cache warmed: ${result.gameCount} games loaded in ${result.duration}`);
+        } else {
+          logger.warn(`⚠️ Cache warming returned non-JSON response (status: ${response.status})`);
+        }
       } else {
         logger.warn(`⚠️ Cache warming failed: ${response.status}`);
       }
