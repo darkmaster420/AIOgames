@@ -175,7 +175,7 @@ export async function POST(request: NextRequest) {
       const hasVersion = !!trackedGame.currentVersionNumber;
       const hasBuild = !!trackedGame.currentBuildNumber;
       if (hasVersion || hasBuild) {
-        const versionLabel = hasVersion ? `v${trackedGame.currentVersionNumber}` : '';
+        const versionLabel = hasVersion ? trackedGame.currentVersionNumber : '';
         const buildLabel = hasBuild ? `Build ${trackedGame.currentBuildNumber}` : '';
         trackedGame.lastKnownVersion = [versionLabel, buildLabel].filter(Boolean).join(' · ');
       }

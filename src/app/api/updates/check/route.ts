@@ -69,22 +69,22 @@ function extractVersionInfo(title: string): VersionInfo {
   const originalTitle = title;
   const cleanTitle = cleanGameTitle(title);
   
-  // Extract version patterns - comprehensive coverage for piracy releases
+  // Extract version patterns - comprehensive coverage for piracy releases with alpha/beta/letter suffix support
   const versionPatterns = [
-    /v(\d+\.\d+\.\d+\.\d+)/i,              // v1.2.3.4
-    /v(\d{4}[-.]?\d{2}[-.]?\d{2})/i,        // v2024-01-15, v20240115
-    /v(\d{8})/i,                            // v20240115
-    /v(\d+(?:\.\d+)+)/i,                   // v1.2.3
-    /version\s*(\d+(?:\.\d+)+)/i,           // version 1.2.3
-    /ver\.?\s*(\d+(?:\.\d+)+)/i,            // ver 1.2, ver. 1.2
-    /(\d+\.\d+(?:\.\d+)*)/,               // 1.2.3 (standalone)
-    /\[(\d+\.\d+(?:\.\d+)*)\]/i,          // [1.2.3] (bracketed)
-    /\-(\d+\.\d+(?:\.\d+)*)\-/i,          // -1.2.3- (dashed)
-    /update\s*(\d+(?:\.\d+)*)/i,           // update 1.5
-    /patch\s*(\d+(?:\.\d+)*)/i,            // patch 1.2
-    /hotfix\s*(\d+(?:\.\d+)*)/i,           // hotfix 1.1
-    /rev\s*(\d+(?:\.\d+)*)/i,              // rev 2.1
-    /r(\d+(?:\.\d+)*)/i                    // r1.5
+    /v(\d+\.\d+\.\d+\.\d+(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,   // v1.2.3.4a, v1.2.3.4-alpha
+    /v(\d{4}[-.]?\d{2}[-.]?\d{2}(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // v2024-01-15a, v20240115-beta
+    /v(\d{8}(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,                // v20240115a
+    /v(\d+(?:\.\d+)+(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,        // v1.2.3a, v1.2.3-beta
+    /version\s*(\d+(?:\.\d+)+(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i, // version 1.2.3a
+    /ver\.?\s*(\d+(?:\.\d+)+(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // ver 1.2a, ver. 1.2-alpha
+    /(\d+\.\d+(?:\.\d+)*(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/,     // 1.2.3a (standalone)
+    /\[(\d+\.\d+(?:\.\d+)*(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)\]/i, // [1.2.3a] (bracketed)
+    /\-(\d+\.\d+(?:\.\d+)*(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)\-/i, // -1.2.3a- (dashed)
+    /update\s*(\d+(?:\.\d+)*(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // update 1.5a
+    /patch\s*(\d+(?:\.\d+)*(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,   // patch 1.2a
+    /hotfix\s*(\d+(?:\.\d+)*(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // hotfix 1.1a
+    /rev\s*(\d+(?:\.\d+)*(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,     // rev 2.1a
+    /r(\d+(?:\.\d+)*(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i           // r1.5a
   ];
   
   // Extract build patterns - enhanced for scene releases
@@ -734,6 +734,13 @@ export async function POST(request: Request) {
           // Enhanced comparison that respects verification preferences
           let isActuallyNewer = false;
           let comparisonReason = '';
+          
+          // Only allow posts with a valid, strictly higher version
+          // Require a valid version (not just build)
+          if (!newVersionInfo.version) {
+            logger.debug(`Skipping post "${decodedTitle}" - no valid version detected`);
+            continue;
+          }
           
           if (hasVerifiedVersion && hasVerifiedBuild) {
             // Compare both version and build

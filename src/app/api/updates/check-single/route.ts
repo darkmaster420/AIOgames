@@ -212,12 +212,12 @@ function extractVersionInfo(title: string): VersionInfo {
     /v(\d{4}[-.]?\d{2}[-.]?\d{2})/i,
     // Date-based versions - 8 digits like v20250922
     /v(\d{8})/i,
-    // v1.2.3 - Standard version format
-    /v(\d+(?:\.\d+)+)/i,
-    // Version 1.2.3
-    /version\s*(\d+(?:\.\d+)+)/i,
-    // Standalone version numbers (at least two parts like 1.2)
-    /(\d+\.\d+(?:\.\d+)*)/,
+    // v1.2.3a, v1.2.3b, v1.2.3-beta, v1.2.3-alpha, etc. (version with suffix)
+    /v(\d+(?:\.\d+)+(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,
+    // Version 1.2.3a, Version 1.2.3-beta, etc.
+    /version\s*(\d+(?:\.\d+)+(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,
+    // Standalone version numbers with suffixes (at least two parts like 1.2a)
+    /(\d+\.\d+(?:\.\d+)*(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/,
   ];
   
   // Extract build patterns (from original title)
@@ -687,7 +687,8 @@ export async function POST(request: Request) {
           logger.debug(`🤖 ${aiReason}, using regex detection: ${isUpdateCandidate}`);
         }
         
-        if (isUpdateCandidate) {
+        // Only proceed if version is present and candidate is an update
+        if (isUpdateCandidate && newVersionInfo.version) {
           logger.debug(`✨ Potential update found: ${decodedTitle}`);
           logger.debug(`🔗 Download links in result:`, result.downloadLinks);
           
@@ -785,14 +786,11 @@ export async function POST(request: Request) {
 
               await TrackedGame.findByIdAndUpdate(game._id, updateFields);
             } else {
-              // Check if the detected game has version or build information before adding to pending
-              const hasVersionOrBuild = newVersionInfo.version || newVersionInfo.build || 
-                /\b(v?\d+(?:\.\d+)+|\d{6,}|build\s*\d+|b\d{4,}|#\d{4,})\b/i.test(decodedTitle);
-              
-              if (!hasVersionOrBuild) {
-                logger.debug(`⚠️ Skipping game without version/build info: "${decodedTitle}"`);
+              // Only add to pending if version is present (strict requirement)
+              if (!newVersionInfo.version) {
+                logger.debug(`⚠️ Skipping game without valid version: "${decodedTitle}"`);
                 return NextResponse.json({
-                  message: `No update found for "${game.title}". Found "${decodedTitle}" but it lacks version/build information needed for tracking.`,
+                  message: `No update found for "${game.title}". Found "${decodedTitle}" but it lacks a valid version number needed for tracking.`,
                   game: game.title,
                   checked: 1,
                   updatesFound: 0

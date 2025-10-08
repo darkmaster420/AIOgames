@@ -274,7 +274,7 @@ export async function POST(req: NextRequest) {
         const hasVersion = !!newTrackedGame.currentVersionNumber;
         const hasBuild = !!newTrackedGame.currentBuildNumber;
         if (hasVersion || hasBuild) {
-          const versionLabel = hasVersion ? `v${newTrackedGame.currentVersionNumber}` : '';
+          const versionLabel = hasVersion ? newTrackedGame.currentVersionNumber : '';
           const buildLabel = hasBuild ? `Build ${newTrackedGame.currentBuildNumber}` : '';
           newTrackedGame.lastKnownVersion = [versionLabel, buildLabel].filter(Boolean).join(' · ');
         }
