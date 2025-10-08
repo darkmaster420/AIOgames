@@ -127,12 +127,9 @@ async function canAutoApprove(game: TrackedGameDocument, newVersionInfo: Version
     if (!source.title) continue;
 
     currentInfo = extractVersionInfo(source.title);
-    console.log(`\n📝 Checking version from ${source.label}: "${source.title}"`);
-    console.log(`Extracted info:`, currentInfo);
     
     // If we found any version or build info, use this source
     if (currentInfo.version || currentInfo.build) {
-      console.log(`✅ Found version/build info from ${source.label}`);
       break;
     }
   }
@@ -140,7 +137,6 @@ async function canAutoApprove(game: TrackedGameDocument, newVersionInfo: Version
     // Only proceed if we found a version or build number in both current and new
     if ((currentInfo.version && newVersionInfo.version) || (currentInfo.build && newVersionInfo.build)) {
       const comparison = compareVersions(currentInfo, newVersionInfo);
-      console.log(`Comparison result:`, comparison);
       
       // Auto-approve if:
       // 1. It's clearly a newer version with high significance
@@ -153,10 +149,8 @@ async function canAutoApprove(game: TrackedGameDocument, newVersionInfo: Version
       
       // 2. We have build numbers and the new one is higher
       if (currentInfo.build && newVersionInfo.build) {
-        console.log(`🔢 Comparing builds: current=${currentInfo.build}, new=${newVersionInfo.build}`);
         const currentBuild = parseInt(currentInfo.build.replace(/[^\d]/g, ''));
         const newBuild = parseInt(newVersionInfo.build.replace(/[^\d]/g, ''));
-        console.log(`🔢 Parsed build numbers: current=${currentBuild}, new=${newBuild}`);
         if (!isNaN(currentBuild) && !isNaN(newBuild) && newBuild > currentBuild) {
           return {
             canApprove: true,
@@ -208,8 +202,8 @@ function extractVersionInfo(title: string): VersionInfo {
   const originalTitle = title;
   const cleanTitle = cleanGameTitle(title);
   
-  console.log(`🔍 Extracting version info from original: "${originalTitle}"`);
-  console.log(`🔍 Extracting version info from cleaned: "${cleanTitle}"`);
+  logger.debug(`Extracting version info from original: "${originalTitle}"`);
+  logger.debug(`Extracting version info from cleaned: "${cleanTitle}"`);
   
   // Extract version patterns (from ORIGINAL title first, then cleaned)
   const versionPatterns = [
@@ -244,13 +238,13 @@ function extractVersionInfo(title: string): VersionInfo {
   let updateType = '';
   let confidence = 1.0;
   
-  console.log(`🔍 Extracting version info from: "${originalTitle}"`);
+  logger.debug(`Extracting version info from: "${originalTitle}"`);
 
   // Extract version number from ORIGINAL TITLE first
   for (const pattern of versionPatterns) {
     const match = originalTitle.match(pattern);
     if (match) {
-      console.log(`✅ Found version match in original with pattern ${pattern}: ${match[1]}`);
+      logger.debug(`✅ Found version match in original with pattern ${pattern}: ${match[1]}`);
       version = match[1];
       confidence *= 0.9;
       break;
@@ -262,7 +256,7 @@ function extractVersionInfo(title: string): VersionInfo {
     for (const pattern of versionPatterns) {
       const match = cleanTitle.match(pattern);
       if (match) {
-        console.log(`✅ Found version match in cleaned with pattern ${pattern}: ${match[1]}`);
+        logger.debug(`✅ Found version match in cleaned with pattern ${pattern}: ${match[1]}`);
         version = match[1];
         confidence *= 0.8; // Lower confidence for cleaned title
         break;
@@ -275,7 +269,7 @@ function extractVersionInfo(title: string): VersionInfo {
     const match = originalTitle.match(pattern);
     if (match) {
       build = match[1];
-      console.log(`✅ Found build match with pattern ${pattern}: ${build}`);
+      logger.debug(`✅ Found build match with pattern ${pattern}: ${build}`);
       confidence *= 0.85;
       break;
     }
@@ -316,14 +310,14 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
   let changeType = 'unknown';
   let significance = 0;
   
-  console.log(`🔍 Comparing versions: "${oldVersion.version}" vs "${newVersion.version}"`);
+  logger.debug(`🔍 Comparing versions: "${oldVersion.version}" vs "${newVersion.version}"`);
   
   // Compare versions if both have them
   if (oldVersion.version && newVersion.version) {
     const oldParts = oldVersion.version.split('.').map(Number);
     const newParts = newVersion.version.split('.').map(Number);
     
-    console.log(`🔍 Version parts: [${oldParts.join(',')}] vs [${newParts.join(',')}]`);
+    logger.debug(`🔍 Version parts: [${oldParts.join(',')}] vs [${newParts.join(',')}]`);
     
     const maxLength = Math.max(oldParts.length, newParts.length);
     
@@ -331,7 +325,7 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
       const oldPart = oldParts[i] || 0;
       const newPart = newParts[i] || 0;
       
-      console.log(`🔍 Comparing part ${i}: ${oldPart} vs ${newPart}`);
+      logger.debug(`🔍 Comparing part ${i}: ${oldPart} vs ${newPart}`);
       
       if (newPart > oldPart) {
         isNewer = true;
@@ -349,10 +343,10 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
           changeType = 'build';
           significance = 2;
         }
-        console.log(`✅ Version is newer: ${changeType} (significance: ${significance})`);
+        logger.debug(`✅ Version is newer: ${changeType} (significance: ${significance})`);
         break;
       } else if (newPart < oldPart) {
-        console.log(`❌ Version is older`);
+        logger.debug(`❌ Version is older`);
         break; // Older version
       }
     }
@@ -448,7 +442,7 @@ export async function POST(request: Request) {
     const cleanTitle = cleanGameTitle(game.title);
     const searchTitle = cleanGameTitlePreserveEdition(game.title);
     
-    console.log(`🔍 Searching for: "${searchTitle}" (from "${game.title}")`);
+    logger.debug(`🔍 Searching for: "${searchTitle}" (from "${game.title}")`);
 
     // Use the same search API that the main search uses
     const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
@@ -466,7 +460,7 @@ export async function POST(request: Request) {
       games = searchData.results;
     }
     
-    console.log(`📊 Search returned ${games.length} results`);
+    logger.debug(`📊 Search returned ${games.length} results`);
 
     // Reduce results to the newest post only (group by link/id/title then take newest)
     try {
@@ -502,12 +496,12 @@ export async function POST(request: Request) {
 
       if (kept.length > 0) {
         games = kept; // process one newest per site (usually small number)
-        console.log(`🔎 Reduced to ${kept.length} newest results across sources (kept top: ${kept[0].title})`);
+        logger.debug(`🔎 Reduced to ${kept.length} newest results across sources (kept top: ${kept[0].title})`);
       } else {
         games = [];
       }
     } catch (reduceErr) {
-      console.error('Failed to reduce search results to newest only:', reduceErr);
+      logger.error('Failed to reduce search results to newest only:', reduceErr);
       // fall back to original games list
     }
 
@@ -518,7 +512,7 @@ export async function POST(request: Request) {
 
       // Skip if this is the same post we're already tracking
       if (result.link === game.gameLink) {
-        console.log(`⏩ Skipping current tracked post: "${decodedTitle}"`);
+        logger.debug(`⏩ Skipping current tracked post: "${decodedTitle}"`);
         continue;
       }
 
@@ -528,11 +522,11 @@ export async function POST(request: Request) {
       const { found: hasVersion } = detectVersionNumber(decodedTitle);
       const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(decodedTitle);
       if (!hasVersion && !hasBuild) {
-        console.log(`⏩ Skipping "${decodedTitle}" (no valid version/build pattern)`);
+        logger.debug(`⏩ Skipping "${decodedTitle}" (no valid version/build pattern)`);
         continue;
       }
 
-      console.log(`🎯 Comparing "${decodedTitle}" (similarity: ${similarity.toFixed(2)})`);
+      logger.debug(`🎯 Comparing "${decodedTitle}" (similarity: ${similarity.toFixed(2)})`);
 
       // Check for potential updates (high similarity)
       if (similarity >= 0.8) {
@@ -550,7 +544,7 @@ export async function POST(request: Request) {
           
           const info = extractVersionInfo(source.title);
           if (info.version || info.build) {
-            console.log(`✅ Using version info from ${source.label}: "${source.title}"`);
+            logger.debug(`✅ Using version info from ${source.label}: "${source.title}"`);
             currentVersionInfo = info;
             break;
           }
@@ -570,17 +564,17 @@ export async function POST(request: Request) {
               const build = await resolveBuildFromVersion(game.steamAppId, newVersionInfo.version);
               if (build) {
                 newVersionInfo.build = build;
-                console.log(`🔗 Resolved build ${build} from version ${newVersionInfo.version} via SteamDB`);
+                logger.debug(`🔗 Resolved build ${build} from version ${newVersionInfo.version} via SteamDB`);
               }
             } else if (!newVersionInfo.version && newVersionInfo.build) {
               const version = await resolveVersionFromBuild(game.steamAppId, newVersionInfo.build);
               if (version) {
                 newVersionInfo.version = version;
-                console.log(`🔗 Resolved version ${version} from build ${newVersionInfo.build} via SteamDB`);
+                logger.debug(`🔗 Resolved version ${version} from build ${newVersionInfo.build} via SteamDB`);
               }
             }
           } catch (e) {
-            console.log('ℹ️ Version↔build resolution skipped due to error:', e instanceof Error ? e.message : 'unknown');
+            logger.debug('ℹ️ Version↔build resolution skipped due to error:', e instanceof Error ? e.message : 'unknown');
           }
         }
         
@@ -597,7 +591,7 @@ export async function POST(request: Request) {
         
         if (aiAvailable && similarity >= 0.75) {
           try {
-            console.log(`🤖 Using AI-first detection for: "${decodedTitle}" (similarity: ${similarity.toFixed(2)})`);
+            logger.debug(`🤖 Using AI-first detection for: "${decodedTitle}" (similarity: ${similarity.toFixed(2)})`);
             
             const candidates = prepareCandidatesForAI(
               [{ title: decodedTitle, link: result.link, date: result.date, similarity }],
@@ -632,16 +626,16 @@ export async function POST(request: Request) {
               // AI decides if it's an update
               isUpdateCandidate = aiResult.isUpdate && aiResult.confidence >= 0.5;
               
-              console.log(`🤖 AI analysis: Update=${aiResult.isUpdate}, Confidence=${aiConfidence.toFixed(2)}, Enhanced Score=${enhancedScore.toFixed(2)}, Reason=${aiReason}`);
+              logger.debug(`🤖 AI analysis: Update=${aiResult.isUpdate}, Confidence=${aiConfidence.toFixed(2)}, Enhanced Score=${enhancedScore.toFixed(2)}, Reason=${aiReason}`);
             } else {
-              console.log(`🤖 AI analysis: No results returned`);
+              logger.debug(`🤖 AI analysis: No results returned`);
               // Fallback to regex if AI returns no results
               isUpdateCandidate = comparison.isNewer || newVersionInfo.needsUserConfirmation;
               aiReason = 'AI provided no analysis, using regex fallback';
             }
             
           } catch (aiError) {
-            console.log(`⚠️ AI detection failed: ${aiError instanceof Error ? aiError.message : 'unknown error'}`);
+            logger.debug(`⚠️ AI detection failed: ${aiError instanceof Error ? aiError.message : 'unknown error'}`);
             // Fallback to enhanced regex detection
             isUpdateCandidate = comparison.isNewer || newVersionInfo.needsUserConfirmation;
             
@@ -691,12 +685,12 @@ export async function POST(request: Request) {
           isUpdateCandidate = comparison.isNewer || newVersionInfo.needsUserConfirmation;
           aiReason = aiAvailable ? 'Similarity below AI threshold (0.75)' : 'AI detection not available';
           
-          console.log(`🤖 ${aiReason}, using regex detection: ${isUpdateCandidate}`);
+          logger.debug(`🤖 ${aiReason}, using regex detection: ${isUpdateCandidate}`);
         }
         
         if (isUpdateCandidate) {
-          console.log(`✨ Potential update found: ${decodedTitle}`);
-          console.log(`🔗 Download links in result:`, result.downloadLinks);
+          logger.debug(`✨ Potential update found: ${decodedTitle}`);
+          logger.debug(`🔗 Download links in result:`, result.downloadLinks);
           
           // Check if we already have this update in pending
           const existingPending = game.pendingUpdates?.some((pending: PendingUpdate) => 
@@ -706,7 +700,7 @@ export async function POST(request: Request) {
           if (!existingPending) {
             // Check if we can auto-approve based on verified version/build numbers
             const autoApproveResult = await canAutoApprove(game, newVersionInfo);
-            console.log(`\n🤖 Auto-approval decision:`, autoApproveResult);
+            logger.debug(`\n🤖 Auto-approval decision:`, autoApproveResult);
             
               // Create base update data (enhanced with AI information)
             const updateData = {
@@ -733,7 +727,7 @@ export async function POST(request: Request) {
             };
 
             if (autoApproveResult.canApprove) {
-              console.log(`\n✅ Auto-approving update with reason: ${autoApproveResult.reason}`);
+              logger.debug(`\n✅ Auto-approving update with reason: ${autoApproveResult.reason}`);
               
               // Auto-approve the update
               const approvedUpdate = {
@@ -779,7 +773,7 @@ export async function POST(request: Request) {
                 updateFields.versionNumberVerified = true;
                 updateFields.versionNumberSource = 'automatic';
                 updateFields.versionNumberLastUpdated = new Date();
-                console.log(`✅ Updated version number to: ${newVersionInfo.version}`);
+                logger.debug(`✅ Updated version number to: ${newVersionInfo.version}`);
               }
               
               if (newVersionInfo.build) {
@@ -787,7 +781,7 @@ export async function POST(request: Request) {
                 updateFields.buildNumberVerified = true;
                 updateFields.buildNumberSource = 'automatic';
                 updateFields.buildNumberLastUpdated = new Date();
-                console.log(`✅ Updated build number to: ${newVersionInfo.build}`);
+                logger.debug(`✅ Updated build number to: ${newVersionInfo.build}`);
               }
 
               await TrackedGame.findByIdAndUpdate(game._id, updateFields);
@@ -797,7 +791,7 @@ export async function POST(request: Request) {
                 /\b(v?\d+(?:\.\d+)+|\d{6,}|build\s*\d+|b\d{4,}|#\d{4,})\b/i.test(decodedTitle);
               
               if (!hasVersionOrBuild) {
-                console.log(`⚠️ Skipping game without version/build info: "${decodedTitle}"`);
+                logger.debug(`⚠️ Skipping game without version/build info: "${decodedTitle}"`);
                 return NextResponse.json({
                   message: `No update found for "${game.title}". Found "${decodedTitle}" but it lacks version/build information needed for tracking.`,
                   game: game.title,
@@ -815,12 +809,12 @@ export async function POST(request: Request) {
 
             // Collect release group variant from the new update
             try {
-              console.log(`🔍 Attempting release group extraction for update: "${result.title}"`);
+              logger.debug(`🔍 Attempting release group extraction for update: "${result.title}"`);
               
               const releaseGroupResult = extractReleaseGroup(result.title);
               
               if (releaseGroupResult.releaseGroup && releaseGroupResult.releaseGroup !== 'UNKNOWN') {
-                console.log(`✅ Detected release group in update: ${releaseGroupResult.releaseGroup}`);
+                logger.debug(`✅ Detected release group in update: ${releaseGroupResult.releaseGroup}`);
                 
                 // Analyze the new title for version/build information
                 const analysis = analyzeGameTitle(result.title);
@@ -844,7 +838,7 @@ export async function POST(request: Request) {
                     dateFound: new Date()
                   });
                   await variant.save();
-                  console.log(`✅ Stored new release group variant from update: ${releaseGroupResult.releaseGroup} for game "${game.title}"`);
+                  logger.debug(`✅ Stored new release group variant from update: ${releaseGroupResult.releaseGroup} for game "${game.title}"`);
                 } else {
                   // Update existing variant with latest information
                   existingVariant.title = result.title;
@@ -853,14 +847,14 @@ export async function POST(request: Request) {
                   if (analysis.detectedBuild) existingVariant.buildNumber = analysis.detectedBuild;
                   existingVariant.lastSeen = new Date();
                   await existingVariant.save();
-                  console.log(`✅ Updated existing release group variant: ${releaseGroupResult.releaseGroup} for game "${game.title}"`);
+                  logger.debug(`✅ Updated existing release group variant: ${releaseGroupResult.releaseGroup} for game "${game.title}"`);
                 }
               } else {
-                console.log(`ℹ️ No release group detected in update title: "${result.title}"`);
+                logger.debug(`ℹ️ No release group detected in update title: "${result.title}"`);
               }
               
             } catch (releaseGroupError) {
-              console.error(`❌ Release group extraction error for update "${result.title}":`, releaseGroupError);
+              logger.error(`❌ Release group extraction error for update "${result.title}":`, releaseGroupError);
               // Don't fail the entire request if release group extraction fails
             }
 
@@ -876,15 +870,15 @@ export async function POST(request: Request) {
                 previousVersion: game.lastKnownVersion || game.title
               });
               
-              console.log(`📤 Notification data:`, {
+              logger.debug(`📤 Notification data:`, {
                 downloadLinks: notificationData.downloadLinks,
                 hasDownloadLinks: !!(notificationData.downloadLinks && notificationData.downloadLinks.length > 0)
               });
               
               await sendUpdateNotification(game.userId.toString(), notificationData);
-              console.log(`📢 ${autoApproveResult.canApprove ? 'Auto-approved' : 'Pending'} update notification sent for ${game.title}`);
+              logger.debug(`📢 ${autoApproveResult.canApprove ? 'Auto-approved' : 'Pending'} update notification sent for ${game.title}`);
             } catch (notificationError) {
-              console.error(`Failed to send update notification for ${game.title}:`, notificationError);
+              logger.error(`Failed to send update notification for ${game.title}:`, notificationError);
               // Don't fail the whole operation if notification fails
             }
 
@@ -896,19 +890,19 @@ export async function POST(request: Request) {
             });
             
             const status = autoApproveResult.canApprove ? '✅ Auto-approved' : '📝 Added pending';
-            console.log(`${status} update for ${game.title}: ${decodedTitle}`);
+            logger.debug(`${status} update for ${game.title}: ${decodedTitle}`);
           }
         }
       }
       
       // Check for sequels (moderate similarity)
       else if (similarity >= 0.5) {
-        console.log(`🎲 Checking for sequel match in: ${decodedTitle}`);
+        logger.debug(`🎲 Checking for sequel match in: ${decodedTitle}`);
         
         const sequelResult = await detectSequel(game.title, decodedTitle);
         
         if (sequelResult && sequelResult.isSequel) {
-          console.log(`🎮 Potential sequel found: ${decodedTitle}`);
+          logger.debug(`🎮 Potential sequel found: ${decodedTitle}`);
           
           // Add to sequel notifications if not already there
           const existingSequel = game.sequelNotifications?.some((sequel: { detectedTitle: string; gameLink: string }) => 
@@ -926,9 +920,9 @@ export async function POST(request: Request) {
               });
               
               await sendUpdateNotification(game.userId.toString(), notificationData);
-              console.log(`📢 Sequel notification sent for ${game.title} -> ${decodedTitle}`);
+              logger.debug(`📢 Sequel notification sent for ${game.title} -> ${decodedTitle}`);
             } catch (notificationError) {
-              console.error(`Failed to send sequel notification for ${game.title}:`, notificationError);
+              logger.error(`Failed to send sequel notification for ${game.title}:`, notificationError);
               // Don't fail the whole operation if notification fails
             }
 
@@ -943,15 +937,15 @@ export async function POST(request: Request) {
               }
             });
             
-            console.log(`📝 Added sequel notification for ${game.title}: ${decodedTitle}`);
+            logger.debug(`📝 Added sequel notification for ${game.title}: ${decodedTitle}`);
           }
         }
       }
     }
 
-    console.log(`\n✨ Check complete for ${game.title}:`);
-    console.log(`   Updates found: ${updatesFound}`);
-    console.log(`   Sequels found: ${sequelsFound}`);
+    logger.debug(`\n✨ Check complete for ${game.title}:`);
+    logger.debug(`   Updates found: ${updatesFound}`);
+    logger.debug(`   Sequels found: ${sequelsFound}`);
 
     return NextResponse.json({
       message: 'Game check complete',
@@ -959,7 +953,7 @@ export async function POST(request: Request) {
     });
 
   } catch (error) {
-    console.error('Single game check error:', error);
+    logger.error('Single game check error:', error);
     return NextResponse.json(
       { error: 'Failed to check game for updates' },
       { status: 500 }

@@ -4,6 +4,7 @@
 
 import connectDB from '../lib/db';
 import { TrackedGame, User } from '../lib/models';
+import logger from '../utils/logger';
 
 interface ScheduledCheck {
   userId: string;
@@ -32,19 +33,19 @@ class UpdateScheduler {
    */
   public start(): void {
     if (this.isRunning) {
-      console.log('📅 Update scheduler is already running');
+      logger.info('📅 Update scheduler is already running');
       return;
     }
 
     this.isRunning = true;
-    console.log('🚀 Starting automatic update scheduler...');
+    logger.info('🚀 Starting automatic update scheduler...');
 
     // Check for due updates every 5 minutes
     this.checkInterval = setInterval(async () => {
       try {
         await this.checkForDueUpdates();
       } catch (error) {
-        console.error('❌ Error in scheduled update check:', error);
+        logger.error('❌ Error in scheduled update check:', error);
       }
     }, 5 * 60 * 1000); // 5 minutes
 
@@ -53,7 +54,7 @@ class UpdateScheduler {
       try {
         await this.warmCache();
       } catch (error) {
-        console.error('❌ Error in cache warming:', error);
+        logger.error('❌ Error in cache warming:', error);
       }
     }, 30 * 60 * 1000); // 30 minutes
 
@@ -63,7 +64,7 @@ class UpdateScheduler {
     // Initial cache warming (delayed by 30 seconds to let app start)
     setTimeout(() => this.warmCache(), 30000);
     
-    console.log('✅ Update scheduler started successfully');
+    logger.info('✅ Update scheduler started successfully');
   }
 
   /**
@@ -81,7 +82,7 @@ class UpdateScheduler {
       clearInterval(this.cacheWarmInterval);
       this.cacheWarmInterval = null;
     }
-    console.log('⏹️ Update scheduler stopped');
+    logger.info('⏹️ Update scheduler stopped');
   }
 
   /**
@@ -91,7 +92,7 @@ class UpdateScheduler {
     try {
       // Check if MongoDB URI is available
       if (!process.env.MONGODB_URI) {
-        console.log('⚠️ MONGODB_URI not configured, skipping scheduled checks loading');
+        logger.info('⚠️ MONGODB_URI not configured, skipping scheduled checks loading');
         return;
       }
 
@@ -136,7 +137,7 @@ class UpdateScheduler {
         }
       ]);
 
-      console.log(`📊 Found ${usersWithGames.length} users with automatic update checking enabled`);
+      logger.info(`📊 Found ${usersWithGames.length} users with automatic update checking enabled`);
 
       for (const user of usersWithGames) {
         // Group games by frequency to determine the most frequent schedule needed
@@ -169,9 +170,9 @@ class UpdateScheduler {
         });
       }
 
-      console.log(`✅ Loaded ${this.scheduledChecks.size} scheduled checks`);
+      logger.info(`✅ Loaded ${this.scheduledChecks.size} scheduled checks`);
     } catch (error) {
-      console.error('❌ Error loading scheduled checks:', error);
+      logger.error('❌ Error loading scheduled checks:', error);
     }
   }
 
@@ -193,7 +194,7 @@ class UpdateScheduler {
       return; // No checks due
     }
 
-    console.log(`⏰ ${dueChecks.length} users due for update checks`);
+    logger.info(`⏰ ${dueChecks.length} users due for update checks`);
 
     // Process each due check
     for (const userId of dueChecks) {
@@ -213,7 +214,7 @@ class UpdateScheduler {
           });
         }
       } catch (error) {
-        console.error(`❌ Error performing update check for user ${userId}:`, error);
+        logger.error(`❌ Error performing update check for user ${userId}:`, error);
       }
     }
   }
@@ -223,7 +224,7 @@ class UpdateScheduler {
    */
   private async performUpdateCheckForUser(userId: string): Promise<void> {
     try {
-      console.log(`🔍 Performing scheduled update check for user ${userId}...`);
+      logger.info(`🔍 Performing scheduled update check for user ${userId}...`);
 
       // Call the internal update check API (use environment variable or detect port)
       const baseUrl = process.env.NODE_ENV === 'production' 
@@ -243,10 +244,10 @@ class UpdateScheduler {
       }
 
       const result = await response.json();
-      console.log(`✅ Scheduled update check completed for user ${userId}: ${result.checked} games checked, ${result.updatesFound} updates found`);
+      logger.info(`✅ Scheduled update check completed for user ${userId}: ${result.checked} games checked, ${result.updatesFound} updates found`);
 
     } catch (error) {
-      console.error(`❌ Failed to perform update check for user ${userId}:`, error);
+      logger.error(`❌ Failed to perform update check for user ${userId}:`, error);
     }
   }
 
@@ -255,7 +256,7 @@ class UpdateScheduler {
    */
   private async warmCache(): Promise<void> {
     try {
-      console.log('🔥 Warming cache...');
+      logger.info('🔥 Warming cache...');
       
       const baseUrl = process.env.NODE_ENV === 'production' 
         ? process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
@@ -267,13 +268,13 @@ class UpdateScheduler {
 
       if (response.ok) {
         const result = await response.json();
-        console.log(`🔥✅ Cache warmed: ${result.gameCount} games loaded in ${result.duration}`);
+        logger.info(`🔥✅ Cache warmed: ${result.gameCount} games loaded in ${result.duration}`);
       } else {
-        console.warn(`⚠️ Cache warming failed: ${response.status}`);
+        logger.warn(`⚠️ Cache warming failed: ${response.status}`);
       }
 
     } catch (error) {
-      console.error('❌ Cache warming error:', error);
+      logger.error('❌ Cache warming error:', error);
     }
   }
 
@@ -315,7 +316,7 @@ class UpdateScheduler {
       if (trackedGames.length === 0) {
         // Remove from schedule if no automatic games
         this.scheduledChecks.delete(userId);
-        console.log(`📅 Removed user ${userId} from automatic schedule (no auto games)`);
+        logger.info(`📅 Removed user ${userId} from automatic schedule (no auto games)`);
         return;
       }
 
@@ -341,9 +342,9 @@ class UpdateScheduler {
         nextCheck
       });
 
-      console.log(`📅 Updated schedule for user ${userId}: ${userFrequency} checks, next at ${nextCheck.toISOString()}`);
+      logger.info(`📅 Updated schedule for user ${userId}: ${userFrequency} checks, next at ${nextCheck.toISOString()}`);
     } catch (error) {
-      console.error(`❌ Error updating user schedule for ${userId}:`, error);
+      logger.error(`❌ Error updating user schedule for ${userId}:`, error);
     }
   }
 
@@ -374,14 +375,14 @@ class UpdateScheduler {
    * Force an immediate check for all scheduled users (for testing)
    */
   public async forceCheckAll(): Promise<void> {
-    console.log('🚀 Forcing immediate update check for all scheduled users...');
+    logger.info('🚀 Forcing immediate update check for all scheduled users...');
     
     const userIds = Array.from(this.scheduledChecks.keys());
     for (const userId of userIds) {
       await this.performUpdateCheckForUser(userId);
     }
     
-    console.log(`✅ Forced update check completed for ${userIds.length} users`);
+    logger.info(`✅ Forced update check completed for ${userIds.length} users`);
   }
 }
 
@@ -391,13 +392,13 @@ export const updateScheduler = new UpdateScheduler();
 // Handle graceful shutdown
 if (typeof process !== 'undefined') {
   process.on('SIGINT', () => {
-    console.log('📴 Shutting down update scheduler...');
+    logger.info('📴 Shutting down update scheduler...');
     updateScheduler.stop();
     process.exit(0);
   });
 
   process.on('SIGTERM', () => {
-    console.log('📴 Shutting down update scheduler...');
+    logger.info('📴 Shutting down update scheduler...');
     updateScheduler.stop();
     process.exit(0);
   });

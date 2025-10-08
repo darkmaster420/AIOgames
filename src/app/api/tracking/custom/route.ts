@@ -7,6 +7,7 @@ import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVer
 import { updateScheduler } from '../../../../lib/scheduler';
 import { analyzeGameTitle, extractReleaseGroup } from '../../../../utils/versionDetection';
 import logger from '../../../../utils/logger';
+import { rateLimit, validateInput, schemas } from '../../../../utils/validation';
 
 // Helper function to calculate similarity between two strings
 function calculateSimilarity(str1: string, str2: string): number {
@@ -38,6 +39,17 @@ function calculateSimilarity(str1: string, str2: string): number {
 // POST: Add a custom game by name to tracking
 export async function POST(req: NextRequest) {
   try {
+    // Apply rate limiting - 10 requests per minute for game adding
+    const rateLimitCheck = rateLimit({ 
+      maxRequests: 10, 
+      windowMs: 60 * 1000,
+      message: 'Too many game additions. Please wait before adding more games.'
+    })(req);
+
+    if (!rateLimitCheck.allowed) {
+      return rateLimitCheck.response!;
+    }
+
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json(
@@ -46,17 +58,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Cast user to include id property
-    const authenticatedUser = user as { id: string; email: string; name: string };
-
-    const { gameName } = await req.json();
-
-    if (!gameName || typeof gameName !== 'string' || gameName.trim().length === 0) {
-      return NextResponse.json(
-        { error: 'Game name is required' },
-        { status: 400 }
-      );
+    // Validate input
+    const validation = await validateInput(schemas.gameAdd)(req);
+    if (!validation.valid) {
+      return validation.response!;
     }
+
+    const { gameName } = validation.data!;
+    // TODO: Implement releaseGroup and forceAdd functionality
+    const authenticatedUser = user as { id: string; email: string; name: string };
 
     const trimmedGameName = gameName.trim();
 
@@ -363,7 +373,7 @@ export async function POST(req: NextRequest) {
       });
 
     } catch (searchError) {
-      console.error('Error searching for game:', searchError);
+      logger.error('Error searching for game:', searchError);
       return NextResponse.json(
         { error: 'Failed to search for game. Please try again.' },
         { status: 503 }
@@ -371,7 +381,7 @@ export async function POST(req: NextRequest) {
     }
 
   } catch (error) {
-    console.error('Error adding custom game:', error);
+    logger.error('Error adding custom game:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
