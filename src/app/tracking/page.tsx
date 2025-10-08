@@ -128,6 +128,61 @@ export default function TrackingDashboard() {
   const [error, setError] = useState('');
   const [checkingSingleGame, setCheckingSingleGame] = useState<string | null>(null);
 
+  // Sort functionality
+  const [sortBy, setSortBy] = useState<'title' | 'dateAdded' | 'lastChecked' | 'lastUpdated'>('dateAdded');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  // Sort games function
+  const sortGames = (games: TrackedGame[], sortField: string, order: string) => {
+    return [...games].sort((a, b) => {
+      let aValue: string | number | Date;
+      let bValue: string | number | Date;
+
+      switch (sortField) {
+        case 'title':
+          aValue = a.title.toLowerCase();
+          bValue = b.title.toLowerCase();
+          break;
+        case 'dateAdded':
+          aValue = new Date(a.dateAdded);
+          bValue = new Date(b.dateAdded);
+          break;
+        case 'lastChecked':
+          aValue = new Date(a.lastChecked);
+          bValue = new Date(b.lastChecked);
+          break;
+        case 'lastUpdated':
+          // Use latest approved update date or fall back to last checked
+          aValue = a.latestApprovedUpdate 
+            ? new Date(a.latestApprovedUpdate.dateFound)
+            : new Date(a.lastChecked);
+          bValue = b.latestApprovedUpdate 
+            ? new Date(b.latestApprovedUpdate.dateFound)
+            : new Date(b.lastChecked);
+          break;
+        default:
+          aValue = a.dateAdded;
+          bValue = b.dateAdded;
+      }
+
+      if (aValue < bValue) return order === 'asc' ? -1 : 1;
+      if (aValue > bValue) return order === 'asc' ? 1 : -1;
+      return 0;
+    });
+  };
+
+  // Handle sort change
+  const handleSortChange = (newSortBy: typeof sortBy) => {
+    if (newSortBy === sortBy) {
+      // Toggle order if same field
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New field, default to desc for dates, asc for title
+      setSortBy(newSortBy);
+      setSortOrder(newSortBy === 'title' ? 'asc' : 'desc');
+    }
+  };
+
   // Handle Steam verification updates
   const handleVerificationUpdate = (gameId: string, verified: boolean, steamAppId?: number, steamName?: string) => {
     setTrackedGames(prev => prev.map(game => 
@@ -200,21 +255,25 @@ export default function TrackingDashboard() {
 
   const [checkingUpdates, setCheckingUpdates] = useState(false);
 
-  // Filter games based on search query
+  // Filter and sort games based on search query and sort settings
   useEffect(() => {
-    if (!searchQuery.trim()) {
-      setFilteredGames(trackedGames);
-    } else {
+    let games = trackedGames;
+
+    // Apply search filter
+    if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      const filtered = trackedGames.filter(game => 
+      games = trackedGames.filter(game => 
         game.title.toLowerCase().includes(query) ||
         game.originalTitle.toLowerCase().includes(query) ||
         game.source.toLowerCase().includes(query) ||
         (game.steamName && game.steamName.toLowerCase().includes(query))
       );
-      setFilteredGames(filtered);
     }
-  }, [trackedGames, searchQuery]);
+
+    // Apply sorting
+    const sortedGames = sortGames(games, sortBy, sortOrder);
+    setFilteredGames(sortedGames);
+  }, [trackedGames, searchQuery, sortBy, sortOrder]);
 
   useEffect(() => {
     if (status === 'authenticated') {
@@ -341,34 +400,75 @@ export default function TrackingDashboard() {
           {/* Search/Filter Bar */}
           {trackedGames.length > 0 && (
             <div className="mb-6">
-              <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
-                <div className="relative max-w-md w-full sm:w-auto">
-                  <input
-                    type="text"
-                    placeholder="Search tracked games..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full px-4 py-3 pl-10 card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-xl text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
-                  />
-                  <div className="absolute inset-y-0 left-0 flex items-center pl-3">
-                    <span className="text-gray-500 dark:text-gray-400">🔍</span>
+              <div className="flex flex-col gap-4">
+                {/* Search Bar */}
+                <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
+                  <div className="relative max-w-md w-full sm:w-auto">
+                    <input
+                      type="text"
+                      placeholder="Search tracked games..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full px-4 py-3 pl-10 card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-xl text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                    />
+                    <div className="absolute inset-y-0 left-0 flex items-center pl-3">
+                      <span className="text-gray-500 dark:text-gray-400">🔍</span>
+                    </div>
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery('')}
+                        className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+                      >
+                        ✕
+                      </button>
+                    )}
                   </div>
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery('')}
-                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-                    >
-                      ✕
-                    </button>
-                  )}
+
+                  <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 px-6 py-3 rounded-xl shadow-lg">
+                    <span className="text-sm font-medium text-slate-500 dark:text-slate-400">📊 Tracking: </span>
+                    <span className="text-lg font-bold text-gradient">{trackedGames.length} games</span>
+                  </div>
                 </div>
-                <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 px-6 py-3 rounded-xl shadow-lg">
-                  <span className="text-sm font-medium text-slate-500 dark:text-slate-400">📊 Tracking: </span>
-                  <span className="text-lg font-bold text-gradient">{trackedGames.length} games</span>
+
+                {/* Sort Controls */}
+                <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 px-4 py-3 rounded-xl shadow-lg">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Sort by:</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {[
+                        { key: 'title', label: 'Title', icon: '📝' },
+                        { key: 'dateAdded', label: 'Added', icon: '📅' },
+                        { key: 'lastChecked', label: 'Checked', icon: '🔍' },
+                        { key: 'lastUpdated', label: 'Updated', icon: '⚡' }
+                      ].map((option) => (
+                        <button
+                          key={option.key}
+                          onClick={() => handleSortChange(option.key as typeof sortBy)}
+                          className={`
+                            px-3 py-1.5 text-xs rounded-lg transition-all duration-200 flex items-center gap-1.5 font-medium
+                            ${sortBy === option.key
+                              ? 'bg-primary-500 text-white shadow-md transform scale-105'
+                              : 'bg-white/50 dark:bg-gray-700/50 text-gray-700 dark:text-gray-300 hover:bg-white/70 dark:hover:bg-gray-700/70 hover:scale-105'
+                            }
+                          `}
+                          title={`Sort by ${option.label} ${sortBy === option.key ? (sortOrder === 'asc' ? '(A-Z)' : '(Z-A)') : ''}`}
+                        >
+                          <span>{option.icon}</span>
+                          <span>{option.label}</span>
+                          {sortBy === option.key && (
+                            <span className="text-xs font-bold">
+                              {sortOrder === 'asc' ? '↑' : '↓'}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
+
               {searchQuery && (
-                <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 text-center sm:text-left">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-4 text-center sm:text-left">
                   Found {filteredGames.length} game{filteredGames.length !== 1 ? 's' : ''} matching &quot;{searchQuery}&quot;
                 </p>
               )}
@@ -505,7 +605,7 @@ export default function TrackingDashboard() {
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="font-bold text-base sm:text-lg text-gray-900 dark:text-white line-clamp-2 leading-tight bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-200/50 dark:border-gray-700/50 shadow-sm flex-1 min-w-0">
+                            <h3 className="font-bold text-base sm:text-lg text-gray-900 dark:text-white line-clamp-2 leading-tight text-center bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-200/50 dark:border-gray-700/50 shadow-sm flex-1 min-w-0">
                               {cleanGameTitle(game.title)}
                             </h3>
                             {game.hasNewUpdate && !game.newUpdateSeen && (
