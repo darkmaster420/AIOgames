@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Find the best match that has version/build info
+      // Find the best match, prioritizing games with version/build info but allowing unreleased games
       let bestMatch = null;
       const { detectVersionNumber } = await import('../../../../utils/versionDetection');
       
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
         trimmedGameName.toLowerCase().includes(game.title.toLowerCase())
       );
       
-      // Check exact matches first
+      // Check exact matches first for versions/builds
       for (const game of exactMatches) {
         const { found: hasVersion } = detectVersionNumber(game.title);
         const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(game.title);
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
         }
       }
       
-      // If no exact match with version/build found, check all results
+      // If no exact match with version/build found, check all results for versions/builds
       if (!bestMatch) {
         for (const game of searchData.results) {
           const { found: hasVersion } = detectVersionNumber(game.title);
@@ -85,15 +85,18 @@ export async function POST(req: NextRequest) {
         }
       }
       
-      // If still no match found, return error with helpful message
+      // If still no versioned game found, allow unreleased games (pick best exact match or first result)
       if (!bestMatch) {
-        const sampleTitles = searchData.results.slice(0, 3).map((game: { title: string }) => `"${game.title}"`).join(', ');
-        return NextResponse.json(
-          { 
-            error: `No trackable versions found for "${trimmedGameName}". Found results like ${sampleTitles}, but none contain version or build information. Please search for a more specific release (e.g., "palworld v0.6.6" or "palworld build 12345").`
-          },
-          { status: 400 }
-        );
+        logger.info(`No versioned games found for "${trimmedGameName}", allowing unreleased game tracking`);
+        
+        // Prefer exact matches for unreleased games
+        if (exactMatches.length > 0) {
+          bestMatch = exactMatches[0];
+          logger.info(`Selected exact match for unreleased game: "${bestMatch.title}"`);
+        } else {
+          bestMatch = searchData.results[0];
+          logger.info(`Selected first result for unreleased game: "${bestMatch.title}"`);
+        }
       }
 
       await connectDB();
@@ -285,8 +288,17 @@ export async function POST(req: NextRequest) {
         // Don't fail the request if scheduler update fails
       }
 
+      // Determine if this is a versioned game or unreleased game for the success message
+      const { found: hasVersion } = detectVersionNumber(bestMatch.title);
+      const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(bestMatch.title);
+      const isUnreleased = !hasVersion && !hasBuild;
+      
+      const successMessage = isUnreleased
+        ? `Successfully added unreleased game "${bestMatch.title}" to your tracking list. Update detection will be limited until a versioned release is available.`
+        : `Successfully added "${bestMatch.title}" to your tracking list`;
+
       return NextResponse.json({
-        message: `Successfully added "${bestMatch.title}" to your tracking list`,
+        message: successMessage,
         game: {
           id: newTrackedGame._id,
           gameId: newTrackedGame.gameId,

@@ -106,6 +106,7 @@ const server = http.createServer(async (req, res) => {
         const result = analyze(json);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (e) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: false, error: 'Invalid JSON' }));

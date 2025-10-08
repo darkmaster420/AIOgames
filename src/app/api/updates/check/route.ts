@@ -519,6 +519,7 @@ export async function POST(request: Request) {
                 },
                 {
                   minConfidence: 0.6,
+                  requireVersionPattern: true, // Only consider candidates with version/build patterns
                   debugLogging: aiPreferences.debugLogging
                 }
               );
@@ -819,6 +820,15 @@ export async function POST(request: Request) {
                 logger.info(`Auto-approved update for ${game.title}: ${versionString}`);
                 updatesFound++;
               } else {
+                // Check if the detected game has version or build information before adding to pending
+                const hasVersionOrBuild = newVersionInfo.version || newVersionInfo.build || 
+                  /\b(v?\d+(?:\.\d+)+|\d{6,}|build\s*\d+|b\d{4,}|#\d{4,})\b/i.test(decodedTitle);
+                
+                if (!hasVersionOrBuild) {
+                  logger.debug(`Skipping game without version/build info: "${decodedTitle}"`);
+                  continue; // Skip adding to pending if no version/build information
+                }
+                
                 // Add to pending updates with AI data
                 const aiData = selectedMatch?.aiConfidence ? {
                   aiDetectionConfidence: selectedMatch.aiConfidence,

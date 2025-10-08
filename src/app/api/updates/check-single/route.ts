@@ -613,6 +613,7 @@ export async function POST(request: Request) {
               },
               {
                 minConfidence: 0.6,
+                requireVersionPattern: true, // Only consider candidates with version/build patterns
                 debugLogging: false
               }
             );
@@ -729,6 +730,20 @@ export async function POST(request: Request) {
 
               await TrackedGame.findByIdAndUpdate(game._id, updateFields);
             } else {
+              // Check if the detected game has version or build information before adding to pending
+              const hasVersionOrBuild = newVersionInfo.version || newVersionInfo.build || 
+                /\b(v?\d+(?:\.\d+)+|\d{6,}|build\s*\d+|b\d{4,}|#\d{4,})\b/i.test(decodedTitle);
+              
+              if (!hasVersionOrBuild) {
+                console.log(`⚠️ Skipping game without version/build info: "${decodedTitle}"`);
+                return NextResponse.json({
+                  message: `No update found for "${game.title}". Found "${decodedTitle}" but it lacks version/build information needed for tracking.`,
+                  game: game.title,
+                  checked: 1,
+                  updatesFound: 0
+                });
+              }
+              
               // Add to pending updates if can't auto-approve
               await TrackedGame.findByIdAndUpdate(game._id, {
                 $push: { pendingUpdates: updateData },
