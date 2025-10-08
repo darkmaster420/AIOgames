@@ -24,9 +24,9 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    if (!['hourly', 'daily', 'weekly', 'manual'].includes(frequency)) {
+    if (!['hourly', 'daily', 'weekly', 'monthly', 'manual'].includes(frequency)) {
       return NextResponse.json(
-        { error: 'Invalid frequency. Must be hourly, daily, weekly, or manual' },
+        { error: 'Invalid frequency. Must be hourly, daily, weekly, monthly, or manual' },
         { status: 400 }
       );
     }

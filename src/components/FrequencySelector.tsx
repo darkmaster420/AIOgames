@@ -13,6 +13,7 @@ const frequencyOptions = [
   { value: 'hourly', label: '1hr', icon: '⚡', description: 'Every hour' },
   { value: 'daily', label: '1d', icon: '📅', description: 'Every day' },
   { value: 'weekly', label: '1w', icon: '📆', description: 'Every week' },
+  { value: 'monthly', label: '1mo', icon: '🗓️', description: 'Every month' },
   { value: 'manual', label: 'Manual', icon: '🔧', description: 'Manual only' }
 ];
 

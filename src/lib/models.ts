@@ -201,7 +201,7 @@ const trackedGameSchema = new mongoose.Schema({
   },
   checkFrequency: {
     type: String,
-    enum: ['hourly', 'daily', 'weekly', 'manual'],
+    enum: ['hourly', 'daily', 'weekly', 'monthly', 'manual'],
     default: 'hourly'
   },
   steamVerified: {

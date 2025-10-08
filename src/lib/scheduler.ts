@@ -8,7 +8,7 @@ import logger from '../utils/logger';
 
 interface ScheduledCheck {
   userId: string;
-  frequency: 'hourly' | 'daily' | 'weekly';
+  frequency: 'hourly' | 'daily' | 'weekly' | 'monthly';
   lastCheck: Date;
   nextCheck: Date;
 }
@@ -148,14 +148,16 @@ class UpdateScheduler {
           frequencies[freq] = (frequencies[freq] || 0) + 1;
         }
 
-        // Use the most frequent schedule (prioritize: hourly > daily > weekly)
-        let userFrequency: 'hourly' | 'daily' | 'weekly' = 'hourly';
+        // Use the most frequent schedule (prioritize: hourly > daily > weekly > monthly)
+        let userFrequency: 'hourly' | 'daily' | 'weekly' | 'monthly' = 'monthly';
         if (frequencies.hourly > 0) {
           userFrequency = 'hourly';
         } else if (frequencies.daily > 0) {
           userFrequency = 'daily';
         } else if (frequencies.weekly > 0) {
           userFrequency = 'weekly';
+        } else if (frequencies.monthly > 0) {
+          userFrequency = 'monthly';
         }
 
         // Calculate next check time
@@ -281,7 +283,7 @@ class UpdateScheduler {
   /**
    * Calculate the next check time based on frequency
    */
-  private calculateNextCheck(lastCheck: Date, frequency: 'hourly' | 'daily' | 'weekly'): Date {
+  private calculateNextCheck(lastCheck: Date, frequency: 'hourly' | 'daily' | 'weekly' | 'monthly'): Date {
     const next = new Date(lastCheck);
 
     switch (frequency) {
@@ -293,6 +295,9 @@ class UpdateScheduler {
         break;
       case 'weekly':
         next.setDate(next.getDate() + 7);
+        break;
+      case 'monthly':
+        next.setMonth(next.getMonth() + 1);
         break;
     }
 
@@ -322,7 +327,7 @@ class UpdateScheduler {
 
       // Determine the most frequent schedule needed
       const frequencies = trackedGames.map(game => game.checkFrequency || 'hourly');
-      let userFrequency: 'hourly' | 'daily' | 'weekly' = 'hourly';
+      let userFrequency: 'hourly' | 'daily' | 'weekly' | 'monthly' = 'monthly';
       
       if (frequencies.includes('hourly')) {
         userFrequency = 'hourly';
@@ -330,6 +335,8 @@ class UpdateScheduler {
         userFrequency = 'daily';
       } else if (frequencies.includes('weekly')) {
         userFrequency = 'weekly';
+      } else if (frequencies.includes('monthly')) {
+        userFrequency = 'monthly';
       }
 
       const now = new Date();

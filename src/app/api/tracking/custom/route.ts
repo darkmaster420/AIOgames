@@ -212,7 +212,14 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      // Determine if this is a versioned game or unreleased game for frequency setting
+      const { found: hasVersion } = detectVersionNumber(bestMatch.title);
+      const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(bestMatch.title);
+      const isUnreleased = !hasVersion && !hasBuild;
+
       // Create new tracked game
+      // Set frequency based on release status - monthly for unreleased games, hourly for released
+      const defaultFrequency = isUnreleased || isFromIGDB ? 'monthly' : 'hourly';
 
       const newTrackedGame = new TrackedGame({
         userId: authenticatedUser.id,
@@ -225,7 +232,7 @@ export async function POST(req: NextRequest) {
         dateAdded: new Date(),
         lastChecked: new Date(),
         notificationsEnabled: true,
-        checkFrequency: 'hourly',
+        checkFrequency: defaultFrequency,
         updateHistory: [],
         isActive: true,
         originalTitle: bestMatch.title,
@@ -338,19 +345,16 @@ export async function POST(req: NextRequest) {
         // Don't fail the request if scheduler update fails
       }
 
-      // Determine if this is a versioned game or unreleased game for the success message
-      const { found: hasVersion } = detectVersionNumber(bestMatch.title);
-      const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(bestMatch.title);
-      const isUnreleased = !hasVersion && !hasBuild;
+      // Calculate similarity for success message
       const similarity = bestMatch.similarity || calculateSimilarity(trimmedGameName, bestMatch.title);
       
       let successMessage;
       if (isFromIGDB) {
-        successMessage = `Successfully added upcoming/unreleased game "${bestMatch.title}" from IGDB to your tracking list (${(similarity * 100).toFixed(0)}% match). You'll be notified when it becomes available on piracy sites.`;
+        successMessage = `Successfully added upcoming/unreleased game "${bestMatch.title}" from IGDB to your tracking list (${(similarity * 100).toFixed(0)}% match). Set to monthly check frequency - you'll be notified when it becomes available.`;
       } else {
         successMessage = isUnreleased
-          ? `Successfully added unreleased game "${bestMatch.title}" to your tracking list (${(similarity * 100).toFixed(0)}% match). Update detection will be limited until a versioned release is available.`
-          : `Successfully added "${bestMatch.title}" to your tracking list (${(similarity * 100).toFixed(0)}% match)`;
+          ? `Successfully added unreleased game "${bestMatch.title}" to your tracking list (${(similarity * 100).toFixed(0)}% match). Set to monthly check frequency until a versioned release is available.`
+          : `Successfully added "${bestMatch.title}" to your tracking list (${(similarity * 100).toFixed(0)}% match). Set to hourly check frequency for updates.`;
       }
 
       return NextResponse.json({
