@@ -86,6 +86,10 @@ const userSchema = new mongoose.Schema({
         type: String,
         default: ''
       },
+      telegramBotManagementEnabled: {
+        type: Boolean,
+        default: false
+      },
       notifyImmediately: {
         type: Boolean,
         default: true

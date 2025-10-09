@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { cleanGameTitle } from '@/utils/steamApi';
 import { useNotification } from '../contexts/NotificationContext';
 
@@ -40,132 +40,25 @@ export function SteamVerification({
   const [searchQuery, setSearchQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [isLinking, setIsLinking] = useState(false);
-  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const cleanedTitle = cleanGameTitle(gameTitle);
 
-  // Calculate dropdown position based on available viewport space - same as DownloadLinks
   const handleToggle = () => {
-    if (!isOpen && buttonRef.current) {
-      // Calculate position for dropdown - improved mobile-first positioning
-      const rect = buttonRef.current.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-      const viewportWidth = window.innerWidth;
-      
-      // Responsive dropdown sizing
-      const isMobile = viewportWidth < 768;
-      const dropdownHeight = 400; // estimated height for Steam dropdown
-      const dropdownWidth = isMobile ? Math.min(viewportWidth - 16, 320) : Math.max(rect.width, 300);
-      
-      let top = rect.bottom + 4;
-      let left = rect.left;
-      
-      // Mobile-specific positioning
-      if (isMobile) {
-        // On mobile, center the dropdown or align to screen edges
-        const idealLeft = Math.max(8, Math.min(rect.left, viewportWidth - dropdownWidth - 8));
-        left = idealLeft;
-        
-        // If dropdown would go off bottom, show above with mobile considerations
-        if (rect.bottom + dropdownHeight > viewportHeight - 20) {
-          top = Math.max(20, rect.top - dropdownHeight - 4);
-        }
-      } else {
-        // Desktop positioning logic
-        if (rect.bottom + dropdownHeight > viewportHeight) {
-          top = rect.top - dropdownHeight - 4;
-        }
-        
-        if (rect.left + dropdownWidth > viewportWidth) {
-          left = rect.right - dropdownWidth;
-        }
-        
-        if (left < 4) {
-          left = 4;
-        }
-      }
-      
-      setDropdownPosition({
-        top,
-        left,
-        width: dropdownWidth
-      });
-    }
-    
     setIsOpen(!isOpen);
   };
 
-  // Close dropdown when clicking outside and handle scroll updates - same as DownloadLinks
+  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node) &&
-          buttonRef.current && !buttonRef.current.contains(event.target as Node)) {
+      if (isOpen && event.target instanceof Element && !event.target.closest('.steam-verification-container')) {
         setIsOpen(false);
-      }
-    };
-
-    const updatePosition = () => {
-      if (isOpen && buttonRef.current) {
-        const rect = buttonRef.current.getBoundingClientRect();
-        
-        // If button is scrolled too far off screen, close the dropdown
-        if (rect.bottom < 0 || rect.top > window.innerHeight) {
-          setIsOpen(false);
-          return;
-        }
-        
-        // Improved mobile-responsive positioning
-        const viewportHeight = window.innerHeight;
-        const viewportWidth = window.innerWidth;
-        const isMobile = viewportWidth < 768;
-        const dropdownHeight = 400; // estimated height
-        const dropdownWidth = isMobile ? Math.min(viewportWidth - 16, 320) : Math.max(rect.width, 300);
-        
-        let top = rect.bottom + 4;
-        let left = rect.left;
-        
-        if (isMobile) {
-          // Mobile positioning - keep within screen bounds
-          const idealLeft = Math.max(8, Math.min(rect.left, viewportWidth - dropdownWidth - 8));
-          left = idealLeft;
-          
-          if (rect.bottom + dropdownHeight > viewportHeight - 20) {
-            top = Math.max(20, rect.top - dropdownHeight - 4);
-          }
-        } else {
-          // Desktop positioning
-          if (rect.bottom + dropdownHeight > viewportHeight) {
-            top = rect.top - dropdownHeight - 4;
-          }
-          
-          if (rect.left + dropdownWidth > viewportWidth) {
-            left = rect.right - dropdownWidth;
-          }
-          
-          if (left < 4) {
-            left = 4;
-          }
-        }
-        
-        setDropdownPosition({
-          top,
-          left,
-          width: dropdownWidth
-        });
       }
     };
 
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside);
-      window.addEventListener('scroll', updatePosition, true);
-      window.addEventListener('resize', updatePosition);
-      
       return () => {
         document.removeEventListener('mousedown', handleClickOutside);
-        window.removeEventListener('scroll', updatePosition, true);
-        window.removeEventListener('resize', updatePosition);
       };
     }
   }, [isOpen]);
@@ -255,7 +148,7 @@ export function SteamVerification({
   };
 
   return (
-    <div className="relative">
+    <div className="steam-verification-container">
       {/* Current Status */}
       <div className="flex items-center gap-2 mb-2">
         {steamVerified && steamName ? (
@@ -263,7 +156,6 @@ export function SteamVerification({
             <span>✅</span>
             <span>Steam: {steamName}</span>
             <button
-              ref={buttonRef}
               onClick={handleToggle}
               className="ml-1 text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-200"
             >
@@ -272,7 +164,6 @@ export function SteamVerification({
           </div>
         ) : (
           <button
-            ref={buttonRef}
             onClick={handleToggle}
             className="flex items-center gap-1 text-xs bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300 px-2 py-1 rounded hover:bg-yellow-200 dark:hover:bg-yellow-800 transition-colors"
           >
@@ -284,22 +175,22 @@ export function SteamVerification({
 
       {/* Search Interface - using fixed positioning like DownloadLinks */}
       {isOpen && (
-        <div 
-          ref={dropdownRef}
-          className="fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-96 overflow-y-auto"
-          style={{
-            position: 'fixed',
-            top: `${dropdownPosition.top}px`,
-            left: `${dropdownPosition.left}px`,
-            width: dropdownPosition.width > 0 ? `${dropdownPosition.width}px` : '20rem',
-            minWidth: '16rem',
-            maxWidth: '90vw',
-            zIndex: 9999
-          }}
-        >
-          <div className="p-3 max-h-96 overflow-y-auto">
+        <div className="mt-2 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600">
+          <div className="space-y-3">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-medium text-gray-900 dark:text-white">
+                Steam Verification
+              </h4>
+              <button
+                onClick={() => setIsOpen(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              >
+                ✕
+              </button>
+            </div>
             {/* Search Input */}
-            <div className="mb-3">
+            <div>
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Search Steam:
               </label>
@@ -309,7 +200,7 @@ export function SteamVerification({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder={`Try: "${cleanedTitle}"`}
-                  className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleSearch();
                   }}
@@ -317,7 +208,7 @@ export function SteamVerification({
                 <button
                   onClick={handleSearch}
                   disabled={isSearching}
-                  className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                  className="px-3 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
                 >
                   {isSearching ? '🔄' : '🔍'}
                 </button>
@@ -327,27 +218,27 @@ export function SteamVerification({
             {/* Quick Fill Button */}
             <button
               onClick={() => setSearchQuery(cleanedTitle)}
-              className="mb-3 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 underline"
+              className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 underline"
             >
-              Use cleaned title
+              Use cleaned title: &ldquo;{cleanedTitle}&rdquo;
             </button>
 
             {/* Search Results */}
             {searchResults.length > 0 && (
-              <div className="max-h-48 overflow-y-auto">
-                <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Select Steam Game:
                 </h4>
-                <div className="space-y-2">
+                <div className="space-y-2 max-h-64 overflow-y-auto">
                   {searchResults.map((result) => (
                     <div
                       key={result.appid}
-                      className="p-2 bg-gray-50 dark:bg-gray-700 rounded border hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer"
+                      className="p-3 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 cursor-pointer transition-colors"
                       onClick={() => handleLinkGame(result)}
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-gray-900 dark:text-white truncate">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
                             {result.name}
                           </p>
                           <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -355,15 +246,22 @@ export function SteamVerification({
                           </p>
                           {result.developer && (
                             <p className="text-xs text-gray-500 dark:text-gray-400">
-                              {result.developer}
+                              by {result.developer}
                             </p>
                           )}
                         </div>
-                        {result.score_rank && (
-                          <div className="ml-2 text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1 rounded">
-                            #{result.score_rank}
-                          </div>
-                        )}
+                        <div className="text-right">
+                          {result.score_rank && (
+                            <div className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-2 py-1 rounded mb-1">
+                              #{result.score_rank}
+                            </div>
+                          )}
+                          {result.positive && result.negative && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              {Math.round((result.positive / (result.positive + result.negative)) * 100)}% positive
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -372,12 +270,12 @@ export function SteamVerification({
             )}
 
             {/* Action Buttons */}
-            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex gap-2 flex-wrap">
+            <div className="flex gap-2 pt-3 border-t border-gray-200 dark:border-gray-600">
               {steamVerified && (
                 <button
                   onClick={handleRemoveVerification}
                   disabled={isLinking}
-                  className="text-xs px-2 py-1 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded hover:bg-red-200 dark:hover:bg-red-800 disabled:opacity-50"
+                  className="text-sm px-3 py-1 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded hover:bg-red-200 dark:hover:bg-red-800 disabled:opacity-50"
                 >
                   {isLinking ? '🔄' : 'Remove Link'}
                 </button>
@@ -385,15 +283,9 @@ export function SteamVerification({
               <button
                 onClick={() => handleLinkGame(null)}
                 disabled={isLinking}
-                className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
+                className="text-sm px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
               >
                 {isLinking ? '🔄' : 'Mark as Non-Steam'}
-              </button>
-              <button
-                onClick={() => setIsOpen(false)}
-                className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
-              >
-                Close
               </button>
             </div>
           </div>

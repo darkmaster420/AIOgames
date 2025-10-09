@@ -10,6 +10,7 @@ export async function middleware(request: NextRequest) {
     '/api/auth',
     '/api/health', // Health check endpoint should be public
     '/api/cache/warm', // Cache warming endpoint should be public for automated systems
+    '/api/tracking/check-updates', // Update checking endpoint should be public for automated systems
   ];
 
   // Always allow static assets and public routes straight through
