@@ -245,6 +245,12 @@ class UpdateScheduler {
         throw new Error(`Update check API returned ${response.status}`);
       }
 
+      // Check if response is JSON before parsing
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error(`Update check returned non-JSON response (status: ${response.status}, content-type: ${contentType})`);
+      }
+
       const result = await response.json();
       logger.info(`✅ Scheduled update check completed for user ${userId}: ${result.checked} games checked, ${result.updatesFound} updates found`);
 
