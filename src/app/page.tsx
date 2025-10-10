@@ -438,7 +438,7 @@ function DashboardInner() {
                   </div>
                   {/* Game Content */}
                   <div className="relative z-10 px-4 flex flex-col flex-grow">
-                    <h3 className="font-bold text-base sm:text-lg mb-3 text-gray-900 dark:text-white line-clamp-2 leading-tight text-center bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-200/50 dark:border-gray-700/50 shadow-sm">
+                    <h3 className="font-bold text-base sm:text-lg mb-3 text-gray-900 dark:text-white leading-tight text-center bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-200/50 dark:border-gray-700/50 shadow-sm">
                       {game.originalTitle || game.title}
                     </h3>
                     

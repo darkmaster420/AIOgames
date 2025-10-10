@@ -415,8 +415,10 @@ export function cleanGameTitle(title: string): string {
     .replace(/\b(drm\sfree|no\sdrm|steam\srip|gog\srip)\b/gi, '')
     
     // Remove DLC and content indicators  
-    .replace(/\b(all dlc|with dlc|dlc included|\+\s*dlc|dlc pack)\b/gi, '')
+    .replace(/\b(all dlc|with dlc|dlc included|\+\s*all\s*dlc|\+\s*dlc|dlc pack)\b/gi, '')
     .replace(/\b(season pass|deluxe content|bonus content|soundtrack included)\b/gi, '')
+    .replace(/\b(psn\s*bonus|playstation\s*bonus|steam\s*bonus|epic\s*bonus|gog\s*bonus)\b/gi, '') // Platform bonuses
+    .replace(/\b(pre-?order\s*bonus|preorder\s*bonus|pre-?purchase\s*bonus)\b/gi, '') // Pre-order bonuses
     .replace(/\bdlc\b/gi, '') // Remove standalone DLC tag
     .replace(/\b(expansion pack|expansion|add-on content|add-on|addon|content pack|character pack)\b/gi, "") // Additional content indicators
     
@@ -446,17 +448,9 @@ export function cleanGameTitle(title: string): string {
     .replace(/\b(coming soon|unreleased)\b/gi, '')
     .replace(/\b(steam deck verified|deck verified)\b/gi, '')
     
-    // Remove DLC, add-on content, and bonus material indicators
-    .replace(/\b(character pack \d*|dlc pack \d*|expansion pack \d*)\b/gi, '')
-    .replace(/\b(pre-purchase bonus|pre-order bonus|bonus content)\b/gi, '')
-    .replace(/\b(\+\s*all dlc|\+ dlc|with all dlc)\b/gi, '')
-    .replace(/\b(season pass|dlc bundle)\b/gi, '')
-    
-    // Remove complex version patterns - comprehensive coverage
-    .replace(/v\d+(\.\d+){3,}-[A-Z0-9]+/gi, '') // v2013.012.003.008.007-P2P
-    .replace(/v\d+(\.\d+){1,}-[A-Z0-9]+/gi, '') // v1.2-PLAZA, v1.2.3-CODEX  
-    .replace(/v\d+(\.\d+){2,}/gi, '') // v1.2.3.4 or longer
-    .replace(/v\d+\.\d+/gi, '') // v1.2, v2.5 etc
+    // Remove complex version patterns FIRST - more aggressive cleaning
+    .replace(/v\d+(\.\d+){3,}(-[A-Z0-9]+)?/gi, '') // v2013.012.003.008.007-P2P or v1.218.0.0
+    .replace(/v\d+(\.\d+){1,}(-[A-Z0-9]+)?/gi, '') // v1.2-PLAZA, v1.2.3-CODEX  
     .replace(/\bversion\s*\d+(\.\d+)*/gi, '') // version 1.2.3
     .replace(/\bver\.?\s*\d+(\.\d+)*/gi, '') // ver 1.2 or ver. 1.2
     .replace(/\bbuild\s*#?\d+/gi, '') // build 20035145, build #123
@@ -468,15 +462,13 @@ export function cleanGameTitle(title: string): string {
     .replace(/\b20\d{2}[-\.]\d{1,2}[-\.]\d{1,2}/gi, '') // Date formats 2024-01-15, 2024.1.15
     .replace(/\b\d{8}/gi, '') // Date formats 20240115
     
-    // Remove orphaned version letters ONLY if they appear to be version suffixes
-    // This preserves actual words like "beast" while removing version patterns
-    .replace(/\s+v?\d+(\.\d+)*[a-h](?=\s|$)/gi, '') // Remove version patterns ending with letters like "v1.2.3c"
-    .replace(/(?<=\s|^)v[a-h](?=\s|$)/gi, '') // Remove standalone version letters like "va", "vb" etc
-    .replace(/(?<=\d\s+)[a-h](?=\s|$)/gi, '') // Remove version letters that follow numbers like "1 a", "123 b"
-    
     // Remove year tags like (2025), [2024] etc - but preserve years that are part of game names
     .replace(/\(20\d{2}\)/g, '') // (2025)
     .replace(/\[20\d{2}\]/g, '') // [2024]
+    
+    // Remove + symbols and surrounding content more aggressively
+    .replace(/\s*\+\s*[^+]*$/gi, '') // Remove everything after the first + symbol
+    .replace(/\s*\+\s*/g, ' ') // Replace remaining + with spaces
     
     // Remove scene groups - comprehensive pattern matching
     .replace(/-[A-Z0-9]{3,}$/gi, '') // Scene groups at end like -RUNE, -TENOKE
@@ -491,6 +483,12 @@ export function cleanGameTitle(title: string): string {
     
     // Remove trademark symbols
     .replace(/[®™©]/g, '')
+    
+    // Remove orphaned version letters ONLY if they appear to be version suffixes
+    // This preserves actual words like "beast" while removing version patterns
+    .replace(/\s+v?\d+(\.\d+)*[a-h](?=\s|$)/gi, '') // Remove version patterns ending with letters like "v1.2.3c"
+    .replace(/(?<=\s|^)v[a-h](?=\s|$)/gi, '') // Remove standalone version letters like "va", "vb" etc
+    .replace(/(?<=\d\s+)[a-h](?=\s|$)/gi, '') // Remove version letters that follow numbers like "1 a", "123 b"
     
     // IMPORTANT: Keep "ZERO" as "zero" when it's likely part of a game name
     // Only convert isolated "0" to "zero" when appropriate
