@@ -12,7 +12,7 @@ import { AddCustomGame } from '../../components/AddCustomGame';
 import { FrequencySelector } from '../../components/FrequencySelector';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { ImageWithFallback } from '../../utils/imageProxy';
-import { cleanGameTitle } from '../../utils/steamApi';
+import { cleanGameTitle, extractReleaseGroup } from '../../utils/steamApi';
 
 import { useNotification } from '../../contexts/NotificationContext';
 import { ExternalLinkIcon } from '../../components/ExternalLinkIcon';
@@ -98,6 +98,9 @@ export default function TrackingDashboard() {
   // Sort functionality
   const [sortBy, setSortBy] = useState<'title' | 'dateAdded' | 'lastChecked' | 'lastUpdated'>('dateAdded');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  
+  // Advanced view for showing original titles
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Sort games function
   const sortGames = (games: TrackedGame[], sortField: string, order: string) => {
@@ -395,6 +398,26 @@ export default function TrackingDashboard() {
                     <span className="text-sm font-medium text-slate-500 dark:text-slate-400">📊 Tracking: </span>
                     <span className="text-lg font-bold text-gradient">{trackedGames.length} games</span>
                   </div>
+
+                  {/* Advanced View Toggle */}
+                  <button
+                    onClick={() => setShowAdvanced(!showAdvanced)}
+                    className={`
+                      px-4 py-3 rounded-xl font-medium text-sm transition-all duration-200 shadow-lg
+                      ${showAdvanced 
+                        ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white transform scale-105' 
+                        : 'card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                      }
+                    `}
+                    title={showAdvanced ? 'Hide original post titles' : 'Show original post titles'}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span>🔧</span>
+                      <span className="hidden sm:inline">
+                        {showAdvanced ? 'Hide Advanced' : 'Advanced'}
+                      </span>
+                    </span>
+                  </button>
                 </div>
 
                 {/* Sort Controls */}
@@ -573,8 +596,16 @@ export default function TrackingDashboard() {
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <h3 className="font-bold text-base sm:text-lg text-gray-900 dark:text-white line-clamp-2 leading-tight text-center bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-200/50 dark:border-gray-700/50 shadow-sm flex-1 min-w-0 uppercase">
-                              {cleanGameTitle(game.title)}
+                              {showAdvanced ? game.originalTitle : cleanGameTitle(game.title)}
                             </h3>
+                            {showAdvanced && (() => {
+                              const releaseGroup = extractReleaseGroup(game.originalTitle);
+                              return releaseGroup && (
+                                <span className="px-2 py-1 bg-gradient-to-r from-purple-500 to-blue-500 text-white text-xs font-bold rounded-full shadow-sm">
+                                  {releaseGroup}
+                                </span>
+                              );
+                            })()}
                             {game.hasNewUpdate && !game.newUpdateSeen && (
                               <div className="flex items-center gap-2">
                                 <span className="px-2 py-1 bg-gradient-to-r from-red-500 to-pink-500 text-white text-xs font-bold rounded-full animate-pulse shadow-lg">
