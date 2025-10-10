@@ -1,4 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cleanGameTitle } from '../../../../utils/steamApi';
+
+interface ApiGame {
+  id: string;
+  title: string;
+  source: string;
+  siteType: string;
+  [key: string]: unknown;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -27,7 +36,14 @@ export async function GET(request: NextRequest) {
     
     // Extract the results array from the API response structure
     if (data.success && data.results && Array.isArray(data.results)) {
-      return NextResponse.json(data.results);
+      // Add original titles and clean existing titles
+      const results = data.results.map((game: ApiGame) => ({
+        ...game,
+        originalTitle: game.title, // Store the original title
+        title: cleanGameTitle(game.title) // Clean the title
+      }));
+      
+      return NextResponse.json(results);
     } else {
       console.error('Invalid search API response structure:', data);
       return NextResponse.json({ error: 'Invalid search response structure' }, { status: 500 });

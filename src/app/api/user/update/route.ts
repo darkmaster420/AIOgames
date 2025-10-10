@@ -24,7 +24,9 @@ export async function PATCH(req: Request) {
     telegramEnabled, 
     telegramBotToken, 
     telegramChatId,
-    telegramBotManagementEnabled 
+    telegramBotManagementEnabled,
+    prioritize0xdeadcode,
+    prefer0xdeadcodeForOnlineFixes
   } = body;
 
     await connectDB();
@@ -123,6 +125,19 @@ export async function PATCH(req: Request) {
       user.preferences = user.preferences || {};
       user.preferences.notifications = user.preferences.notifications || {};
       user.preferences.notifications.telegramBotManagementEnabled = telegramBotManagementEnabled;
+    }
+
+    // Update release group preferences
+    if (typeof prioritize0xdeadcode === 'boolean') {
+      user.preferences = user.preferences || {};
+      user.preferences.releaseGroups = user.preferences.releaseGroups || {};
+      user.preferences.releaseGroups.prioritize0xdeadcode = prioritize0xdeadcode;
+    }
+
+    if (typeof prefer0xdeadcodeForOnlineFixes === 'boolean') {
+      user.preferences = user.preferences || {};
+      user.preferences.releaseGroups = user.preferences.releaseGroups || {};
+      user.preferences.releaseGroups.prefer0xdeadcodeForOnlineFixes = prefer0xdeadcodeForOnlineFixes;
     }
 
     await user.save();

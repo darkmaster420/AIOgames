@@ -1,4 +1,5 @@
 import { NextResponse, NextRequest } from 'next/server';
+import { cleanGameTitle } from '../../../../utils/steamApi';
 
 // Simple in-memory cache (per server instance). For multi-instance you'd need Redis or KV.
 let cachedRecent: { data: unknown; timestamp: number; siteKey: string } | null = null;
@@ -8,6 +9,7 @@ interface Game {
   siteType: string;
   id: string;
   title: string;
+  originalTitle?: string;
   source: string;
   [key: string]: unknown;
 }
@@ -37,6 +39,14 @@ export async function GET(request: NextRequest) {
     const apiData = data as { success: boolean; results: Game[] };
     if (apiData.success && apiData.results && Array.isArray(apiData.results)) {
       let results = apiData.results;
+      
+      // Add original titles and clean existing titles
+      results = results.map((game: Game) => ({
+        ...game,
+        originalTitle: game.title, // Store the original title
+        title: cleanGameTitle(game.title) // Clean the title
+      }));
+      
       // Apply local site filtering if a specific site is requested
       if (site && site !== 'all') {
         results = results.filter((game: Game) => game.siteType === site);

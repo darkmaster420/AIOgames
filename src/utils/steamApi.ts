@@ -454,7 +454,7 @@ export function cleanGameTitle(title: string): string {
     
     // Remove complex version patterns - comprehensive coverage
     .replace(/v\d+(\.\d+){3,}-[A-Z0-9]+/gi, '') // v2013.012.003.008.007-P2P
-    .replace(/v\d+(\.\d+){1,}-[A-Z0-9]+/gi, '') // v1.2-PLAZA, v1.2.3-CODEX
+    .replace(/v\d+(\.\d+){1,}-[A-Z0-9]+/gi, '') // v1.2-PLAZA, v1.2.3-CODEX  
     .replace(/v\d+(\.\d+){2,}/gi, '') // v1.2.3.4 or longer
     .replace(/v\d+\.\d+/gi, '') // v1.2, v2.5 etc
     .replace(/\bversion\s*\d+(\.\d+)*/gi, '') // version 1.2.3
@@ -468,9 +468,11 @@ export function cleanGameTitle(title: string): string {
     .replace(/\b20\d{2}[-\.]\d{1,2}[-\.]\d{1,2}/gi, '') // Date formats 2024-01-15, 2024.1.15
     .replace(/\b\d{8}/gi, '') // Date formats 20240115
     
-    // Remove orphaned version letters at end of titles (like "Game Title C" from "Game Title v1.2.3c")
-    .replace(/\s+[a-h]$/gi, '') // Remove common version letters a-h at end preceded by space
-    .replace(/\s+[a-h]\s/gi, ' ') // Remove common version letters a-h in middle preceded and followed by space
+    // Remove orphaned version letters ONLY if they appear to be version suffixes
+    // This preserves actual words like "beast" while removing version patterns
+    .replace(/\s+v?\d+(\.\d+)*[a-h](?=\s|$)/gi, '') // Remove version patterns ending with letters like "v1.2.3c"
+    .replace(/(?<=\s|^)v[a-h](?=\s|$)/gi, '') // Remove standalone version letters like "va", "vb" etc
+    .replace(/(?<=\d\s+)[a-h](?=\s|$)/gi, '') // Remove version letters that follow numbers like "1 a", "123 b"
     
     // Remove year tags like (2025), [2024] etc - but preserve years that are part of game names
     .replace(/\(20\d{2}\)/g, '') // (2025)
@@ -530,6 +532,39 @@ export function cleanGameTitle(title: string): string {
     .replace(/[^\w\s&]/g, ' ')       
     .replace(/\s+/g, ' ')          
     .trim();
+}
+
+/**
+ * Detect if a release is from 0xdeadcode (known for online fixes)
+ */
+export function is0xdeadcodeRelease(title: string): boolean {
+  return /\b0xdeadcode\b/i.test(title);
+}
+
+/**
+ * Extract release group from title
+ */
+export function extractReleaseGroup(title: string): string | null {
+  // Check for 0xdeadcode first
+  if (is0xdeadcodeRelease(title)) {
+    return '0xdeadcode';
+  }
+  
+  // Look for scene groups in various formats
+  const scenePatterns = [
+    /-([A-Z0-9]{3,})$/i,  // -CODEX, -RUNE, etc at end
+    /\[([A-Z0-9]{3,})\]/i, // [CODEX] in brackets
+    /\(([A-Z0-9]{3,})\)/i, // (CODEX) in parentheses
+  ];
+  
+  for (const pattern of scenePatterns) {
+    const match = title.match(pattern);
+    if (match) {
+      return match[1].toUpperCase();
+    }
+  }
+  
+  return null;
 }
 
 /**

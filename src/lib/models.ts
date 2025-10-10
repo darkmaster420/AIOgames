@@ -134,6 +134,16 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: false
       }
+    },
+    releaseGroups: {
+      prioritize0xdeadcode: {
+        type: Boolean,
+        default: false
+      },
+      prefer0xdeadcodeForOnlineFixes: {
+        type: Boolean,
+        default: true
+      }
     }
   },
   pushSubscriptions: [{

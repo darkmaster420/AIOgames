@@ -4,7 +4,7 @@ import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel } from '../../../../utils/sequelDetection';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
-import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild } from '../../../../utils/steamApi';
+import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, extractReleaseGroup, is0xdeadcodeRelease } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
 import { detectUpdatesWithAI, isAIDetectionAvailable, prepareCandidatesForAI } from '../../../../utils/aiUpdateDetection';
 
@@ -327,7 +327,14 @@ export async function POST(request: Request) {
       debugLogging: false
     };
 
+    // Get release group preferences
+    const releaseGroupPreferences = fullUser.preferences?.releaseGroups || {
+      prioritize0xdeadcode: false,
+      prefer0xdeadcodeForOnlineFixes: true
+    };
+
     logger.debug(`AI Detection preferences: enabled=${aiPreferences.enabled}, threshold=${aiPreferences.autoApprovalThreshold}`);
+    logger.debug(`Release Group preferences: prioritize0xdeadcode=${releaseGroupPreferences.prioritize0xdeadcode}, prefer0xdeadcodeForOnlineFixes=${releaseGroupPreferences.prefer0xdeadcodeForOnlineFixes}`);
 
     // Get all active tracked games for this user
     const trackedGames = await TrackedGame.find({ 
@@ -621,6 +628,15 @@ export async function POST(request: Request) {
 
           // Sort by enhanced scores (AI-weighted or regex-enhanced)
           sortedMatches.sort((a, b) => {
+            // First priority: 0xdeadcode releases if user prefers them
+            if (releaseGroupPreferences.prioritize0xdeadcode) {
+              const aIs0xdeadcode = is0xdeadcodeRelease(a.game.title);
+              const bIs0xdeadcode = is0xdeadcodeRelease(b.game.title);
+              
+              if (aIs0xdeadcode && !bIs0xdeadcode) return -1;
+              if (!aIs0xdeadcode && bIs0xdeadcode) return 1;
+            }
+            
             const aScore = a.enhancedScore || a.similarity;
             const bScore = b.enhancedScore || b.similarity;
             
@@ -735,15 +751,28 @@ export async function POST(request: Request) {
           let isActuallyNewer = false;
           let comparisonReason = '';
           
-          // Only allow posts with a valid, strictly higher version
-          // Require a valid version (not just build)
-          if (!newVersionInfo.version) {
-            logger.debug(`Skipping post "${decodedTitle}" - no valid version detected`);
+          // More flexible update detection - don't require version if we have other indicators
+          const hasVersionInfo = newVersionInfo.version || newVersionInfo.build;
+          const hasUpdateKeywords = /\b(update|patch|hotfix|new|latest|improved|fixed|enhanced)\b/i.test(decodedTitle);
+          const isDifferentReleaseGroup = extractReleaseGroup(decodedTitle) !== extractReleaseGroup(game.title);
+          const is0xdeadcodeUpdate = is0xdeadcodeRelease(decodedTitle);
+          
+          if (!hasVersionInfo && !hasUpdateKeywords && !isDifferentReleaseGroup && !is0xdeadcodeUpdate) {
+            logger.debug(`Skipping post "${decodedTitle}" - no version info or update indicators`);
             continue;
           }
           
-          if (hasVerifiedVersion && hasVerifiedBuild) {
-            // Compare both version and build
+          // Special handling for 0xdeadcode releases (online fixes)
+          if (is0xdeadcodeUpdate && releaseGroupPreferences.prefer0xdeadcodeForOnlineFixes) {
+            isActuallyNewer = true;
+            comparisonReason = '0xdeadcode online fix release (user prefers 0xdeadcode)';
+            logger.info(`0xdeadcode release detected with user preference: ${decodedTitle}`);
+          } else if (is0xdeadcodeUpdate) {
+            isActuallyNewer = true;
+            comparisonReason = '0xdeadcode online fix release';
+            logger.info(`0xdeadcode release detected: ${decodedTitle}`);
+          } else if (hasVerifiedVersion && hasVerifiedBuild && hasVersionInfo) {
+            // Compare both version and build when we have verified data
             const currentVersion = parseFloat(currentVersionInfo.version || '0');
             const newVersion = parseFloat(newVersionInfo.version || '0');
             const currentBuild = parseInt(currentVersionInfo.build || '0');
@@ -772,10 +801,16 @@ export async function POST(request: Request) {
               comparisonReason = `Build: ${currentBuild} → ${newBuild}`;
             }
           } else {
-            // Fall back to general comparison
-            const comparison = compareVersions(currentVersionInfo, newVersionInfo);
-            isActuallyNewer = comparison.isNewer && comparison.significance >= 2;
-            comparisonReason = `General comparison: ${comparison.changeType} (significance: ${comparison.significance})`;
+            // Fall back to more flexible comparison when we don't have verified data
+            if (hasVersionInfo) {
+              const comparison = compareVersions(currentVersionInfo, newVersionInfo);
+              isActuallyNewer = comparison.isNewer && comparison.significance >= 1; // Lower threshold
+              comparisonReason = `General comparison: ${comparison.changeType} (significance: ${comparison.significance})`;
+            } else if (hasUpdateKeywords || isDifferentReleaseGroup) {
+              // Accept updates based on keywords or different release groups
+              isActuallyNewer = true;
+              comparisonReason = hasUpdateKeywords ? 'Update keywords detected' : 'Different release group';
+            }
           }
           
           // Check if it's different content (different link) or actually newer

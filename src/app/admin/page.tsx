@@ -89,8 +89,9 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'games'>('overview');
-  const [trustedGroups, setTrustedGroups] = useState<string[]>([]);
-  const [newGroup, setNewGroup] = useState('');
+  const [editingGameId, setEditingGameId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState('');
+  const [editingField, setEditingField] = useState<'title' | 'originalTitle'>('title');
 
   useEffect(() => {
     if (status === 'authenticated') {
@@ -99,7 +100,6 @@ export default function AdminDashboard() {
       if (activeTab === 'games') {
         // loadTrackedGames will be called via the second useEffect
       }
-      loadTrustedGroups();
     }
   }, [status, activeTab]);
 
@@ -165,41 +165,52 @@ export default function AdminDashboard() {
     }
   }, [gamesFilter]);
 
-  // Release group management functions
-  const loadTrustedGroups = async () => {
-    try {
-      const res = await fetch('/api/admin/release-groups');
-      if (!res.ok) return;
-      const data = await res.json();
-      setTrustedGroups(data.trusted || []);
-    } catch {/* ignore */}
+  const startEditingTitle = (gameId: string, currentTitle: string, field: 'title' | 'originalTitle' = 'title') => {
+    setEditingGameId(gameId);
+    setEditingTitle(currentTitle);
+    setEditingField(field);
   };
 
-  const handleAddGroup = async () => {
-    if (!newGroup.trim()) return;
+  const cancelEditingTitle = () => {
+    setEditingGameId(null);
+    setEditingTitle('');
+    setEditingField('title');
+  };
+
+  const saveEditedTitle = async (gameId: string) => {
+    if (!editingTitle.trim()) return;
+    
     try {
-      const res = await fetch('/api/admin/release-groups', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ group: newGroup.trim() })
+      const response = await fetch(`/api/admin/games/${gameId}/title`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          [editingField]: editingTitle.trim() 
+        }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        setTrustedGroups(data.trusted || []);
-        setNewGroup('');
-      }
-    } catch {/* ignore */}
-  };
 
-  const handleRemoveGroup = async (group: string) => {
-    if (!window.confirm(`Remove release group "${group}"?`)) return;
-    try {
-      const res = await fetch(`/api/admin/release-groups?group=${encodeURIComponent(group)}`, { method: 'DELETE' });
-      if (res.ok) {
-        const data = await res.json();
-        setTrustedGroups(data.trusted || []);
-      }
-    } catch {/* ignore */}
+      if (!response.ok) throw new Error('Failed to update game title');
+
+      // Update the game in the local state
+      setTrackedGames(prev => 
+        prev.map(game => 
+          game._id === gameId ? { 
+            ...game, 
+            [editingField]: editingTitle.trim() 
+          } : game
+        )
+      );
+      
+      setEditingGameId(null);
+      setEditingTitle('');
+      setEditingField('title');
+      
+      showSuccess('Title Updated', `Game ${editingField} has been updated successfully.`);
+    } catch (err) {
+      showError('Failed to Update Title', err instanceof Error ? err.message : 'An unexpected error occurred.');
+    }
   };
 
   const handleDeleteUser = async (userId: string, userName: string) => {
@@ -433,43 +444,6 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                 </div>
-                {/* Release Group Management */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                  <span>🎛️</span> Release Group Management
-                </h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Trusted release groups influence reliability scoring in tracking. Add groups in UPPERCASE.</p>
-                <div className="flex flex-col sm:flex-row gap-3 mb-4">
-                  <input
-                    type="text"
-                    value={newGroup}
-                    onChange={e => setNewGroup(e.target.value.toUpperCase())}
-                    placeholder="NEWGROUP"
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100"
-                  />
-                  <button
-                    onClick={handleAddGroup}
-                    disabled={!newGroup.trim()}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm disabled:opacity-50"
-                  >Add</button>
-                </div>
-                {trustedGroups.length === 0 ? (
-                  <div className="text-sm text-gray-500 dark:text-gray-400">No groups configured.</div>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                    {trustedGroups.map(g => (
-                      <div key={g} className="group relative px-3 py-2 rounded-md bg-gray-100 dark:bg-gray-700 text-xs font-mono text-gray-700 dark:text-gray-200 flex items-center justify-between gap-2">
-                        <span className="truncate" title={g}>{g}</span>
-                        <button
-                          onClick={() => handleRemoveGroup(g)}
-                          className="opacity-60 group-hover:opacity-100 text-red-600 dark:text-red-400 hover:scale-110 transition"
-                          title="Remove"
-                        >✕</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                </div>
               </div>
             )}
 
@@ -597,7 +571,7 @@ export default function AdminDashboard() {
                       </thead>
                       <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                         {trackedGames.map((game) => (
-                          <tr key={game._id}>
+                          <tr key={game._id} className="group hover:bg-gray-50 dark:hover:bg-gray-700">
                             <td className="px-6 py-4">
                               <div className="flex items-center gap-3">
                                 {game.image && (
@@ -609,13 +583,73 @@ export default function AdminDashboard() {
                                     className="w-10 h-10 object-cover rounded"
                                   />
                                 )}
-                                <div className="min-w-0">
-                                  <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                    {game.title}
-                                  </div>
-                                  {game.originalTitle !== game.title && (
-                                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                                      Original: {game.originalTitle}
+                                <div className="min-w-0 flex-1">
+                                  {editingGameId === game._id ? (
+                                    <div className="space-y-2">
+                                      <div className="flex items-center gap-2">
+                                        <input
+                                          type="text"
+                                          value={editingTitle}
+                                          onChange={(e) => setEditingTitle(e.target.value)}
+                                          className="flex-1 text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              saveEditedTitle(game._id);
+                                            } else if (e.key === 'Escape') {
+                                              cancelEditingTitle();
+                                            }
+                                          }}
+                                          autoFocus
+                                        />
+                                        <button
+                                          onClick={() => saveEditedTitle(game._id)}
+                                          className="text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
+                                          title="Save"
+                                        >
+                                          ✓
+                                        </button>
+                                        <button
+                                          onClick={cancelEditingTitle}
+                                          className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                                          title="Cancel"
+                                        >
+                                          ✕
+                                        </button>
+                                      </div>
+                                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                                        Editing: {editingField === 'title' ? 'Clean Title' : 'Original Title'}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                          {game.title}
+                                        </div>
+                                        <button
+                                          onClick={() => startEditingTitle(game._id, game.title, 'title')}
+                                          className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                                          title="Edit clean title"
+                                        >
+                                          ✏️
+                                        </button>
+                                        <span className="text-xs text-gray-400">clean</span>
+                                      </div>
+                                      {game.originalTitle && game.originalTitle !== game.title && (
+                                        <div className="flex items-center gap-2">
+                                          <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                            {game.originalTitle}
+                                          </div>
+                                          <button
+                                            onClick={() => startEditingTitle(game._id, game.originalTitle, 'originalTitle')}
+                                            className="text-purple-600 hover:text-purple-800 dark:text-purple-400 dark:hover:text-purple-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            title="Edit original title"
+                                          >
+                                            ✏️
+                                          </button>
+                                          <span className="text-xs text-gray-400">original</span>
+                                        </div>
+                                      )}
                                     </div>
                                   )}
                                 </div>

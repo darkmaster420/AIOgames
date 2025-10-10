@@ -10,12 +10,13 @@ import { TelegramSendButton } from '../components/TelegramSendButton';
 import { ExternalLinkIcon } from '../components/ExternalLinkIcon';
 import { useNotification } from '../contexts/NotificationContext';
 import { SITES } from '../lib/sites';
-import { decodeHtmlEntities } from '../utils/steamApi';
+import { decodeHtmlEntities, extractReleaseGroup, is0xdeadcodeRelease } from '../utils/steamApi';
 
 type Game = {
   id: string;
   originalId: string | number;
   title: string;
+  originalTitle?: string; // Raw post title for advanced view
   description: string;
   source: string;
   siteType: string;
@@ -36,6 +37,7 @@ function DashboardInner() {
   const [refineText, setRefineText] = useState('');
   const [showRefine, setShowRefine] = useState(false);
   const [showRecentGames, setShowRecentGames] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Function to set cookie with 1 hour expiration
   const setRecentGamesCookie = (show: boolean) => {
@@ -295,39 +297,53 @@ function DashboardInner() {
               </div>
             )}
           </div>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <select
-              value={siteFilter}
-              onChange={(e) => setSiteFilter(e.target.value)}
-              className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-            >
-              <option value="all">All Sites</option>
-              {SITES.map(site => (
-                <option key={site.value} value={site.value}>{site.label}</option>
-              ))}
-            </select>
-            <button
-              onClick={(e) => { e.preventDefault(); applyCurrentFilter(); }}
-              className="px-4 py-2 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors text-sm font-medium"
-            >
-              Apply Filter
-            </button>
-            {(searchQuery || siteFilter !== 'all' || refineText) && (
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  setSearchQuery('');
-                  setSiteFilter('all');
-                  setRefineText('');
-                  setShowRefine(false);
-                  loadRecentGames();
-                  router.replace('/');
-                }}
-                className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <select
+                value={siteFilter}
+                onChange={(e) => setSiteFilter(e.target.value)}
+                className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
               >
-                Clear All
-              </button>
-            )}
+                <option value="all">All Sites</option>
+                {SITES.map(site => (
+                  <option key={site.value} value={site.value}>{site.label}</option>
+                ))}
+              </select>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={(e) => { e.preventDefault(); applyCurrentFilter(); }}
+                  className="px-4 py-2 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors text-sm font-medium"
+                >
+                  Apply Filter
+                </button>
+                <button
+                  onClick={(e) => { e.preventDefault(); setShowAdvanced(!showAdvanced); }}
+                  className={`px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
+                    showAdvanced 
+                      ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-800' 
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  {showAdvanced ? '🔍 Advanced On' : '🔍 Advanced'}
+                </button>
+                {(searchQuery || siteFilter !== 'all' || refineText) && (
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setSearchQuery('');
+                      setSiteFilter('all');
+                      setRefineText('');
+                      setShowRefine(false);
+                      loadRecentGames();
+                      router.replace('/');
+                    }}
+                    className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
+                  >
+                    Clear All
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
         {/* Error */}
@@ -434,8 +450,36 @@ function DashboardInner() {
                   {/* Game Content */}
                   <div className="relative z-10 px-4 flex flex-col flex-grow">
                     <h3 className="font-bold text-base sm:text-lg mb-3 text-gray-900 dark:text-white line-clamp-2 leading-tight text-center bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-200/50 dark:border-gray-700/50 shadow-sm">
-                      {game.title}
+                      {showAdvanced && game.originalTitle ? game.originalTitle : game.title}
                     </h3>
+                    {showAdvanced && game.originalTitle && (
+                      <div className="text-xs text-gray-500 dark:text-gray-400 text-center mb-2 bg-yellow-50 dark:bg-yellow-900/20 px-2 py-1 rounded">
+                        <span className="font-medium">Clean:</span> {game.title}
+                      </div>
+                    )}
+                    
+                    {showAdvanced && (
+                      <div className="text-center mb-2 space-y-1">
+                        {(() => {
+                          const releaseGroup = extractReleaseGroup(game.originalTitle || game.title);
+                          const is0xdeadcode = is0xdeadcodeRelease(game.originalTitle || game.title);
+                          
+                          return (
+                            <>
+                              {releaseGroup && (
+                                <span className={`inline-block px-2 py-1 text-xs rounded-full ${
+                                  is0xdeadcode 
+                                    ? 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300' 
+                                    : 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+                                }`}>
+                                  {is0xdeadcode ? '0xdeadcode (Online-Fix)' : '📦'} {!is0xdeadcode && releaseGroup}
+                                </span>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
                     
                     <div className="text-center mb-3">
                       <span className="inline-block px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full">

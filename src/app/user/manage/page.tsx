@@ -26,7 +26,10 @@ export default function UserManagePage() {
     telegramEnabled: false,
     telegramBotToken: '',
     telegramChatId: '',
-    telegramBotManagementEnabled: false
+    telegramBotManagementEnabled: false,
+    // release group preferences
+    prioritize0xdeadcode: false,
+    prefer0xdeadcodeForOnlineFixes: true
   });
 
   const router = useRouter();
@@ -63,6 +66,15 @@ export default function UserManagePage() {
                       }
                     }, 500);
           }
+        }
+        
+        // Load release group preferences
+        if (data.preferences?.releaseGroups) {
+          setForm((f) => ({
+            ...f,
+            prioritize0xdeadcode: data.preferences.releaseGroups.prioritize0xdeadcode || false,
+            prefer0xdeadcodeForOnlineFixes: data.preferences.releaseGroups.prefer0xdeadcodeForOnlineFixes !== false
+          }));
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -160,6 +172,8 @@ export default function UserManagePage() {
         telegramBotToken?: string;
         telegramChatId?: string;
         telegramBotManagementEnabled?: boolean;
+        prioritize0xdeadcode?: boolean;
+        prefer0xdeadcodeForOnlineFixes?: boolean;
       } = { email: form.email };
 
       if (form.username) {
@@ -179,6 +193,10 @@ export default function UserManagePage() {
       payload.telegramBotToken = form.telegramBotToken;
       payload.telegramChatId = form.telegramChatId;
       payload.telegramBotManagementEnabled = form.telegramBotManagementEnabled;
+      
+      // Release group preferences
+      payload.prioritize0xdeadcode = form.prioritize0xdeadcode;
+      payload.prefer0xdeadcodeForOnlineFixes = form.prefer0xdeadcodeForOnlineFixes;
 
       const res = await fetch('/api/user/update', {
         method: 'PATCH',
@@ -435,6 +453,50 @@ export default function UserManagePage() {
                   )}
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Release Group Preferences */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+              Release Group Preferences
+            </label>
+            <div className="space-y-4 bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+              <div className="flex items-start space-x-3">
+                <input
+                  type="checkbox"
+                  name="prioritize0xdeadcode"
+                  checked={form.prioritize0xdeadcode}
+                  onChange={handleChange}
+                  className="mt-1 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <div>
+                  <label className="text-sm font-medium text-gray-900 dark:text-white">
+                    Prioritize 0xdeadcode releases
+                  </label>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                    When multiple updates are found, prioritize 0xdeadcode releases (online fixes) over other groups
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-start space-x-3">
+                <input
+                  type="checkbox"
+                  name="prefer0xdeadcodeForOnlineFixes"
+                  checked={form.prefer0xdeadcodeForOnlineFixes}
+                  onChange={handleChange}
+                  className="mt-1 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <div>
+                  <label className="text-sm font-medium text-gray-900 dark:text-white">
+                    Prefer 0xdeadcode for online fixes
+                  </label>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                    Always consider 0xdeadcode releases as valid updates (they provide online fixes)
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 
