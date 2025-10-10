@@ -85,6 +85,7 @@ export async function POST(request: NextRequest) {
       versionNumberLastUpdated: new Date(),
       lastVersionDate: pendingUpdate.dateFound,
       title: pendingUpdate.newTitle,
+      originalTitle: pendingUpdate.newTitle, // Update original title to match new title
       gameLink: pendingUpdate.newLink,
       ...(pendingUpdate.newImage && { image: pendingUpdate.newImage }),
       $push: {

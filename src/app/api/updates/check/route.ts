@@ -882,6 +882,7 @@ export async function POST(request: Request) {
                   lastChecked: new Date(),
                   gameLink: bestMatch.link,
                   title: decodedTitle,
+                  originalTitle: bestMatch.title, // Update original title to the new post title
                   hasNewUpdate: true,
                   newUpdateSeen: false
                 };
