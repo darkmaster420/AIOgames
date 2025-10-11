@@ -419,12 +419,14 @@ export async function POST(request: Request) {
           ...(originalTitle ? [{ label: 'original', value: originalTitle }] : [])
         ];
 
-  const potentialMatches: EnhancedMatch[] = [];
+        const potentialMatches: EnhancedMatch[] = [];
         let bestMatch: GameSearchResult | null = null;
         let bestSimilarity = 0;
         let bestGate = '';
 
-        for (const gate of gates) {
+        // First look for direct matches
+        const gateChecks = gates;
+        for (const gate of gateChecks) {
           for (const recentGame of recentGames) {
             const decodedTitle = decodeHtmlEntities(recentGame.title);
             const similarity = calculateGameSimilarity(gate.value, decodedTitle);
@@ -432,51 +434,145 @@ export async function POST(request: Request) {
               const versionInfo = extractVersionInfo(decodedTitle);
               potentialMatches.push({ game: recentGame, similarity, versionInfo, gate: gate.label });
             }
-            // Also check for sequels (moderate similarity)
-            if (similarity >= 0.5 && similarity < 0.8 && gate.label === 'cleaned') {
-              const sequelResult = detectSequel(game.title, decodedTitle);
-              if (sequelResult && sequelResult.isSequel) {
-                const existingSequel = game.sequelNotifications?.some((sequel: { detectedTitle: string; gameLink: string }) =>
-                  sequel.detectedTitle === decodedTitle && sequel.gameLink === recentGame.link
-                );
-                if (!existingSequel) {
-                  await TrackedGame.findByIdAndUpdate(game._id, {
-                    $push: {
-                      sequelNotifications: {
-                        detectedTitle: decodedTitle,
-                        gameId: recentGame.id,
-                        gameLink: recentGame.link,
-                        image: recentGame.image || '',
-                        description: recentGame.description || '',
-                        source: recentGame.source,
-                        similarity,
-                        sequelType: sequelResult.sequelType,
-                        dateFound: new Date(),
-                        downloadLinks: recentGame.downloadLinks || []
-                      }
-                    }
-                  });
-                  try {
-                    const notificationData = createUpdateNotificationData({
-                      gameTitle: game.title,
-                      gameLink: recentGame.link,
-                      imageUrl: recentGame.image,
-                      updateType: 'sequel'
-                    });
-                    await sendUpdateNotification(game.userId.toString(), notificationData);
-                    logger.info(`Sequel found: ${game.title} -> ${decodedTitle}`);
-                  } catch (notificationError) {
-                    logger.error('Failed to send sequel notification:', notificationError);
-                  }
-                  sequelsFound++;
-                }
-              }
-            }
           }
           // If we found matches in this gate, stop and use only these
           if (potentialMatches.length > 0) {
             bestGate = gate.label;
             break;
+          }
+        }
+
+        // Only check for sequels if we found NO direct matches
+        if (potentialMatches.length === 0) {
+          for (const gate of gateChecks) {
+            for (const recentGame of recentGames) {
+              const decodedTitle = decodeHtmlEntities(recentGame.title);
+              const similarity = calculateGameSimilarity(gate.value, decodedTitle);
+              
+              // Check for sequels (moderate similarity) only when no direct matches found
+              if (similarity >= 0.5 && similarity < 0.8 && gate.label === 'cleaned') {
+                const sequelResult = detectSequel(game.title, decodedTitle);
+                if (sequelResult && sequelResult.isSequel) {
+                  const cleanedSequelTitle = cleanGameTitle(decodedTitle);
+                  
+                  // Check if this sequel is already being tracked by this user
+                  const existingTrackedSequel = await TrackedGame.findOne({
+                    userId: game.userId,
+                    isActive: true,
+                    $or: [
+                      { title: cleanedSequelTitle },
+                      { originalTitle: decodedTitle },
+                      { gameLink: recentGame.link }
+                    ]
+                  });
+                  
+                  if (existingTrackedSequel) {
+                    // Sequel is already tracked - treat this as a potential update to the existing sequel
+                    logger.info(`Found potential update for existing sequel ${existingTrackedSequel.title}: ${decodedTitle}`);
+                    
+                    // Check if this is actually a newer version of the tracked sequel
+                    const existingVersionInfo = extractVersionInfo(existingTrackedSequel.originalTitle || existingTrackedSequel.title);
+                    const newVersionInfo = extractVersionInfo(decodedTitle);
+                    const comparison = compareVersions(existingVersionInfo, newVersionInfo);
+                    
+                    if (comparison.isNewer) {
+                      // Update the existing sequel with the new version
+                      const versionString = newVersionInfo.fullVersionString || newVersionInfo.version || 'Unknown Version';
+                      
+                      await TrackedGame.findByIdAndUpdate(existingTrackedSequel._id, {
+                        title: cleanedSequelTitle,
+                        originalTitle: decodedTitle,
+                        lastKnownVersion: versionString,
+                        lastVersionDate: recentGame.date || new Date().toISOString(),
+                        lastChecked: new Date(),
+                        gameLink: recentGame.link,
+                        hasNewUpdate: true,
+                        newUpdateSeen: false,
+                        $push: {
+                          updateHistory: {
+                            version: versionString,
+                            changeType: 'sequel_update',
+                            significance: comparison.significance,
+                            dateFound: new Date(),
+                            gameLink: recentGame.link,
+                            downloadLinks: recentGame.downloadLinks || []
+                          }
+                        }
+                      });
+                      
+                      // Send notification for the sequel update
+                      try {
+                        const notificationData = createUpdateNotificationData({
+                          gameTitle: cleanedSequelTitle,
+                          version: versionString,
+                          gameLink: recentGame.link,
+                          imageUrl: recentGame.image,
+                          updateType: 'update'
+                        });
+                        await sendUpdateNotification(game.userId.toString(), notificationData);
+                        logger.info(`Sequel update notification sent: ${cleanedSequelTitle} -> ${versionString}`);
+                      } catch (notificationError) {
+                        logger.error('Failed to send sequel update notification:', notificationError);
+                      }
+                      
+                      updatesFound++;
+                    }
+                  } else {
+                    // Sequel is not tracked - create a new tracked game for it
+                    logger.info(`Creating new tracked game for sequel: ${game.title} -> ${cleanedSequelTitle}`);
+                    
+                    const versionInfo = extractVersionInfo(decodedTitle);
+                    const versionString = versionInfo.fullVersionString || versionInfo.version || 'Initial Version';
+                    
+                    const newSequelGame = new TrackedGame({
+                      userId: game.userId,
+                      gameId: recentGame.id || `sequel-${Date.now()}`,
+                      title: cleanedSequelTitle,
+                      originalTitle: decodedTitle,
+                      source: recentGame.source || 'Auto-detected Sequel',
+                      image: recentGame.image || '',
+                      description: recentGame.description || `Sequel to ${game.title}`,
+                      gameLink: recentGame.link,
+                      lastKnownVersion: versionString,
+                      lastVersionDate: recentGame.date || new Date().toISOString(),
+                      dateAdded: new Date(),
+                      lastChecked: new Date(),
+                      notificationsEnabled: true,
+                      checkFrequency: 'daily',
+                      isActive: true,
+                      hasNewUpdate: false,
+                      newUpdateSeen: true, // Mark as seen since it's auto-detected
+                      sequelSource: {
+                        originalGameId: game._id,
+                        originalGameTitle: game.title,
+                        detectionMethod: 'automatic',
+                        similarity: similarity,
+                        sequelType: sequelResult.sequelType
+                      }
+                    });
+                    
+                    await newSequelGame.save();
+                    
+                    // Send notification for the new sequel
+                    try {
+                      const notificationData = createUpdateNotificationData({
+                        gameTitle: `${game.title} (Sequel: ${cleanedSequelTitle})`,
+                        version: versionString,
+                        gameLink: recentGame.link,
+                        imageUrl: recentGame.image,
+                        updateType: 'sequel'
+                      });
+                      await sendUpdateNotification(game.userId.toString(), notificationData);
+                      logger.info(`New sequel tracking notification sent: ${cleanedSequelTitle}`);
+                    } catch (notificationError) {
+                      logger.error('Failed to send new sequel notification:', notificationError);
+                    }
+                    
+                    sequelsFound++;
+                  }
+                }
+              }
+            }
           }
         }
 
@@ -881,7 +977,7 @@ export async function POST(request: Request) {
                   lastVersionDate: bestMatch.date || new Date().toISOString(),
                   lastChecked: new Date(),
                   gameLink: bestMatch.link,
-                  title: decodedTitle,
+                  title: cleanGameTitle(decodedTitle), // Clean the title before saving
                   originalTitle: bestMatch.title, // Update original title to the new post title
                   hasNewUpdate: true,
                   newUpdateSeen: false

@@ -14,6 +14,26 @@ import { configureWebPush, getVapidKeys } from './vapidKeys';
 // Configure VAPID keys on module load
 configureWebPush();
 
+// Rate limiting for Telegram notifications to prevent API limits
+const telegramRateLimit = new Map<string, number>(); // userId -> lastSentTime
+
+/**
+ * Add delay between Telegram notifications to prevent rate limiting
+ */
+async function addTelegramDelay(userId: string): Promise<void> {
+  const lastSent = telegramRateLimit.get(userId) || 0;
+  const timeSinceLastSent = Date.now() - lastSent;
+  const requiredDelay = 5000; // 5 seconds between messages
+  
+  if (timeSinceLastSent < requiredDelay) {
+    const delayNeeded = requiredDelay - timeSinceLastSent;
+    console.log(`[Notifications] Adding ${delayNeeded}ms delay for Telegram rate limiting (user: ${userId})`);
+    await new Promise(resolve => setTimeout(resolve, delayNeeded));
+  }
+  
+  telegramRateLimit.set(userId, Date.now());
+}
+
 export interface UpdateNotificationData {
   gameTitle: string;
   version?: string;
@@ -103,7 +123,7 @@ export async function sendUpdateNotification(
     const provider = notificationPrefs?.provider || 'webpush';
     
     
-    // Processing notifications for user    // Send Telegram notification if enabled and configured
+    // Processing notifications for user        // Send Telegram notification if enabled and configured
     if ((provider === 'telegram' || notificationPrefs?.telegramEnabled) && notificationPrefs?.telegramEnabled) {
       // Telegram conditions met, getting config
       const telegramConfig = getTelegramConfig(user);
@@ -111,11 +131,14 @@ export async function sendUpdateNotification(
         // Got valid Telegram config
         try {
           console.log(`[Notifications] Sending Telegram notification for ${updateData.gameTitle} to user ${userId}`);
-          const isSequel = updateData.updateType === 'sequel';
-          const message = isSequel 
+          
+          // Add rate limiting delay before sending
+          await addTelegramDelay(userId);
+          
+          const message = updateData.updateType === 'sequel'
             ? formatSequelNotificationMessage({
                 originalTitle: updateData.gameTitle,
-                detectedTitle: updateData.gameTitle,
+                detectedTitle: updateData.version || 'Unknown Title',
                 sequelType: 'sequel',
                 gameLink: updateData.gameLink || '/tracking',
                 source: 'Game Tracker',

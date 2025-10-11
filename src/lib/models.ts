@@ -513,6 +513,26 @@ const trackedGameSchema = new mongoose.Schema({
   newUpdateSeen: {
     type: Boolean,
     default: true
+  },
+  sequelSource: {
+    originalGameId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'TrackedGame'
+    },
+    originalGameTitle: {
+      type: String
+    },
+    detectionMethod: {
+      type: String,
+      enum: ['automatic', 'manual'],
+      default: 'automatic'
+    },
+    similarity: {
+      type: Number
+    },
+    sequelType: {
+      type: String
+    }
   }
 }, {
   timestamps: true
