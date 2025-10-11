@@ -327,6 +327,13 @@ export async function POST(request: Request) {
       debugLogging: false
     };
 
+    // Get sequel detection preferences
+    const sequelPreferences = fullUser.preferences?.sequelDetection || {
+      enabled: true,
+      sensitivity: 'moderate',
+      notifyImmediately: true
+    };
+
     // Get release group preferences
     const releaseGroupPreferences = fullUser.preferences?.releaseGroups || {
       prioritize0xdeadcode: false,
@@ -334,6 +341,7 @@ export async function POST(request: Request) {
     };
 
     logger.debug(`AI Detection preferences: enabled=${aiPreferences.enabled}, threshold=${aiPreferences.autoApprovalThreshold}`);
+    logger.debug(`Sequel Detection preferences: enabled=${sequelPreferences.enabled}, sensitivity=${sequelPreferences.sensitivity}`);
     logger.debug(`Release Group preferences: prioritize0xdeadcode=${releaseGroupPreferences.prioritize0xdeadcode}, prefer0xdeadcodeForOnlineFixes=${releaseGroupPreferences.prefer0xdeadcodeForOnlineFixes}`);
 
     // Get all active tracked games for this user
@@ -442,15 +450,38 @@ export async function POST(request: Request) {
           }
         }
 
-        // Only check for sequels if we found NO direct matches
-        if (potentialMatches.length === 0) {
+        // Only check for sequels if we found NO direct matches AND sequel detection is enabled
+        if (potentialMatches.length === 0 && sequelPreferences.enabled) {
+          logger.debug(`No direct matches found for "${game.title}", checking for sequels (enabled: ${sequelPreferences.enabled})`);
+          
+          // Adjust similarity threshold based on user sensitivity
+          let minSimilarity = 0.5;
+          let maxSimilarity = 0.8;
+          
+          switch (sequelPreferences.sensitivity) {
+            case 'strict':
+              minSimilarity = 0.65;
+              maxSimilarity = 0.8;
+              break;
+            case 'moderate':
+              minSimilarity = 0.5;
+              maxSimilarity = 0.8;
+              break;
+            case 'loose':
+              minSimilarity = 0.4;
+              maxSimilarity = 0.85;
+              break;
+          }
+          
+          logger.debug(`Checking for sequels with ${sequelPreferences.sensitivity} sensitivity (similarity: ${minSimilarity}-${maxSimilarity})`);
+          
           for (const gate of gateChecks) {
             for (const recentGame of recentGames) {
               const decodedTitle = decodeHtmlEntities(recentGame.title);
               const similarity = calculateGameSimilarity(gate.value, decodedTitle);
               
-              // Check for sequels (moderate similarity) only when no direct matches found
-              if (similarity >= 0.5 && similarity < 0.8 && gate.label === 'cleaned') {
+              // Check for sequels with user-defined sensitivity only when no direct matches found
+              if (similarity >= minSimilarity && similarity < maxSimilarity && gate.label === 'cleaned') {
                 const sequelResult = detectSequel(game.title, decodedTitle);
                 if (sequelResult && sequelResult.isSequel) {
                   const cleanedSequelTitle = cleanGameTitle(decodedTitle);
@@ -500,19 +531,23 @@ export async function POST(request: Request) {
                         }
                       });
                       
-                      // Send notification for the sequel update
-                      try {
-                        const notificationData = createUpdateNotificationData({
-                          gameTitle: cleanedSequelTitle,
-                          version: versionString,
-                          gameLink: recentGame.link,
-                          imageUrl: recentGame.image,
-                          updateType: 'update'
-                        });
-                        await sendUpdateNotification(game.userId.toString(), notificationData);
-                        logger.info(`Sequel update notification sent: ${cleanedSequelTitle} -> ${versionString}`);
-                      } catch (notificationError) {
-                        logger.error('Failed to send sequel update notification:', notificationError);
+                      // Send notification for the sequel update if immediate notifications are enabled
+                      if (sequelPreferences.notifyImmediately) {
+                        try {
+                          const notificationData = createUpdateNotificationData({
+                            gameTitle: cleanedSequelTitle,
+                            version: versionString,
+                            gameLink: recentGame.link,
+                            imageUrl: recentGame.image,
+                            updateType: 'update'
+                          });
+                          await sendUpdateNotification(game.userId.toString(), notificationData);
+                          logger.info(`Sequel update notification sent: ${cleanedSequelTitle} -> ${versionString}`);
+                        } catch (notificationError) {
+                          logger.error('Failed to send sequel update notification:', notificationError);
+                        }
+                      } else {
+                        logger.info(`Sequel update found but immediate notifications disabled: ${cleanedSequelTitle} -> ${versionString}`);
                       }
                       
                       updatesFound++;
@@ -553,19 +588,23 @@ export async function POST(request: Request) {
                     
                     await newSequelGame.save();
                     
-                    // Send notification for the new sequel
-                    try {
-                      const notificationData = createUpdateNotificationData({
-                        gameTitle: `${game.title} (Sequel: ${cleanedSequelTitle})`,
-                        version: versionString,
-                        gameLink: recentGame.link,
-                        imageUrl: recentGame.image,
-                        updateType: 'sequel'
-                      });
-                      await sendUpdateNotification(game.userId.toString(), notificationData);
-                      logger.info(`New sequel tracking notification sent: ${cleanedSequelTitle}`);
-                    } catch (notificationError) {
-                      logger.error('Failed to send new sequel notification:', notificationError);
+                    // Send notification for the new sequel if immediate notifications are enabled
+                    if (sequelPreferences.notifyImmediately) {
+                      try {
+                        const notificationData = createUpdateNotificationData({
+                          gameTitle: `${game.title} (Sequel: ${cleanedSequelTitle})`,
+                          version: versionString,
+                          gameLink: recentGame.link,
+                          imageUrl: recentGame.image,
+                          updateType: 'sequel'
+                        });
+                        await sendUpdateNotification(game.userId.toString(), notificationData);
+                        logger.info(`New sequel tracking notification sent: ${cleanedSequelTitle}`);
+                      } catch (notificationError) {
+                        logger.error('Failed to send new sequel notification:', notificationError);
+                      }
+                    } else {
+                      logger.info(`New sequel detected but immediate notifications disabled: ${cleanedSequelTitle}`);
                     }
                     
                     sequelsFound++;
@@ -574,6 +613,8 @@ export async function POST(request: Request) {
               }
             }
           }
+        } else if (potentialMatches.length === 0 && !sequelPreferences.enabled) {
+          logger.debug(`No direct matches found for "${game.title}" and sequel detection is disabled`);
         }
 
         // Now select the best match with AI-enhanced detection
