@@ -172,7 +172,9 @@ function DashboardInner() {
           },
           body: JSON.stringify({
             gameId: game.id,
-            title: game.title,
+            title: game.originalTitle || game.title, // Use original title for Steam verification
+            originalTitle: game.originalTitle || game.title, // Ensure we always have original title
+            cleanedTitle: game.title, // Pass the cleaned title separately
             source: game.source,
             image: game.image,
             description: game.description,

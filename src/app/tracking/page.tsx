@@ -12,7 +12,7 @@ import { AddCustomGame } from '../../components/AddCustomGame';
 import { FrequencySelector } from '../../components/FrequencySelector';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { ImageWithFallback } from '../../utils/imageProxy';
-import { cleanGameTitle, extractReleaseGroup } from '../../utils/steamApi';
+import { extractReleaseGroup } from '../../utils/steamApi';
 
 import { useNotification } from '../../contexts/NotificationContext';
 import { ExternalLinkIcon } from '../../components/ExternalLinkIcon';
@@ -564,7 +564,7 @@ export default function TrackingDashboard() {
                   onClick={async () => {
                     const confirmed = await confirm(
                       'Remove Game from Tracking',
-                      `Are you sure you want to stop tracking "${cleanGameTitle(game.title)}"? This action cannot be undone.`,
+                      `Are you sure you want to stop tracking "${game.title}"? This action cannot be undone.`,
                       { confirmText: 'Remove', cancelText: 'Close', type: 'danger' }
                     );
                     if (!confirmed) return;
@@ -596,7 +596,7 @@ export default function TrackingDashboard() {
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <h3 className="font-bold text-base sm:text-lg text-gray-900 dark:text-white leading-tight text-center bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-200/50 dark:border-gray-700/50 shadow-sm flex-1 min-w-0 uppercase">
-                              {showAdvanced ? game.originalTitle : cleanGameTitle(game.title)}
+                              {showAdvanced ? game.originalTitle : game.title}
                             </h3>
                             {showAdvanced && (() => {
                               const releaseGroup = extractReleaseGroup(game.originalTitle);

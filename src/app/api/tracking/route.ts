@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { gameId, title, source, image, description, gameLink } = await request.json();
+    const { gameId, title, originalTitle, cleanedTitle, source, image, description, gameLink } = await request.json();
 
     if (!gameId || !title || !source || !gameLink) {
       return NextResponse.json(
@@ -81,30 +81,31 @@ export async function POST(request: NextRequest) {
     const trackedGame = new TrackedGame({
       userId: user.id,
       gameId,
-      title,
+      title: cleanedTitle || cleanGameTitle(title), // Use provided cleaned title or clean the title
       source,
       image,
       description: decodeHtmlEntities(description || ''),
       gameLink,
-      originalTitle: title,
-      cleanedTitle: cleanGameTitle(title)
+      originalTitle: originalTitle || title, // Use original title for Steam verification and advanced view
+      cleanedTitle: cleanedTitle || cleanGameTitle(title) // Ensure we have a cleaned title
     });
 
     await trackedGame.save();
 
     // Attempt automatic Steam verification
     try {
-  logger.info(`Auto Steam verification for newly added game: "${title}"`);
+  logger.info(`Auto Steam verification for newly added game: "${originalTitle || title}"`);
       
-      // Try with original title first
-      let autoVerification = await autoVerifyWithSteam(title, 0.85);
+      // Try with original title first (best for Steam matching)
+      const titleForSteam = originalTitle || title;
+      let autoVerification = await autoVerifyWithSteam(titleForSteam, 0.85);
       
       // If original title fails, try with cleaned title
       if (!autoVerification.success) {
-        const cleanedTitle = cleanGameTitle(title);
-        if (cleanedTitle !== title.toLowerCase().trim()) {
-          logger.debug(`Retry auto Steam verification with cleaned title: "${cleanedTitle}"`);
-          autoVerification = await autoVerifyWithSteam(cleanedTitle, 0.80); // Slightly lower threshold for cleaned title
+        const cleanedTitleForSteam = cleanedTitle || cleanGameTitle(title);
+        if (cleanedTitleForSteam !== titleForSteam.toLowerCase().trim()) {
+          logger.debug(`Retry auto Steam verification with cleaned title: "${cleanedTitleForSteam}"`);
+          autoVerification = await autoVerifyWithSteam(cleanedTitleForSteam, 0.80); // Slightly lower threshold for cleaned title
         }
       }
       
