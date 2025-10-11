@@ -7,6 +7,7 @@ import { NotificationProvider } from "../contexts/NotificationContext";
 import { ConfirmProvider } from "../contexts/ConfirmContext";
 import { NotificationContainer } from "../components/NotificationContainer";
 import { Navigation } from "../components/Navigation";
+import { Footer } from "../components/Footer";
 import './init'; // Initialize background services including scheduler
 
 const geistSans = Geist({
@@ -40,16 +41,17 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-hero text-slate-900 dark:text-slate-100 min-h-screen`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-hero text-slate-900 dark:text-slate-100 min-h-screen flex flex-col`}
       >
         <AuthProvider>
           <ThemeProvider>
             <NotificationProvider>
               <ConfirmProvider>
                 <Navigation />
-                <div className="animate-fade-in">
+                <div className="animate-fade-in flex-1">
                   {children}
                 </div>
+                <Footer />
                 <NotificationContainer />
               </ConfirmProvider>
             </NotificationProvider>
