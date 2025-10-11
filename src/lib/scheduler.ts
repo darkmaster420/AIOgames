@@ -49,14 +49,14 @@ class UpdateScheduler {
       }
     }, 5 * 60 * 1000); // 5 minutes
 
-    // Warm cache every 30 minutes to keep data fresh
+    // Warm cache every hour to keep data fresh (aligned with 2-hour cache TTL)
     this.cacheWarmInterval = setInterval(async () => {
       try {
         await this.warmCache();
       } catch (error) {
         logger.error('❌ Error in cache warming:', error);
       }
-    }, 30 * 60 * 1000); // 30 minutes
+    }, 60 * 60 * 1000); // 1 hour (optimized from 30 minutes)
 
     // Initial load of scheduled checks
     this.loadScheduledChecks();

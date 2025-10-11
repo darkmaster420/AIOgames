@@ -37,6 +37,13 @@ function DashboardInner() {
   const [refineText, setRefineText] = useState('');
   const [showRefine, setShowRefine] = useState(false);
   const [showRecentGames, setShowRecentGames] = useState(false);
+  
+  // Client-side cache for recent games (10 minutes)
+  const [recentGamesCache, setRecentGamesCache] = useState<{
+    data: Game[];
+    timestamp: number;
+  } | null>(null);
+  const CLIENT_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
   // Function to set cookie with 1 hour expiration
   const setRecentGamesCookie = (show: boolean) => {
@@ -64,8 +71,15 @@ function DashboardInner() {
     }
   }, [status]);
 
-  // Load recent games (default view)
+  // Load recent games (default view) with client-side caching
   const loadRecentGames = useCallback(async () => {
+    // Check client-side cache first
+    const now = Date.now();
+    if (recentGamesCache && (now - recentGamesCache.timestamp) < CLIENT_CACHE_TTL) {
+      setGames(recentGamesCache.data);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -75,13 +89,19 @@ function DashboardInner() {
       }
       const data = await response.json();
       setGames(data);
+      
+      // Update client-side cache
+      setRecentGamesCache({
+        data,
+        timestamp: now
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch recent games');
       setGames([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [recentGamesCache, CLIENT_CACHE_TTL]);
 
   // Search games handler
   const searchGames = useCallback(async (e?: React.FormEvent) => {
@@ -130,11 +150,18 @@ function DashboardInner() {
     loadTrackedGames();
   }, [loadTrackedGames]);
 
-    // Apply current filter
+    // Apply current filter with caching
     const applyCurrentFilter = useCallback(async () => {
       if (searchQuery.trim()) {
         await searchGames();
       } else {
+        // For site filtering, check if we can use cached data and filter locally
+        if (siteFilter === 'all' && recentGamesCache && 
+            (Date.now() - recentGamesCache.timestamp) < CLIENT_CACHE_TTL) {
+          setGames(recentGamesCache.data);
+          return;
+        }
+
         setLoading(true);
         setError(null);
         try {
@@ -148,6 +175,14 @@ function DashboardInner() {
           }
           const data = await response.json();
           setGames(data);
+          
+          // Cache the data if it's the full recent games (no site filter)
+          if (siteFilter === 'all') {
+            setRecentGamesCache({
+              data,
+              timestamp: Date.now()
+            });
+          }
         } catch (err) {
           setError(err instanceof Error ? err.message : 'Failed to fetch filtered games');
           setGames([]);
@@ -155,7 +190,7 @@ function DashboardInner() {
           setLoading(false);
         }
       }
-    }, [searchQuery, siteFilter, searchGames]);
+    }, [searchQuery, siteFilter, searchGames, recentGamesCache, CLIENT_CACHE_TTL]);
 
     // Track/untrack handlers
     const handleTrackGame = useCallback(async (game: Game) => {
@@ -317,6 +352,17 @@ function DashboardInner() {
                 >
                   Apply Filter
                 </button>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setRecentGamesCache(null); // Clear client cache
+                    loadRecentGames(); // Force fresh fetch
+                  }}
+                  className="px-4 py-2 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded-lg hover:bg-green-200 dark:hover:bg-green-800 transition-colors text-sm font-medium"
+                  title="Refresh games data from server"
+                >
+                  🔄 Refresh
+                </button>
                 {(searchQuery || siteFilter !== 'all' || refineText) && (
                   <button
                     onClick={(e) => {
@@ -341,6 +387,18 @@ function DashboardInner() {
         {error && (
           <div className="mb-4 p-3 bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 rounded text-sm">
             {error}
+          </div>
+        )}
+        
+        {/* Cache Status Indicator */}
+        {recentGamesCache && games.length > 0 && !searchQuery && (
+          <div className="mb-3 p-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300 rounded text-xs flex items-center justify-between">
+            <span>
+              📦 Cached data (loaded {Math.round((Date.now() - recentGamesCache.timestamp) / 1000 / 60)} min ago)
+            </span>
+            <span className="text-blue-500">
+              Refreshes automatically every 10 min
+            </span>
           </div>
         )}
         

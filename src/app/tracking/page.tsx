@@ -101,6 +101,21 @@ export default function TrackingDashboard() {
   
   // Advanced view for showing original titles
   const [showAdvanced, setShowAdvanced] = useState(false);
+  
+  // Title migration state
+  const [migrationStatus, setMigrationStatus] = useState<{
+    checking: boolean;
+    migrating: boolean;
+    needsMigration: number;
+    total: number;
+    lastCheck: number | null;
+  }>({
+    checking: false,
+    migrating: false,
+    needsMigration: 0,
+    total: 0,
+    lastCheck: null
+  });
 
   // Sort games function
   const sortGames = (games: TrackedGame[], sortField: string, order: string) => {
@@ -251,6 +266,13 @@ export default function TrackingDashboard() {
     }
   }, [status]);
 
+  // Check migration status when games are loaded
+  useEffect(() => {
+    if (trackedGames.length > 0 && !migrationStatus.lastCheck) {
+      checkMigrationStatus();
+    }
+  }, [trackedGames, migrationStatus.lastCheck]);
+
   const loadTrackedGames = async () => {
     try {
       setLoading(true);
@@ -302,6 +324,69 @@ export default function TrackingDashboard() {
       showError('Update Check Failed', err instanceof Error ? err.message : 'Unable to check for updates.');
     } finally {
       setCheckingUpdates(false);
+    }
+  };
+
+  // Check migration status
+  const checkMigrationStatus = async () => {
+    setMigrationStatus(prev => ({ ...prev, checking: true }));
+    try {
+      const response = await fetch('/api/admin/migrate-titles');
+      if (response.ok) {
+        const data = await response.json();
+        setMigrationStatus(prev => ({
+          ...prev,
+          checking: false,
+          needsMigration: data.needsMigration,
+          total: data.totalGames,
+          lastCheck: Date.now()
+        }));
+      } else {
+        throw new Error('Failed to check migration status');
+      }
+    } catch (error) {
+      console.error('Migration check error:', error);
+      setMigrationStatus(prev => ({ ...prev, checking: false }));
+      showError('Failed to check migration status');
+    }
+  };
+
+  // Perform title migration
+  const performMigration = async () => {
+    const confirmed = await confirm(
+      'Migrate Game Titles',
+      'This will update the titles of your tracked games to show cleaned versions by default, with original titles available in Advanced mode. Continue?',
+      { confirmText: 'Migrate', cancelText: 'Cancel', type: 'warning' }
+    );
+    
+    if (!confirmed) return;
+
+    setMigrationStatus(prev => ({ ...prev, migrating: true }));
+    try {
+      const response = await fetch('/api/admin/migrate-titles', {
+        method: 'POST'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        showSuccess(`Successfully migrated ${data.migratedCount} games!`);
+        // Refresh the games list
+        loadTrackedGames();
+        // Reset migration status
+        setMigrationStatus(prev => ({
+          ...prev,
+          migrating: false,
+          needsMigration: 0,
+          lastCheck: Date.now()
+        }));
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Migration failed');
+      }
+    } catch (error) {
+      console.error('Migration error:', error);
+      setMigrationStatus(prev => ({ ...prev, migrating: false }));
+      showError(error instanceof Error ? error.message : 'Migration failed');
     }
   };
 
@@ -418,6 +503,26 @@ export default function TrackingDashboard() {
                       </span>
                     </span>
                   </button>
+                  
+                  {/* Title Migration Button */}
+                  {migrationStatus.needsMigration > 0 && (
+                    <button
+                      onClick={performMigration}
+                      disabled={migrationStatus.migrating}
+                      className="px-4 py-3 rounded-xl font-medium text-sm transition-all duration-200 shadow-lg bg-gradient-to-r from-blue-500 to-purple-500 text-white hover:from-blue-600 hover:to-purple-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={`Fix ${migrationStatus.needsMigration} games with uncleaned titles`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span>🔄</span>
+                        <span className="hidden sm:inline">
+                          {migrationStatus.migrating ? 'Fixing...' : `Fix Titles (${migrationStatus.needsMigration})`}
+                        </span>
+                        <span className="sm:hidden">
+                          {migrationStatus.migrating ? '...' : migrationStatus.needsMigration}
+                        </span>
+                      </span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Sort Controls */}

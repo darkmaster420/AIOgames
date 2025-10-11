@@ -3,7 +3,7 @@ import { cleanGameTitle } from '../../../../utils/steamApi';
 
 // Simple in-memory cache (per server instance). For multi-instance you'd need Redis or KV.
 let cachedRecent: { data: unknown; timestamp: number; siteKey: string } | null = null;
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours (extended from 1 hour)
 
 interface Game {
   siteType: string;
@@ -22,9 +22,11 @@ export async function GET(request: NextRequest) {
     const now = Date.now();
     const cacheKey = 'all'; // we fetch all then filter locally
   let data: unknown;
+    let isFromCache = false;
 
     if (cachedRecent && (now - cachedRecent.timestamp) < CACHE_TTL_MS && cachedRecent.siteKey === cacheKey) {
       data = cachedRecent.data;
+      isFromCache = true;
     } else {
       const apiUrl = process.env.GAME_API_URL + '/recent' || 'https://gameapi.a7a8524.workers.dev/recent';
       const response = await fetch(apiUrl, { next: { revalidate: 0 }, cache: 'no-store' });
@@ -51,7 +53,19 @@ export async function GET(request: NextRequest) {
       if (site && site !== 'all') {
         results = results.filter((game: Game) => game.siteType === site);
       }
-      return NextResponse.json(results);
+
+      // Calculate cache age and remaining TTL for headers
+      const cacheAge = isFromCache ? Math.floor((now - cachedRecent!.timestamp) / 1000) : 0;
+      const remainingTTL = Math.max(0, Math.floor((CACHE_TTL_MS - (now - (cachedRecent?.timestamp || now))) / 1000));
+
+      return NextResponse.json(results, {
+        headers: {
+          'Cache-Control': `public, max-age=${remainingTTL}, s-maxage=${remainingTTL}`,
+          'X-Cache-Status': isFromCache ? 'HIT' : 'MISS',
+          'X-Cache-Age': cacheAge.toString(),
+          'X-Cache-TTL': remainingTTL.toString()
+        }
+      });
     } else {
       console.error('Invalid API response structure:', data);
       return NextResponse.json({ error: 'Invalid API response structure' }, { status: 500 });
