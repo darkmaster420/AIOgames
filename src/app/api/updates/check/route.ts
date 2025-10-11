@@ -290,11 +290,14 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
     return { isNewer, changeType, significance, shouldWaitForRegular };
   }
   
-  // Case 3: Old is date-based, new has regular version -> always prefer regular
+  // Case 3: Old is date-based, new has regular version -> need additional verification
   if (oldIsDate && newHasRegular) {
-    isNewer = true;
-    changeType = 'date_to_regular';
-    significance = 8; // High significance - regular versions are much preferred
+    // We can't automatically assume regular version is newer than date version
+    // This requires post date comparison or SteamDB verification
+    isNewer = false; // Don't assume it's newer yet
+    changeType = 'date_to_regular_needs_verification';
+    significance = 8; // High significance IF it's actually newer
+    shouldWaitForRegular = false; // Mark that we need date/SteamDB verification
     return { isNewer, changeType, significance, shouldWaitForRegular };
   }
   
@@ -1053,8 +1056,34 @@ export async function POST(request: Request) {
                 }
               }
               
+              // Handle date-to-regular transitions that need verification
+              if (comparison.changeType === 'date_to_regular_needs_verification') {
+                // Current game has date version, new post has regular version
+                // We need to verify if the regular version is actually newer by checking post dates
+                if (bestMatch.date && game.lastVersionDate) {
+                  const newPostDate = new Date(bestMatch.date);
+                  const currentPostDate = new Date(game.lastVersionDate);
+                  
+                  if (newPostDate > currentPostDate) {
+                    isActuallyNewer = true;
+                    comparisonReason = `Regular version from newer post: ${game.lastVersionDate} → ${bestMatch.date} (${currentVersionInfo.version} → ${newVersionInfo.version})`;
+                    logger.info(`Date-to-regular version update verified by post date: ${decodedTitle}`);
+                  } else {
+                    // Post date is older or same, so the regular version might be older
+                    logger.info(`Regular version from older post, skipping: ${decodedTitle} (${bestMatch.date} <= ${game.lastVersionDate})`);
+                    // Continue to check if we can verify via SteamDB
+                  }
+                } else {
+                  // No post dates available, fall back to treating it as potentially newer
+                  // but with lower confidence (requires user confirmation)
+                  isActuallyNewer = true;
+                  comparisonReason = `Regular version found (date verification unavailable): ${currentVersionInfo.version} → ${newVersionInfo.version}`;
+                  logger.info(`Date-to-regular version update (unverified): ${decodedTitle}`);
+                }
+              }
+              
               // If we have a date-based version that's older than 2 days, check post dates as fallback
-              if (newVersionInfo.isDateVersion && !comparison.isNewer) {
+              else if (newVersionInfo.isDateVersion && !comparison.isNewer) {
                 // Fallback to post date comparison for date-based versions
                 if (bestMatch.date && game.lastVersionDate) {
                   const newPostDate = new Date(bestMatch.date);
