@@ -32,6 +32,9 @@ interface VersionInfo {
   fullVersionString: string;
   confidence: number;
   needsUserConfirmation: boolean;
+  isDateVersion: boolean;
+  versionDate?: Date;
+  hasRegularVersion: boolean;
 }
 
 interface EnhancedMatch {
@@ -212,6 +215,24 @@ function extractVersionInfo(title: string): VersionInfo {
     confidence *= 1.05; // At least one found
   }
   
+  // Detect if this is a date-based version
+  const isDateVersion = /v?\d{4}[-.]?\d{2}[-.]?\d{2}|v?\d{8}/.test(version);
+  let versionDate: Date | undefined;
+  let hasRegularVersion = false;
+  
+  if (isDateVersion && version) {
+    // Extract date from version string
+    const dateMatch = version.match(/(\d{4})[-.]?(\d{2})[-.]?(\d{2})/);
+    if (dateMatch) {
+      const year = parseInt(dateMatch[1], 10);
+      const month = parseInt(dateMatch[2], 10) - 1; // JavaScript months are 0-indexed
+      const day = parseInt(dateMatch[3], 10);
+      versionDate = new Date(year, month, day);
+    }
+  } else if (version && /^\d+\.\d+/.test(version)) {
+    hasRegularVersion = true;
+  }
+  
   return {
     version,
     build,
@@ -220,16 +241,65 @@ function extractVersionInfo(title: string): VersionInfo {
     baseTitle: cleanTitle,
     fullVersionString: `${version}${build ? ` Build ${build}` : ''}${releaseType ? ` ${releaseType}` : ''}`,
     confidence: Math.min(confidence, 1.0), // Cap at 1.0
-    needsUserConfirmation: confidence < 0.7
+    needsUserConfirmation: confidence < 0.7,
+    isDateVersion,
+    versionDate,
+    hasRegularVersion
   };
 }
 
-function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { isNewer: boolean; changeType: string; significance: number } {
+function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { isNewer: boolean; changeType: string; significance: number; shouldWaitForRegular?: boolean } {
   let isNewer = false;
   let changeType = 'unknown';
   let significance = 0;
+  let shouldWaitForRegular = false;
   
-  if (oldVersion.version && newVersion.version) {
+  // Smart version preference logic:
+  // 1. Regular versions (1.2.3) always preferred over date versions (v20241011)
+  // 2. If new version is date-based and recent (< 2 days), suggest waiting for regular version
+  // 3. Date versions should be compared by actual dates, not as version numbers
+  
+  const oldIsDate = oldVersion.isDateVersion;
+  const newIsDate = newVersion.isDateVersion;
+  const oldHasRegular = oldVersion.hasRegularVersion;
+  const newHasRegular = newVersion.hasRegularVersion;
+  
+  // Case 1: Old has regular version, new is date-based -> prefer waiting for regular
+  if (oldHasRegular && newIsDate && !newHasRegular) {
+    // Check if the date version is very recent (< 2 days)
+    if (newVersion.versionDate) {
+      const daysSinceNewVersion = Math.floor((Date.now() - newVersion.versionDate.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysSinceNewVersion < 2) {
+        shouldWaitForRegular = true;
+        changeType = 'date_version_recent';
+        significance = 1; // Low significance
+        isNewer = false; // Don't treat as newer yet
+        return { isNewer, changeType, significance, shouldWaitForRegular };
+      }
+    }
+  }
+  
+  // Case 2: Both are date-based -> compare by actual dates
+  if (oldIsDate && newIsDate && oldVersion.versionDate && newVersion.versionDate) {
+    if (newVersion.versionDate > oldVersion.versionDate) {
+      isNewer = true;
+      changeType = 'date_update';
+      const daysDiff = Math.floor((newVersion.versionDate.getTime() - oldVersion.versionDate.getTime()) / (1000 * 60 * 60 * 24));
+      significance = Math.min(5, Math.max(1, daysDiff)); // 1-5 based on days difference
+    }
+    return { isNewer, changeType, significance, shouldWaitForRegular };
+  }
+  
+  // Case 3: Old is date-based, new has regular version -> always prefer regular
+  if (oldIsDate && newHasRegular) {
+    isNewer = true;
+    changeType = 'date_to_regular';
+    significance = 8; // High significance - regular versions are much preferred
+    return { isNewer, changeType, significance, shouldWaitForRegular };
+  }
+  
+  // Case 4: Regular version comparison (existing logic)
+  if (oldVersion.version && newVersion.version && !oldIsDate && !newIsDate) {
     const oldParts = oldVersion.version.split('.').map(Number);
     const newParts = newVersion.version.split('.').map(Number);
     
@@ -261,6 +331,7 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
     }
   }
   
+  // Build number comparison (existing logic)
   if (oldVersion.build && newVersion.build) {
     const oldBuild = parseInt(oldVersion.build);
     const newBuild = parseInt(newVersion.build);
@@ -276,7 +347,7 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
     }
   }
 
-  return { isNewer, changeType, significance };
+  return { isNewer, changeType, significance, shouldWaitForRegular };
 }
 
 // Main update check using recent feed approach
@@ -838,7 +909,10 @@ export async function POST(request: Request) {
               baseTitle: '', 
               fullVersionString: '', 
               confidence: 1.0, 
-              needsUserConfirmation: false 
+              needsUserConfirmation: false,
+              isDateVersion: false,
+              versionDate: undefined,
+              hasRegularVersion: false
             };
           } else {
             // Fall back to extracting from titles
@@ -938,11 +1012,64 @@ export async function POST(request: Request) {
               comparisonReason = `Build: ${currentBuild} → ${newBuild}`;
             }
           } else {
-            // Fall back to more flexible comparison when we don't have verified data
+            // Enhanced comparison with date-version awareness
             if (hasVersionInfo) {
               const comparison = compareVersions(currentVersionInfo, newVersionInfo);
-              isActuallyNewer = comparison.isNewer && comparison.significance >= 1; // Lower threshold
-              comparisonReason = `General comparison: ${comparison.changeType} (significance: ${comparison.significance})`;
+              
+              // Handle date-version preference logic
+              if (comparison.shouldWaitForRegular) {
+                logger.info(`Date-based version found but waiting for regular version: ${decodedTitle} (found ${newVersionInfo.version})`);
+                continue; // Skip this update for now, wait for a regular version
+              }
+              
+              // Check if this is a date-based version that we should wait for
+              if (newVersionInfo.isDateVersion && newVersionInfo.versionDate) {
+                const daysSinceVersion = Math.floor((Date.now() - newVersionInfo.versionDate.getTime()) / (1000 * 60 * 60 * 24));
+                
+                // If it's a very recent date version (< 2 days), check if there are newer posts with regular versions
+                if (daysSinceVersion < 2) {
+                  // Look for newer posts in the recent games list that might have regular versions
+                  const newerPostsWithRegularVersions = recentGames.filter(recentGame => {
+                    if (!recentGame.date) return false;
+                    const postDate = new Date(recentGame.date);
+                    const gamePostDate = bestMatch.date ? new Date(bestMatch.date) : new Date();
+                    
+                    // Check if this post is newer than our current candidate
+                    if (postDate <= gamePostDate) return false;
+                    
+                    // Check if this newer post has a regular version and similar title
+                    const newerTitle = decodeHtmlEntities(recentGame.title);
+                    const similarity = calculateGameSimilarity(cleanTitle, newerTitle);
+                    if (similarity < 0.8) return false;
+                    
+                    const newerVersionInfo = extractVersionInfo(newerTitle);
+                    return newerVersionInfo.hasRegularVersion;
+                  });
+                  
+                  if (newerPostsWithRegularVersions.length > 0) {
+                    logger.info(`Found newer post with regular version, skipping date version: ${decodedTitle}`);
+                    continue; // Skip the date version since we have a newer regular version
+                  }
+                }
+              }
+              
+              // If we have a date-based version that's older than 2 days, check post dates as fallback
+              if (newVersionInfo.isDateVersion && !comparison.isNewer) {
+                // Fallback to post date comparison for date-based versions
+                if (bestMatch.date && game.lastVersionDate) {
+                  const newPostDate = new Date(bestMatch.date);
+                  const currentPostDate = new Date(game.lastVersionDate);
+                  
+                  if (newPostDate > currentPostDate) {
+                    isActuallyNewer = true;
+                    comparisonReason = `Newer post date: ${game.lastVersionDate} → ${bestMatch.date} (date-based version)`;
+                    logger.info(`Date-based version update by post date: ${decodedTitle}`);
+                  }
+                }
+              } else {
+                isActuallyNewer = comparison.isNewer && comparison.significance >= 1;
+                comparisonReason = `Enhanced comparison: ${comparison.changeType} (significance: ${comparison.significance})`;
+              }
             } else if (hasUpdateKeywords || isDifferentReleaseGroup) {
               // Accept updates based on keywords or different release groups
               isActuallyNewer = true;
