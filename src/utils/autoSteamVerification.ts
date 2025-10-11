@@ -24,12 +24,12 @@ interface AutoVerificationResult {
 /**
  * Automatically attempt Steam verification for a game
  * @param gameTitle - The title of the game to verify
- * @param confidenceThreshold - Minimum confidence threshold (default: 0.85)
+ * @param confidenceThreshold - Minimum confidence threshold (default: 0.80)
  * @returns Promise<AutoVerificationResult>
  */
 export async function autoVerifyWithSteam(
   gameTitle: string, 
-  confidenceThreshold: number = 0.85
+  confidenceThreshold: number = 0.80
 ): Promise<AutoVerificationResult> {
   try {
     // Attempting auto Steam verification
@@ -108,8 +108,21 @@ function calculateConfidence(searchTitle: string, steamGame: SteamGameResult): n
   const similarity = calculateGameSimilarity(searchTitle, steamGame.name);
   let confidence = similarity;
   
-  // Boost for exact matches
-  if (searchTitle.toLowerCase().trim() === steamGame.name.toLowerCase().trim()) {
+  // Enhanced normalization for better matching
+  const normalize = (str: string) => {
+    return str
+      .toLowerCase()
+      .replace(/[']/g, '')           // Remove apostrophes: "Marvel's" -> "Marvels"
+      .replace(/[-:]/g, ' ')         // Convert dashes/colons to spaces: "Spider-Man" -> "Spider Man"
+      .replace(/\s+/g, ' ')          // Normalize whitespace
+      .trim();
+  };
+  
+  const normSearchTitle = normalize(searchTitle);
+  const normSteamName = normalize(steamGame.name);
+  
+  // Boost for exact matches after normalization
+  if (normSearchTitle === normSteamName) {
     confidence = Math.max(confidence, 0.95);
   }
   
@@ -118,6 +131,34 @@ function calculateConfidence(searchTitle: string, steamGame: SteamGameResult): n
   const cleanedSteamName = cleanGameTitle(steamGame.name);
   if (cleanedSearchTitle === cleanedSteamName) {
     confidence = Math.max(confidence, 0.90);
+  }
+  
+  // Special handling for common title variations
+  const searchWords = normSearchTitle.split(/\s+/);
+  const steamWords = normSteamName.split(/\s+/);
+  
+  // Handle possessive variations (Marvel's vs Marvels)
+  if (searchWords.length === steamWords.length) {
+    let possessiveMatch = true;
+    for (let i = 0; i < searchWords.length; i++) {
+      const word1 = searchWords[i];
+      const word2 = steamWords[i];
+      
+      // Check if words match exactly or are possessive variants
+      if (word1 !== word2) {
+        if (!((word1 === 'marvels' && word2 === 'marvel') || 
+              (word1 === 'marvel' && word2 === 'marvels') ||
+              (word1.endsWith('s') && word1.slice(0, -1) === word2) ||
+              (word2.endsWith('s') && word2.slice(0, -1) === word1))) {
+          possessiveMatch = false;
+          break;
+        }
+      }
+    }
+    
+    if (possessiveMatch) {
+      confidence = Math.max(confidence, 0.92);
+    }
   }
   
   // Boost for games with good metadata (indicates it's a real, well-documented game)

@@ -744,16 +744,32 @@ export function calculateGameSimilarity(title1: string, title2: string): number 
   
   if (clean1 === clean2) return 1.0;
   
+  // Enhanced normalization for better matching
+  const normalize = (str: string) => {
+    return str
+      .toLowerCase()
+      .replace(/[']/g, '')           // Remove apostrophes: "Marvel's" -> "Marvels"
+      .replace(/[-:]/g, ' ')         // Convert dashes/colons to spaces: "Spider-Man" -> "Spider Man"
+      .replace(/\s+/g, ' ')          // Normalize whitespace
+      .trim();
+  };
+  
+  const norm1 = normalize(clean1);
+  const norm2 = normalize(clean2);
+  
+  // Check normalized versions
+  if (norm1 === norm2) return 1.0;
+  
   // Exact substring matches (high score)
-  if (clean1.includes(clean2) || clean2.includes(clean1)) {
-    const shorter = Math.min(clean1.length, clean2.length);
-    const longer = Math.max(clean1.length, clean2.length);
+  if (norm1.includes(norm2) || norm2.includes(norm1)) {
+    const shorter = Math.min(norm1.length, norm2.length);
+    const longer = Math.max(norm1.length, norm2.length);
     return Math.max(0.85, shorter / longer * 0.95); // Ensure high scores for substring matches
   }
   
   // Word-based similarity with enhanced scoring
-  const words1 = clean1.split(/\s+/).filter(word => word.length > 0);
-  const words2 = clean2.split(/\s+/).filter(word => word.length > 0);
+  const words1 = norm1.split(/\s+/).filter(word => word.length > 0);
+  const words2 = norm2.split(/\s+/).filter(word => word.length > 0);
   
   if (words1.length === 0 || words2.length === 0) return 0;
   
@@ -769,6 +785,26 @@ export function calculateGameSimilarity(title1: string, title2: string): number 
         if (word1.length >= 4 && word2.length >= 4) {
           if (word1.includes(word2) || word2.includes(word1)) {
             fuzzyMatches += 0.7; // Partial credit for fuzzy matches
+            break;
+          }
+        }
+        
+        // Special handling for common variations
+        if ((word1 === 'marvels' && word2 === 'marvel') || 
+            (word1 === 'marvel' && word2 === 'marvels')) {
+          fuzzyMatches += 0.9; // High score for possessive variations
+          break;
+        }
+        
+        // Handle number/word variations
+        const numberWords = {
+          '1': 'one', '2': 'two', '3': 'three', '4': 'four', '5': 'five',
+          '6': 'six', '7': 'seven', '8': 'eight', '9': 'nine', '10': 'ten'
+        };
+        
+        for (const [num, word] of Object.entries(numberWords)) {
+          if ((word1 === num && word2 === word) || (word1 === word && word2 === num)) {
+            fuzzyMatches += 0.95; // Very high score for number/word matches
             break;
           }
         }
