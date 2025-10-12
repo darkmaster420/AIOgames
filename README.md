@@ -1,4 +1,4 @@
-# 🎮 AIOgames - Automated Game Update Tracker
+# 🎮 AIO-Games - Automated Game Update Tracker
 
 A powerful Next.js application that automatically tracks game updates across multiple piracy sites with zero configuration required.
 
@@ -7,7 +7,7 @@ A powerful Next.js application that automatically tracks game updates across mul
 - 🔍 **Multi-Site Tracking**: Monitors GameDrive, SteamRip, SkidRow, FreeGog and more
 - 🤖 **Automatic Scheduling**: Built-in update checker - no cron jobs needed
 - 🏴‍☠️ **Smart Piracy Tag Handling**: Handles 50+ scene groups and release formats
-- ⚡ **Lightning Fast**: Sub-second update checks using optimized recent feed approach
+- ⚡ **Lightning Fast**: Sub-second update checks
 - 🎯 **Intelligent Matching**: Version-aware updates with confidence scoring
 - 📱 **Real-time Notifications**: Telegram and web push notifications
 - 🔐 **Secure Authentication**: NextAuth.js with multiple providers
@@ -68,7 +68,7 @@ NEXT_PUBLIC_VAPID_PUBLIC_KEY=your-vapid-key
 VAPID_PRIVATE_KEY=your-vapid-private-key
 ```
 
-## 🤖 Telegram Bot Integration
+## 🤖 Telegram Bot Integration (not currently working)
 
 AIOgames features a powerful Telegram bot system that allows users to manage their game tracking directly from Telegram.
 
