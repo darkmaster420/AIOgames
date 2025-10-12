@@ -485,11 +485,11 @@ export default function TrackingDashboard() {
                     <span className="text-lg font-bold text-gradient">{trackedGames.length} games</span>
                   </div>
 
-                  {/* Advanced View Toggle */}
+                  {/* Advanced View Toggle - hidden on mobile, shown on desktop */}
                   <button
                     onClick={() => setShowAdvanced(!showAdvanced)}
                     className={`
-                      px-4 py-3 rounded-xl font-medium text-sm transition-all duration-200 shadow-lg
+                      hidden sm:flex px-4 py-3 rounded-xl font-medium text-sm transition-all duration-200 shadow-lg
                       ${showAdvanced 
                         ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white transform scale-105' 
                         : 'card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
@@ -499,7 +499,7 @@ export default function TrackingDashboard() {
                   >
                     <span className="flex items-center gap-2">
                       <span>🔧</span>
-                      <span className="hidden sm:inline">
+                      <span>
                         {showAdvanced ? 'Hide Advanced' : 'Advanced'}
                       </span>
                     </span>
@@ -643,10 +643,6 @@ export default function TrackingDashboard() {
                 )}
                 {/* Corner Action Icons (top-right) */}
                 <div className="absolute top-2 right-2 flex flex-col gap-2 z-20">
-                  <SearchGameButton 
-                    gameTitle={game.title} 
-                    size="md"
-                  />
                   <button
                     onClick={() => handleSingleGameUpdate(game._id, game.title)}
                     disabled={checkingSingleGame === game._id}
@@ -705,9 +701,16 @@ export default function TrackingDashboard() {
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="font-bold text-base sm:text-lg text-gray-900 dark:text-white leading-tight text-center bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-200/50 dark:border-gray-700/50 shadow-sm flex-1 min-w-0 uppercase">
-                              {showAdvanced ? game.originalTitle : game.title}
-                            </h3>
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <h3 className="font-bold text-base sm:text-lg text-gray-900 dark:text-white leading-tight text-center bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-200/50 dark:border-gray-700/50 shadow-sm flex-1 min-w-0 uppercase">
+                                {showAdvanced ? game.originalTitle : game.title}
+                              </h3>
+                              <SearchGameButton 
+                                gameTitle={game.title} 
+                                size="sm"
+                                className="flex-shrink-0"
+                              />
+                            </div>
                             {showAdvanced && (() => {
                               const releaseGroup = extractReleaseGroup(game.originalTitle);
                               return releaseGroup && (
@@ -795,12 +798,31 @@ export default function TrackingDashboard() {
                           {getTimeSince(game.lastChecked)}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2">
                         <FrequencySelector
                           gameId={game._id}
                           currentFrequency={game.checkFrequency}
                           onFrequencyChanged={loadTrackedGames}
                         />
+                        {/* Advanced toggle button - visible on mobile, hidden on desktop */}
+                        <button
+                          onClick={() => setShowAdvanced(!showAdvanced)}
+                          className={`
+                            sm:hidden px-2 py-1 text-xs rounded-lg font-medium transition-all duration-200 border
+                            ${showAdvanced 
+                              ? 'bg-primary-500 text-white border-primary-500 shadow-md' 
+                              : 'card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                            }
+                          `}
+                          title={showAdvanced ? 'Hide original post titles' : 'Show original post titles'}
+                        >
+                          <span className="flex items-center gap-1">
+                            <span>🔧</span>
+                            <span>
+                              {showAdvanced ? 'Hide' : 'Advanced'}
+                            </span>
+                          </span>
+                        </button>
                       </div>
                     </div>
 
