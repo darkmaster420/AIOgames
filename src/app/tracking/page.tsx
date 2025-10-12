@@ -480,30 +480,33 @@ export default function TrackingDashboard() {
                     )}
                   </div>
 
-                  <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 px-6 py-3 rounded-xl shadow-lg">
-                    <span className="text-sm font-medium text-slate-500 dark:text-slate-400">📊 Tracking: </span>
-                    <span className="text-lg font-bold text-gradient">{trackedGames.length} games</span>
-                  </div>
+                  {/* Tracking Stats and Advanced Toggle - grouped together */}
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 px-6 py-3 rounded-xl shadow-lg">
+                      <span className="text-sm font-medium text-slate-500 dark:text-slate-400">📊 Tracking: </span>
+                      <span className="text-lg font-bold text-gradient">{trackedGames.length} games</span>
+                    </div>
 
-                  {/* Advanced View Toggle - separate button next to tracking stats */}
-                  <button
-                    onClick={() => setShowAdvanced(!showAdvanced)}
-                    className={`
-                      px-4 py-3 rounded-xl font-medium text-sm transition-all duration-200 shadow-lg
-                      ${showAdvanced 
-                        ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white transform scale-105' 
-                        : 'card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-                      }
-                    `}
-                    title={showAdvanced ? 'Hide original post titles' : 'Show original post titles'}
-                  >
-                    <span className="flex items-center gap-2">
-                      <span>🔧</span>
-                      <span className="hidden sm:inline">
-                        {showAdvanced ? 'Hide Advanced' : 'Advanced'}
+                    {/* Advanced View Toggle - next to tracking stats */}
+                    <button
+                      onClick={() => setShowAdvanced(!showAdvanced)}
+                      className={`
+                        px-4 py-3 rounded-xl font-medium text-sm transition-all duration-200 shadow-lg flex-shrink-0
+                        ${showAdvanced 
+                          ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white transform scale-105' 
+                          : 'card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                        }
+                      `}
+                      title={showAdvanced ? 'Hide original post titles' : 'Show original post titles'}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span>🔧</span>
+                        <span className="hidden sm:inline">
+                          {showAdvanced ? 'Hide Advanced' : 'Advanced'}
+                        </span>
                       </span>
-                    </span>
-                  </button>
+                    </button>
+                  </div>
                   
                   {/* Title Migration Button */}
                   {migrationStatus.needsMigration > 0 && (
