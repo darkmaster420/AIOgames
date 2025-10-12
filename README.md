@@ -1,6 +1,26 @@
+
 # 🎮 AIO-Games - Advanced Game Update Tracker
 
 A powerful Next.js application that automatically tracks game updates across multiple sites with intelligent Steam integration and real-time notifications.
+
+**[🌐 Live Demo](https://aiogames.iforgor.cc/tracking) | [📚 Game API](https://github.com/darkmaster420/gameapi)**
+
+> **Note**: The demo site is frequently updated and may be unstable. For reliable use, self-hosting is recommended.
+
+---
+
+## 🎯 Why AIOgames?
+
+Gamers who sail the high seas don't get automated update notifications like legitimate platform users do. The existing options are frustrating:
+- 📡 **RSS feeds** - Need to manage multiple feeds and parse them manually
+- 💬 **Forums** - Constantly checking threads for update announcements  
+- 🌐 **Site browsing** - Juggling between 20+ different sites to find updates
+- 📝 **Manual tracking** - Keeping notes on which version you have
+
+**AIOgames solves this.** It automatically monitors all major sources, intelligently tracks versions, and notifies you the moment an update drops. No more hunting across the internet - if it's online, you'll find it here.
+
+---
+
 
 ## ✨ Latest Features (v1.2.0)
 
@@ -11,6 +31,46 @@ A powerful Next.js application that automatically tracks game updates across mul
 - 📱 **Mobile-Optimized UI**: Responsive design with advanced controls
 - 🔄 **Single Game Updates**: Per-game update checking with SteamDB cross-reference
 - 🏗️ **Build Number Tracking**: Precise version tracking with SteamDB build numbers
+
+---
+
+## ❓ FAQ
+
+### Is this legal?
+Using AIOgames is completely legal - it only gathers information from publicly available sources on the internet. However, you should visit external game sites carefully, ideally with a VPN and adblocker. I'm not a lawyer and don't provide legal advice, so use your own judgment.
+
+### How often does it check for updates?
+It's completely configurable per game. You can set update checks anywhere from **1 hour to 1 month** depending on how actively a game is being updated. New releases might warrant hourly checks, while stable games can be checked weekly or monthly.
+
+### Do I need to deploy my own gameapi instance?
+**Yes.** If I gave everyone access to my Cloudflare Workers instance, it would cost me money once traffic scales up. Requiring self-deployment keeps the project:
+- ✅ **Free** - No costs for anyone
+- ✅ **Decentralized** - No single point of failure
+- ✅ **Private** - Your searches and data stay on your infrastructure
+
+Setting up your own gameapi instance is straightforward and covered in the setup instructions.
+
+### Can I use the demo site instead of self-hosting?
+You *can*, but **I wouldn't recommend it**. The demo site is:
+- ⚠️ Updated very frequently and can break
+- ⚠️ Not guaranteed to be stable or available
+- ⚠️ May have rate limits or restrictions
+
+**Self-hosting is completely free** and gives you full control. It's the better option for reliable, long-term use.
+
+### What game sites does AIOgames support?
+AIOgames monitors all major sources including GameDrive, SteamRip, SkidRow, FreeGog, and more. The full list is maintained in the [gameapi repository](https://github.com/darkmaster420/gameapi). It also integrates with **SteamDB** for real-time Steam update feeds.
+
+### Does it automatically download games?
+**No.** AIOgames only tracks and notifies you about updates. You still need to manually download games from your preferred sources. Think of it as a notification system, not an automation tool.
+
+### How does Steam integration work?
+AIOgames can verify games against Steam's database for enhanced accuracy. It also monitors **SteamDB RSS feeds** for real-time Steam updates and cross-references them with your tracked versions to warn you when you're behind.
+
+### Do I need a Steam API key?
+**No, it's optional.** Steam integration enhances tracking accuracy but isn't required. SteamDB integration works without any API keys since it uses public RSS feeds.
+
+---
 
 ## 🌟 Core Features
 
@@ -372,6 +432,20 @@ We welcome contributions! Here's how to get started:
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+
+## 🔗 Related Projects
+
+All of these projects are open source and free to use:
+
+### Core Dependencies
+- **[gameapi](https://github.com/darkmaster420/gameapi)** - Cloudflare Workers API that powers game search and data aggregation (Required)
+
+### Other Tools by darkmaster420
+- **[Pixeldrain Limit Bypass](https://pdbypass.iforgor.cc)** - Cloudflare Workers proxy to bypass Pixeldrain's download limits and restrictions
+- **[Game Search](https://github.com/darkmaster420/gamesearch)** - Simple game search interface that started it all - the original prototype that evolved into AIOgames
+
+---
+
 ## 🆘 Support & Links
 
 - **🐛 Bug Reports**: [Create an Issue](https://github.com/darkmaster420/AIOgames/issues)
@@ -379,13 +453,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **📚 Game API**: [darkmaster420/gameapi](https://github.com/darkmaster420/gameapi)
 - **📖 Documentation**: Check the wiki for detailed setup guides
 
-### 🔗 Related Repositories
-
-- **[gameapi](https://github.com/darkmaster420/gameapi)** - Essential Cloudflare Workers API for game data
-- **[AIOgames](https://github.com/darkmaster420/AIOgames)** - Main application repository
-
 ---
 
 **🎯 Built with ❤️ for the gaming community**
 
-*AIOgames v1.2.0 - Now with advanced Steam integration and real-time update detection*
+*AIOgames v1.2.1 - Now with advanced Steam integration and real-time update detection*
