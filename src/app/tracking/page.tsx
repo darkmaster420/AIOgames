@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { GameDownloadLinks } from '../../components/GameDownloadLinks';
@@ -10,6 +10,7 @@ import { SmartVersionVerification } from '../../components/SmartVersionVerificat
 import { SequelNotifications } from '../../components/SequelNotifications';
 import { AddCustomGame } from '../../components/AddCustomGame';
 import { FrequencySelector } from '../../components/FrequencySelector';
+import { SearchGameButton } from '../../components/SearchGameButton';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { ImageWithFallback } from '../../utils/imageProxy';
 import { extractReleaseGroup } from '../../utils/steamApi';
@@ -266,13 +267,6 @@ export default function TrackingDashboard() {
     }
   }, [status]);
 
-  // Check migration status when games are loaded
-  useEffect(() => {
-    if (trackedGames.length > 0 && !migrationStatus.lastCheck) {
-      checkMigrationStatus();
-    }
-  }, [trackedGames, migrationStatus.lastCheck]);
-
   const loadTrackedGames = async () => {
     try {
       setLoading(true);
@@ -328,7 +322,7 @@ export default function TrackingDashboard() {
   };
 
   // Check migration status
-  const checkMigrationStatus = async () => {
+  const checkMigrationStatus = useCallback(async () => {
     setMigrationStatus(prev => ({ ...prev, checking: true }));
     try {
       const response = await fetch('/api/admin/migrate-titles');
@@ -349,7 +343,14 @@ export default function TrackingDashboard() {
       setMigrationStatus(prev => ({ ...prev, checking: false }));
       showError('Failed to check migration status');
     }
-  };
+  }, [showError]);
+
+  // Check migration status when games are loaded
+  useEffect(() => {
+    if (trackedGames.length > 0 && !migrationStatus.lastCheck) {
+      checkMigrationStatus();
+    }
+  }, [trackedGames, migrationStatus.lastCheck, checkMigrationStatus]);
 
   // Perform title migration
   const performMigration = async () => {
@@ -642,6 +643,10 @@ export default function TrackingDashboard() {
                 )}
                 {/* Corner Action Icons (top-right) */}
                 <div className="absolute top-2 right-2 flex flex-col gap-2 z-20">
+                  <SearchGameButton 
+                    gameTitle={game.title} 
+                    size="md"
+                  />
                   <button
                     onClick={() => handleSingleGameUpdate(game._id, game.title)}
                     disabled={checkingSingleGame === game._id}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, Suspense } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { ImageWithFallback } from '../utils/imageProxy';
 import { GameDownloadLinks } from '../components/GameDownloadLinks';
@@ -34,6 +34,7 @@ function DashboardInner() {
   const { status } = useSession();
   const notify = useNotification();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [refineText, setRefineText] = useState('');
   const [showRefine, setShowRefine] = useState(false);
   const [showRecentGames, setShowRecentGames] = useState(false);
@@ -44,6 +45,73 @@ function DashboardInner() {
     timestamp: number;
   } | null>(null);
   const CLIENT_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+  // Function to update URL parameters
+  const updateURL = useCallback((search?: string, site?: string, refine?: string) => {
+    const params = new URLSearchParams();
+    
+    if (search && search.trim()) {
+      params.set('search', search.trim());
+    }
+    
+    if (site && site !== 'all') {
+      params.set('site', site);
+    }
+    
+    if (refine && refine.trim()) {
+      params.set('refine', refine.trim());
+    }
+    
+    const newURL = params.toString() ? `/?${params.toString()}` : '/';
+    router.replace(newURL, { scroll: false });
+  }, [router]);
+
+  // Load initial values from URL
+  useEffect(() => {
+    const urlSearch = searchParams.get('search') || '';
+    const urlSite = searchParams.get('site') || 'all';
+    const urlRefine = searchParams.get('refine') || '';
+    
+    setSearchQuery(urlSearch);
+    setSiteFilter(urlSite);
+    setRefineText(urlRefine);
+    
+    // If there's a search query in the URL, perform the search after state is set
+    if (urlSearch.trim()) {
+      // Use a minimal delay to ensure state updates are complete
+      const timer = setTimeout(() => {
+        const performInitialSearch = async () => {
+          setLoading(true);
+          setError(null);
+          try {
+            const params = new URLSearchParams({ search: urlSearch });
+            if (urlSite !== 'all') {
+              params.set('site', urlSite);
+            }
+            if (urlRefine.trim()) {
+              params.set('refine', urlRefine);
+            }
+            const response = await fetch(`/api/games/search?${params}`);
+            if (!response.ok) {
+              throw new Error('Failed to search games');
+            }
+            const data = await response.json();
+            setGames(data);
+            setShowRefine(true);
+            setRecentGamesCookie(true);
+          } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to search games');
+            setGames([]);
+          } finally {
+            setLoading(false);
+          }
+        };
+        performInitialSearch();
+      }, 50);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams]);
 
   // Function to set cookie with 1 hour expiration
   const setRecentGamesCookie = (show: boolean) => {
@@ -108,15 +176,23 @@ function DashboardInner() {
     if (e) e.preventDefault();
     if (!searchQuery.trim()) {
       setRecentGamesCookie(false);
+      updateURL(); // Clear URL parameters
       loadRecentGames();
       return;
     }
+    
+    // Update URL with current search parameters
+    updateURL(searchQuery, siteFilter, refineText);
+    
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams({ search: searchQuery });
       if (siteFilter !== 'all') {
         params.set('site', siteFilter);
+      }
+      if (refineText.trim()) {
+        params.set('refine', refineText);
       }
       const response = await fetch(`/api/games/search?${params}`);
       if (!response.ok) {
@@ -132,7 +208,7 @@ function DashboardInner() {
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, siteFilter, loadRecentGames]);
+  }, [searchQuery, siteFilter, refineText, loadRecentGames, updateURL]);
 
   // Load recent games on mount and check cookie for visibility
   useEffect(() => {
@@ -155,6 +231,9 @@ function DashboardInner() {
       if (searchQuery.trim()) {
         await searchGames();
       } else {
+        // Update URL for site-only filtering
+        updateURL('', siteFilter);
+        
         // For site filtering, check if we can use cached data and filter locally
         if (siteFilter === 'all' && recentGamesCache && 
             (Date.now() - recentGamesCache.timestamp) < CLIENT_CACHE_TTL) {
@@ -190,7 +269,7 @@ function DashboardInner() {
           setLoading(false);
         }
       }
-    }, [searchQuery, siteFilter, searchGames, recentGamesCache, CLIENT_CACHE_TTL]);
+    }, [searchQuery, siteFilter, searchGames, recentGamesCache, CLIENT_CACHE_TTL, updateURL]);
 
     // Track/untrack handlers
     const handleTrackGame = useCallback(async (game: Game) => {
