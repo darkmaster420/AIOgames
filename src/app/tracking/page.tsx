@@ -46,6 +46,16 @@ interface TrackedGame {
   checkFrequency: string;
   hasNewUpdate?: boolean;
   newUpdateSeen?: boolean;
+  steamdbUpdate?: {
+    title: string;
+    version?: string;
+    buildNumber?: string;
+    date: string;
+    link: string;
+    isOutdated?: boolean;
+    outdatedReason?: string;
+    suggestion?: string;
+  };
   updateHistory: Array<{
     version: string;
     dateFound: string;
@@ -209,28 +219,195 @@ export default function TrackingDashboard() {
   };
 
   // Handle single game update check
+  // Helper function to check if tracked version is outdated compared to SteamDB
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const checkIfVersionOutdated = useCallback((game: TrackedGame, latestSteamUpdate: any) => {
+    const result = {
+      isOutdated: false,
+      reason: '',
+      trackedVersion: '',
+      steamVersion: '',
+      steamBuild: '',
+      suggestion: ''
+    };
+
+    // Get Steam version/build info
+    const steamVersion = latestSteamUpdate.version;
+    const steamBuild = latestSteamUpdate.changeNumber;
+    const steamDate = new Date(latestSteamUpdate.date);
+    
+    result.steamVersion = steamVersion || '';
+    result.steamBuild = steamBuild || '';
+
+    // Get tracked version info
+    const trackedVersion = game.lastKnownVersion || '';
+    result.trackedVersion = trackedVersion;
+
+    // Check build numbers first (most reliable)
+    if (steamBuild && game.currentBuildNumber) {
+      const trackedBuildNum = parseInt(game.currentBuildNumber);
+      const steamBuildNum = parseInt(steamBuild);
+      
+      if (steamBuildNum > trackedBuildNum) {
+        result.isOutdated = true;
+        result.reason = `Your tracked build ${trackedBuildNum} is behind Steam build ${steamBuildNum}`;
+        result.suggestion = 'A newer version should be available soon!';
+        return result;
+      }
+    }
+
+    // Check version numbers if available
+    if (steamVersion && game.currentVersionNumber) {
+      const comparison = compareVersions(game.currentVersionNumber, steamVersion);
+      if (comparison < 0) {
+        result.isOutdated = true;
+        result.reason = `Your tracked version ${game.currentVersionNumber} is behind Steam version ${steamVersion}`;
+        result.suggestion = 'A newer version should be available soon!';
+        return result;
+      }
+    }
+
+    // Check against last known version string
+    if (steamVersion && trackedVersion) {
+      // Extract version from tracked version string
+      const trackedVersionMatch = trackedVersion.match(/v?(\d+\.\d+(?:\.\d+)?)/i);
+      if (trackedVersionMatch) {
+        const trackedVersionNum = trackedVersionMatch[1];
+        const comparison = compareVersions(trackedVersionNum, steamVersion);
+        if (comparison < 0) {
+          result.isOutdated = true;
+          result.reason = `Your tracked version ${trackedVersionNum} is behind Steam version ${steamVersion}`;
+          result.suggestion = 'A newer version should be available soon!';
+          return result;
+        }
+      }
+    }
+
+    // If Steam update is very recent (within 24 hours) and we have any version info, suggest checking
+    const oneDayAgo = new Date();
+    oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+    
+    if (steamDate > oneDayAgo && (steamVersion || steamBuild)) {
+      result.isOutdated = true;
+      result.reason = 'New Steam update detected within 24 hours';
+      result.suggestion = 'Check if a new version is available!';
+      return result;
+    }
+
+    return result;
+  }, []);
+
+  // Helper function to compare version strings (returns -1 if v1 < v2, 0 if equal, 1 if v1 > v2)
+  const compareVersions = (v1: string, v2: string): number => {
+    const clean1 = v1.replace(/^v/i, '').split('.').map(n => parseInt(n) || 0);
+    const clean2 = v2.replace(/^v/i, '').split('.').map(n => parseInt(n) || 0);
+    
+    const maxLength = Math.max(clean1.length, clean2.length);
+    
+    for (let i = 0; i < maxLength; i++) {
+      const num1 = clean1[i] || 0;
+      const num2 = clean2[i] || 0;
+      
+      if (num1 < num2) return -1;
+      if (num1 > num2) return 1;
+    }
+    
+    return 0;
+  };
+
   const handleSingleGameUpdate = async (gameId: string, gameTitle: string) => {
     try {
       setCheckingSingleGame(gameId);
+      
+      // Find the game to check if it's Steam-verified
+      const game = trackedGames.find(g => g._id === gameId);
+      
+      // Check for regular updates
       const response = await fetch('/api/updates/check-single', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ gameId })
       });
       
+      let totalUpdatesFound = 0;
+      let totalSequelsFound = 0;
+      let steamdbUpdateFound = false;
+      
       if (response.ok) {
         const result = await response.json();
-        if (result.updatesFound > 0 || result.sequelsFound > 0) {
-          showSuccess(
-            'Update Check Complete', 
-            `🎮 ${gameTitle}\n📊 Updates found: ${result.updatesFound}\n🎬 Sequels found: ${result.sequelsFound}`
-          );
-        } else {
-          showInfo('No Updates Found', `No new updates found for "${gameTitle}"`);
-        }
-        // Refresh the game data to show updated lastChecked time
-        loadTrackedGames();
+        totalUpdatesFound = result.updatesFound || 0;
+        totalSequelsFound = result.sequelsFound || 0;
       }
+      
+      // Check SteamDB for Steam-verified games
+      if (game?.steamAppId && game?.steamVerified) {
+        try {
+          const steamResponse = await fetch(`/api/steamdb?action=updates&appId=${game.steamAppId}`);
+          if (steamResponse.ok) {
+            const steamData = await steamResponse.json();
+            const steamUpdates = steamData.data?.updates || [];
+            
+            if (steamUpdates.length > 0) {
+              const latestSteamUpdate = steamUpdates[0]; // Most recent update
+              
+              // Check if there are recent updates (last 7 days)
+              const weekAgo = new Date();
+              weekAgo.setDate(weekAgo.getDate() - 7);
+              
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const recentSteamUpdates = steamUpdates.filter((update: any) => 
+                new Date(update.date) > weekAgo
+              );
+              
+              if (recentSteamUpdates.length > 0) {
+                steamdbUpdateFound = true;
+              }
+              
+              // Cross-check with current tracked version
+              const isVersionOutdated = checkIfVersionOutdated(game, latestSteamUpdate);
+              if (isVersionOutdated.isOutdated) {
+                steamdbUpdateFound = true; // Mark as update found even if not recent
+                // Store the version comparison info for display
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (window as any).steamVersionComparison = isVersionOutdated;
+              }
+            }
+          }
+        } catch (steamError) {
+          console.warn('Failed to check SteamDB updates:', steamError);
+        }
+      }
+      
+      // Show appropriate success message
+      if (totalUpdatesFound > 0 || totalSequelsFound > 0 || steamdbUpdateFound) {
+        let message = `🎮 ${gameTitle}\n📊 Updates found: ${totalUpdatesFound}\n🎬 Sequels found: ${totalSequelsFound}`;
+        
+        if (steamdbUpdateFound) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const versionComparison = (window as any).steamVersionComparison;
+          if (versionComparison?.isOutdated) {
+            message += `\n⚠️ Version Check: ${versionComparison.reason}`;
+            message += `\n💡 ${versionComparison.suggestion}`;
+          } else {
+            message += `\n⚡ SteamDB updates: Found recent updates!`;
+          }
+          // Clean up temporary storage
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          delete (window as any).steamVersionComparison;
+        }
+        
+        showSuccess('Update Check Complete', message);
+      } else {
+        let message = `No new updates found for "${gameTitle}"`;
+        if (game?.steamAppId && game?.steamVerified) {
+          message += `\n✅ Checked SteamDB for Steam updates`;
+          message += `\n✅ Your version appears up to date`;
+        }
+        showInfo('No Updates Found', message);
+      }
+      
+      // Refresh the game data to show updated information
+      loadTrackedGames();
     } catch (error) {
       console.error('Failed to check single game updates:', error);
       showError('Update Check Failed', `Failed to check updates for "${gameTitle}". Please try again.`);
@@ -261,25 +438,72 @@ export default function TrackingDashboard() {
     setFilteredGames(sortedGames);
   }, [trackedGames, searchQuery, sortBy, sortOrder]);
 
-  useEffect(() => {
-    if (status === 'authenticated') {
-      loadTrackedGames();
-    }
-  }, [status]);
-
-  const loadTrackedGames = async () => {
+  const loadTrackedGames = useCallback(async () => {
     try {
       setLoading(true);
       const response = await fetch('/api/tracking');
       if (!response.ok) throw new Error('Failed to load tracked games');
       const data = await response.json();
-      setTrackedGames(data.games || []);
+      
+      let games = data.games || [];
+      
+      // Fetch SteamDB updates for Steam-verified games
+      if (games.length > 0) {
+        try {
+          const steamResponse = await fetch('/api/steamdb?action=updates');
+          if (steamResponse.ok) {
+            const steamData = await steamResponse.json();
+            const steamUpdates = steamData.data?.updates || [];
+            
+            // Map SteamDB updates to games
+            games = games.map((game: TrackedGame) => {
+              if (game.steamAppId && game.steamVerified) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const steamUpdate = steamUpdates.find((update: any) => 
+                  update.appId === game.steamAppId?.toString()
+                );
+                
+                if (steamUpdate) {
+                  // Check if version is outdated
+                  const versionCheck = checkIfVersionOutdated(game, steamUpdate);
+                  
+                  return {
+                    ...game,
+                    steamdbUpdate: {
+                      title: steamUpdate.description || steamUpdate.gameTitle,
+                      version: steamUpdate.version,
+                      buildNumber: steamUpdate.changeNumber,
+                      date: steamUpdate.date,
+                      link: steamUpdate.link,
+                      isOutdated: versionCheck.isOutdated,
+                      outdatedReason: versionCheck.reason,
+                      suggestion: versionCheck.suggestion,
+                    }
+                  };
+                }
+              }
+              return game;
+            });
+          }
+        } catch (steamError) {
+          console.warn('Failed to fetch SteamDB updates:', steamError);
+          // Continue without SteamDB updates
+        }
+      }
+      
+      setTrackedGames(games);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setLoading(false);
     }
-  };
+  }, [checkIfVersionOutdated]);
+
+  useEffect(() => {
+    if (status === 'authenticated') {
+      loadTrackedGames();
+    }
+  }, [status, loadTrackedGames]);
 
   const handleUntrack = async (gameId: string) => {
     try {
@@ -757,6 +981,79 @@ export default function TrackingDashboard() {
                               </div>
                             );
                           })()}
+                          
+                          {/* SteamDB Update Alert */}
+                          {game.steamdbUpdate && (
+                            <div className={`mt-2 p-3 border rounded-lg ${
+                              game.steamdbUpdate.isOutdated 
+                                ? 'bg-gradient-to-r from-orange-500/10 to-red-500/10 border-orange-300/30 dark:border-red-400/30'
+                                : 'bg-gradient-to-r from-blue-500/10 to-purple-500/10 border-blue-300/30 dark:border-purple-400/30'
+                            }`}>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={`text-sm font-semibold ${
+                                  game.steamdbUpdate.isOutdated
+                                    ? 'text-orange-600 dark:text-orange-400'
+                                    : 'text-blue-600 dark:text-blue-400'
+                                }`}>
+                                  {game.steamdbUpdate.isOutdated ? '⚠️ Version Behind Steam' : '🎮 Steam Update Detected'}
+                                </span>
+                                <a
+                                  href={game.steamdbUpdate.link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className={`text-xs transition-colors ${
+                                    game.steamdbUpdate.isOutdated
+                                      ? 'text-orange-500 hover:text-orange-700 dark:hover:text-orange-300'
+                                      : 'text-blue-500 hover:text-blue-700 dark:hover:text-blue-300'
+                                  }`}
+                                  title="View on SteamDB"
+                                >
+                                  <ExternalLinkIcon className="w-3 h-3" />
+                                </a>
+                              </div>
+                              
+                              {game.steamdbUpdate.isOutdated && game.steamdbUpdate.outdatedReason && (
+                                <div className="text-xs text-orange-700 dark:text-orange-300 mb-2">
+                                  {game.steamdbUpdate.outdatedReason}
+                                </div>
+                              )}
+                              
+                              {game.steamdbUpdate.suggestion && (
+                                <div className="text-xs text-green-700 dark:text-green-300 mb-2 font-medium">
+                                  💡 {game.steamdbUpdate.suggestion}
+                                </div>
+                              )}
+                              
+                              <div className="text-xs text-gray-700 dark:text-gray-300">
+                                {!game.steamdbUpdate.isOutdated && game.steamdbUpdate.title}
+                                {(game.steamdbUpdate.version || game.steamdbUpdate.buildNumber) && (
+                                  <div className="flex gap-1 mt-1">
+                                    {game.steamdbUpdate.version && (
+                                      <span className={`px-1.5 py-0.5 text-xs rounded ${
+                                        game.steamdbUpdate.isOutdated
+                                          ? 'bg-orange-100 dark:bg-orange-900 text-orange-800 dark:text-orange-200'
+                                          : 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200'
+                                      }`}>
+                                        v{game.steamdbUpdate.version}
+                                      </span>
+                                    )}
+                                    {game.steamdbUpdate.buildNumber && (
+                                      <span className={`px-1.5 py-0.5 text-xs rounded ${
+                                        game.steamdbUpdate.isOutdated
+                                          ? 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'
+                                          : 'bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200'
+                                      }`}>
+                                        Build {game.steamdbUpdate.buildNumber}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                  {new Date(game.steamdbUpdate.date).toLocaleDateString()}
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                         
                         {/* Steam Verification */}

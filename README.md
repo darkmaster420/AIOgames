@@ -1,8 +1,18 @@
-# 🎮 AIOgames - Automated Game Update Tracker
+# 🎮 AIOgames - Advanced Game Update Tracker
 
-A powerful Next.js application that automatically tracks game updates across multiple piracy sites with zero configuration required.
+A powerful Next.js application that automatically tracks game updates across multiple sites with intelligent Steam integration and real-time notifications.
 
-## ✨ Key Features
+## ✨ Latest Features (v1.2.0)
+
+- 🎮 **SteamDB Integration**: Real-time Steam update detection with RSS feeds
+- ⚠️ **Version Cross-Checking**: Smart comparison between tracked and Steam versions  
+- 🔍 **Steam Verification**: Enhanced game matching with Steam API integration
+- 🤖 **AI-Powered Detection**: Intelligent game update recognition
+- 📱 **Mobile-Optimized UI**: Responsive design with advanced controls
+- 🔄 **Single Game Updates**: Per-game update checking with SteamDB cross-reference
+- 🏗️ **Build Number Tracking**: Precise version tracking with SteamDB build numbers
+
+## 🌟 Core Features
 
 - 🔍 **Multi-Site Tracking**: Monitors GameDrive, SteamRip, SkidRow, FreeGog and more
 - 🤖 **Automatic Scheduling**: Built-in update checker - no cron jobs needed
@@ -14,34 +24,71 @@ A powerful Next.js application that automatically tracks game updates across mul
 - 🌙 **Dark Mode**: Beautiful UI with light/dark theme support
 - 🐳 **Container Ready**: Docker deployment with zero external dependencies
 
-## 🚀 Quick Start
+## 🏗️ Required Repositories
 
-### Docker Deployment (Recommended)
+AIOgames depends on additional repositories to function properly:
+
+### 📡 Game API Service
+**Repository**: [darkmaster420/gameapi](https://github.com/darkmaster420/gameapi)
+
+This Cloudflare Workers-based API provides:
+- Game search across multiple piracy sites
+- Unified data aggregation and normalization
+- Rate limiting and caching for optimal performance
+- Cross-origin resource sharing (CORS) support
+
+**Setup Instructions**:
+1. Clone the gameapi repository
+2. Deploy to Cloudflare Workers
+3. Update your `GAME_API_URL` environment variable
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/AIOgames.git
+# Clone and deploy gameapi
+git clone https://github.com/darkmaster420/gameapi.git
+cd gameapi
+npm install
+npm run deploy
+```
+
+### 🔗 API Integration
+The Game API handles:
+- **Site Scraping**: Real-time data from GameDrive, SteamRip, etc.
+- **Data Processing**: Cleans and normalizes game information
+- **Performance**: Caches results for faster response times
+- **Reliability**: Handles site changes and downtime gracefully
+
+## 🚀 Quick Start
+
+### Option 1: Docker Deployment (Recommended)
+
+```bash
+# 1. Setup Game API first (see above)
+
+# 2. Clone AIOgames
+git clone https://github.com/darkmaster420/AIOgames.git
 cd AIOgames
 
-# Copy environment file and configure
+# 3. Copy and configure environment
 cp .env.example .env
-# Edit .env with your settings
+# Edit .env with your Game API URL and other settings
 
-# Start with Docker Compose
+# 4. Start with Docker Compose
 docker compose -f docker-compose.production.yml up -d
 ```
 
-### Local Development
+### Option 2: Local Development
 
 ```bash
-# Install dependencies
+# 1. Ensure Game API is deployed and accessible
+
+# 2. Install dependencies
 npm install
 
-# Copy environment file
+# 3. Configure environment
 cp .env.example .env.local
-# Configure your environment variables
+# Set GAME_API_URL to your deployed gameapi instance
 
-# Start development server
+# 4. Start development server
 npm run dev
 ```
 
@@ -57,16 +104,31 @@ MONGODB_URI=mongodb://localhost:27017/aiogames
 NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=your-secret-key
 
-# APIs
-GAME_API_URL=https://gameapi.a7a8524.workers.dev
+# Game API (Required)
+GAME_API_URL=https://your-gameapi-instance.workers.dev
+# Get this from your deployed gameapi repository
+
+# Steam Integration (Optional - for enhanced features)
+STEAM_API_KEY=your-steam-api-key
+# Get from: https://steamcommunity.com/dev/apikey
 
 # Telegram Bot (Optional)
 TELEGRAM_WEBHOOK_TOKEN=your-webhook-verification-token
 
-# Notifications (Optional)
+# Push Notifications (Optional)
 NEXT_PUBLIC_VAPID_PUBLIC_KEY=your-vapid-key
 VAPID_PRIVATE_KEY=your-vapid-private-key
+
+# SteamDB Integration (Automatic)
+# No configuration needed - uses public RSS feeds
 ```
+
+### 🔑 API Keys Guide
+
+1. **Game API URL**: Deploy the [gameapi repository](https://github.com/darkmaster420/gameapi) to Cloudflare Workers
+2. **Steam API Key**: Optional, but enables Steam verification features
+3. **VAPID Keys**: Auto-generated on first run for push notifications
+4. **Telegram Token**: Create a bot via [@BotFather](https://t.me/BotFather)
 
 ## 🤖 Telegram Bot Integration
 
@@ -123,11 +185,37 @@ The Telegram integration uses:
 
 ## 📖 How It Works
 
-1. **Sign up** with email
-2. **Search games** using the integrated game finder
-3. **Track games** with customizable update frequencies
-4. **Automatic updates** run in background (hourly/daily/weekly)
-5. **Get notified** when updates are found via Telegram or push notifications
+### 🎯 Smart Game Tracking Process
+
+1. **🔍 Search & Add**: Find games using the integrated search powered by the Game API
+2. **🔐 Steam Verification**: Optionally verify games with Steam for enhanced tracking
+3. **📊 Multi-Source Monitoring**: 
+   - Traditional site scraping via Game API
+   - Real-time SteamDB RSS feed monitoring
+   - Cross-reference between tracked and Steam versions
+4. **🤖 Automatic Updates**: Background scheduler checks for updates based on your frequency settings
+5. **⚠️ Smart Alerts**: Get notified about:
+   - New game releases
+   - Version updates with precise build numbers
+   - When your tracked version falls behind Steam
+6. **📱 Instant Notifications**: Receive updates via Telegram bot or web push notifications
+
+### 🎮 SteamDB Integration
+
+AIOgames now includes advanced Steam integration:
+
+- **📡 Real-time RSS Monitoring**: Direct feeds from SteamDB for instant Steam updates
+- **🔢 Build Number Tracking**: Precise version comparison using Steam build numbers
+- **⚠️ Version Cross-Checking**: Warns when your tracked version is behind Steam
+- **🎯 Steam-Verified Games**: Enhanced accuracy for Steam-verified titles
+- **🔄 Per-Game Checks**: Individual game update checks include SteamDB data
+
+### 🤖 AI-Powered Features
+
+- **🧠 Intelligent Version Detection**: Recognizes version patterns across different formats
+- **🎯 Smart Game Matching**: AI-assisted game identification and deduplication  
+- **📊 Confidence Scoring**: Rates update reliability for better decision making
+- **🔍 Sequel Detection**: Automatically identifies game sequels and expansions
 
 ## 🔧 Production Features
 
@@ -152,18 +240,34 @@ The Telegram integration uses:
 ## 📊 API Endpoints
 
 ### Game Tracking
-- `GET /api/tracking` - Get tracked games
+- `GET /api/tracking` - Get tracked games with SteamDB integration
 - `POST /api/tracking` - Add game to tracking
 - `DELETE /api/tracking` - Remove tracked game
 
 ### Update Management
-- `POST /api/updates/check` - Manual update check
-- `POST /api/updates/check-single` - Check specific game
+- `POST /api/updates/check` - Manual update check across all sources
+- `POST /api/updates/check-single` - Check specific game (includes SteamDB)
 - `GET /api/scheduler` - View automatic update status
+
+### SteamDB Integration
+- `GET /api/steamdb?action=updates` - Get Steam updates for all tracked games
+- `GET /api/steamdb?action=updates&appId={id}` - Get updates for specific Steam app
+- `GET /api/steamdb?action=notifications` - Get formatted Steam update notifications
+
+### Game Management
+- `POST /api/games/steam-verify` - Verify game with Steam API
+- `POST /api/games/version-verify` - Manual version/build number verification
+- `GET /api/games/recent` - Get recently updated games
+- `GET /api/games/search` - Search games via Game API
 
 ### Authentication
 - `POST /api/auth/register` - User registration
 - Standard NextAuth.js endpoints for authentication
+
+### Notifications
+- `GET /api/notifications` - Get user notifications
+- `POST /api/notifications/test-telegram` - Test Telegram integration
+- `GET /api/notifications/vapid-public` - Get VAPID public key
 
 ## 🐳 Docker Deployment
 
@@ -189,12 +293,36 @@ docker compose -f docker-compose.development.yml up -d
 
 ## 🛠️ Tech Stack
 
-- **Frontend**: Next.js 15, React 19, TypeScript, Tailwind CSS
-- **Backend**: Next.js API Routes, MongoDB with Mongoose
-- **Authentication**: NextAuth.js with GitHub/Email providers
-- **Notifications**: Telegram Bot API, Web Push API
-- **Containerization**: Docker with multi-stage builds
-- **External APIs**: Custom Cloudflare Workers for game data
+### Frontend
+- **Next.js 15** with App Router and Turbopack
+- **React 19** with latest features and optimizations
+- **TypeScript** for type safety and better DX
+- **Tailwind CSS** for responsive, modern styling
+- **Service Workers** for offline support and push notifications
+
+### Backend
+- **Next.js API Routes** with TypeScript
+- **MongoDB** with Mongoose ODM
+- **NextAuth.js** for secure authentication
+- **Background Schedulers** for automatic update checking
+
+### External Services
+- **[Game API](https://github.com/darkmaster420/gameapi)** - Cloudflare Workers for game data
+- **SteamDB RSS** - Real-time Steam update feeds
+- **Steam Web API** - Game verification and metadata
+- **Telegram Bot API** - Rich messaging and notifications
+
+### Infrastructure
+- **Docker** with multi-stage builds for production
+- **Docker Compose** for development and deployment
+- **MongoDB** containerized database
+- **Environment-based configuration** for different deployments
+
+### Development Tools
+- **ESLint** with TypeScript rules
+- **Prettier** for code formatting
+- **Husky** for git hooks
+- **TypeScript strict mode** for maximum type safety
 
 ## 📱 Browser Support
 
@@ -221,22 +349,43 @@ docker compose -f docker-compose.development.yml up -d
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+We welcome contributions! Here's how to get started:
+
+1. **Fork the repository**
+2. **Set up dependencies**:
+   - Deploy [gameapi](https://github.com/darkmaster420/gameapi) first
+   - Configure your environment variables
+3. **Create your feature branch** (`git checkout -b feature/amazing-feature`)
+4. **Test thoroughly** with both traditional and Steam-verified games
+5. **Commit your changes** (`git commit -m 'Add amazing feature'`)
+6. **Push to the branch** (`git push origin feature/amazing-feature`)
+7. **Open a Pull Request**
+
+### 🧪 Testing Guidelines
+
+- Test with both Steam-verified and non-verified games
+- Verify SteamDB integration works correctly
+- Check mobile responsiveness
+- Test Telegram bot functionality
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🆘 Support
+## 🆘 Support & Links
 
-- Create an [Issue](https://github.com/yourusername/AIOgames/issues) for bug reports
-- Check existing issues before creating new ones
-- Provide detailed information for faster resolution
+- **🐛 Bug Reports**: [Create an Issue](https://github.com/darkmaster420/AIOgames/issues)
+- **💡 Feature Requests**: [Discussions](https://github.com/darkmaster420/AIOgames/discussions)
+- **📚 Game API**: [darkmaster420/gameapi](https://github.com/darkmaster420/gameapi)
+- **📖 Documentation**: Check the wiki for detailed setup guides
+
+### 🔗 Related Repositories
+
+- **[gameapi](https://github.com/darkmaster420/gameapi)** - Essential Cloudflare Workers API for game data
+- **[AIOgames](https://github.com/darkmaster420/AIOgames)** - Main application repository
 
 ---
 
 **🎯 Built with ❤️ for the gaming community**
+
+*AIOgames v1.2.0 - Now with advanced Steam integration and real-time update detection*
