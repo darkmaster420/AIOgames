@@ -507,7 +507,8 @@ export async function POST(request: Request) {
     // Process results to find updates and sequels
     for (const result of games) {
       const decodedTitle = decodeHtmlEntities(result.title);
-      const similarity = calculateGameSimilarity(cleanTitle, decodedTitle);
+      const cleanedDecodedTitle = cleanGameTitle(decodedTitle);
+      const similarity = calculateGameSimilarity(cleanTitle, cleanedDecodedTitle);
 
       // Skip if this is the same post we're already tracking
       if (result.link === game.gameLink) {
@@ -515,20 +516,23 @@ export async function POST(request: Request) {
         continue;
       }
 
-      // --- Require a valid version/build pattern in the detected title ---
-  // Use ESM import for detectVersionNumber
+      // --- Require a valid version/build pattern in the detected title (but be more lenient) ---
+      // Use ESM import for detectVersionNumber
       const { detectVersionNumber } = await import('../../../../utils/versionDetection');
-      const { found: hasVersion } = detectVersionNumber(decodedTitle);
-      const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(decodedTitle);
-      if (!hasVersion && !hasBuild) {
-        logger.debug(`⏩ Skipping "${decodedTitle}" (no valid version/build pattern)`);
+      const { found: hasVersion } = detectVersionNumber(cleanedDecodedTitle);
+      const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(cleanedDecodedTitle);
+      const hasDatePattern = /\b\d{4}[-\.]\d{2}[-\.]\d{2}\b/.test(cleanedDecodedTitle);
+      const hasUpdateKeywords = /\b(update|patch|v\d|rev|repack|hotfix|fixed|latest|final|complete|enhanced|improved)\b/i.test(cleanedDecodedTitle);
+      
+      if (!hasVersion && !hasBuild && !hasDatePattern && !hasUpdateKeywords) {
+        logger.debug(`⏩ Skipping "${decodedTitle}" (no version/build/update pattern)`);
         continue;
       }
 
       logger.debug(`🎯 Comparing "${decodedTitle}" (similarity: ${similarity.toFixed(2)})`);
 
-      // Check for potential updates (high similarity)
-      if (similarity >= 0.8) {
+      // Check for potential updates (more lenient similarity threshold)
+      if (similarity >= 0.75) {
         // Try sources in priority order for current version
         const titleSources = [
           { title: game.originalTitle, label: 'original title' },
@@ -554,7 +558,7 @@ export async function POST(request: Request) {
           currentVersionInfo = extractVersionInfo(titleSources[titleSources.length - 1].title);
         }
 
-        const newVersionInfo = extractVersionInfo(decodedTitle);
+        const newVersionInfo = extractVersionInfo(cleanedDecodedTitle);
 
         // Enrich version/build via SteamDB Worker if one side is missing and we know the appId
         if (game.steamAppId) {
@@ -687,8 +691,8 @@ export async function POST(request: Request) {
           logger.debug(`🤖 ${aiReason}, using regex detection: ${isUpdateCandidate}`);
         }
         
-        // Only proceed if version is present and candidate is an update
-        if (isUpdateCandidate && newVersionInfo.version) {
+        // Only proceed if it's a candidate and has some version info
+        if (isUpdateCandidate && (newVersionInfo.version || newVersionInfo.build)) {
           logger.debug(`✨ Potential update found: ${decodedTitle}`);
           logger.debug(`🔗 Download links in result:`, result.downloadLinks);
           
@@ -736,9 +740,8 @@ export async function POST(request: Request) {
                 userApproved: true,
                 approvedAt: new Date(),
                 autoApprovalReason: autoApproveResult.reason
-              };              // Increment updates found counter
-              updatesFound++;
-
+              };              
+              
               // Update the game with auto-approved update
               const updateFields: Record<string, unknown> = {
                 lastKnownVersion: decodedTitle,
@@ -785,16 +788,12 @@ export async function POST(request: Request) {
               }
 
               await TrackedGame.findByIdAndUpdate(game._id, updateFields);
+              
             } else {
-              // Only add to pending if version is present (strict requirement)
-              if (!newVersionInfo.version) {
-                logger.debug(`⚠️ Skipping game without valid version: "${decodedTitle}"`);
-                return NextResponse.json({
-                  message: `No update found for "${game.title}". Found "${decodedTitle}" but it lacks a valid version number needed for tracking.`,
-                  game: game.title,
-                  checked: 1,
-                  updatesFound: 0
-                });
+              // Only add to pending if version or build is present
+              if (!newVersionInfo.version && !newVersionInfo.build) {
+                logger.debug(`⚠️ Skipping game without valid version or build: "${decodedTitle}"`);
+                continue; // Don't return here, continue checking other results
               }
               
               // Add to pending updates if can't auto-approve
@@ -895,6 +894,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       message: 'Game check complete',
+      game: game.title,
+      checked: 1,
+      updatesFound,
+      sequelsFound,
       results
     });
 
