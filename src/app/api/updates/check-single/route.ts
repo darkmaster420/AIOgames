@@ -461,46 +461,29 @@ export async function POST(request: Request) {
     
     logger.debug(`📊 Search returned ${games.length} results`);
 
-    // Reduce results to the newest post only (group by link/id/title then take newest)
+    // Remove duplicate posts by link (same post can appear multiple times)
     try {
-      const latestMap = new Map<string, GameSearchResult>();
+      const seenLinks = new Map<string, GameSearchResult>();
       for (const g of games) {
         const key = g.link || g.id || g.title;
         const date = g.date ? new Date(g.date) : new Date(0);
-        const existing = latestMap.get(key);
+        const existing = seenLinks.get(key);
         if (!existing) {
-          latestMap.set(key, g);
+          seenLinks.set(key, g);
         } else {
+          // Keep the one with the newer date if duplicates found
           const existingDate = existing.date ? new Date(existing.date) : new Date(0);
-          if (date > existingDate) latestMap.set(key, g);
+          if (date > existingDate) seenLinks.set(key, g);
         }
       }
 
-      const reduced = Array.from(latestMap.values());
-      // Keep newest result per source/site to avoid dropping recent posts from different sites
-      const perSource = new Map<string, GameSearchResult>();
-      for (const g of reduced) {
-        const src = g.source || 'unknown';
-        const existing = perSource.get(src);
-        const date = g.date ? new Date(g.date) : new Date(0);
-        if (!existing) perSource.set(src, g);
-        else {
-          const existingDate = existing.date ? new Date(existing.date) : new Date(0);
-          if (date > existingDate) perSource.set(src, g);
-        }
-      }
-
-      const kept = Array.from(perSource.values());
-      kept.sort((a, b) => (b.date ? new Date(b.date).getTime() : 0) - (a.date ? new Date(a.date).getTime() : 0));
-
-      if (kept.length > 0) {
-        games = kept; // process one newest per site (usually small number)
-        logger.debug(`🔎 Reduced to ${kept.length} newest results across sources (kept top: ${kept[0].title})`);
-      } else {
-        games = [];
-      }
-    } catch (reduceErr) {
-      logger.error('Failed to reduce search results to newest only:', reduceErr);
+      games = Array.from(seenLinks.values());
+      // Sort by date (newest first) to check newer versions first
+      games.sort((a, b) => (b.date ? new Date(b.date).getTime() : 0) - (a.date ? new Date(a.date).getTime() : 0));
+      
+      logger.debug(`🔎 Processing ${games.length} unique results (sorted by date)`);
+    } catch (dedupeErr) {
+      logger.error('Failed to deduplicate search results:', dedupeErr);
       // fall back to original games list
     }
 
