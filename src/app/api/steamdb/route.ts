@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
         if (appId) {
           // Get updates for a specific Steam app
           const updates = await fetchSteamDBUpdates(appId);
-          return NextResponse.json({
+          const res = NextResponse.json({
             success: true,
             data: {
               updates: updates.slice(0, limit),
@@ -24,6 +24,9 @@ export async function GET(request: NextRequest) {
               lastUpdated: new Date().toISOString(),
             }
           });
+          // Cache this response for 30 minutes at the edge and allow revalidation
+          res.headers.set('Cache-Control', 'public, max-age=0, s-maxage=1800, stale-while-revalidate=300');
+          return res;
         } else {
           // Get updates for all Steam-verified games being tracked
           await connectDB();
@@ -40,8 +43,7 @@ export async function GET(request: NextRequest) {
           })).filter(app => app.appId && app.gameTitle);
 
           const result = await checkSteamVerifiedGamesForUpdates(steamApps);
-          
-          return NextResponse.json({
+          const res = NextResponse.json({
             success: true,
             data: {
               updates: result.updates.slice(0, limit),
@@ -50,6 +52,8 @@ export async function GET(request: NextRequest) {
               checkedApps: steamApps.length,
             }
           });
+          res.headers.set('Cache-Control', 'public, max-age=0, s-maxage=600, stale-while-revalidate=120');
+          return res;
         }
 
       case 'notifications':
@@ -81,7 +85,7 @@ export async function GET(request: NextRequest) {
           date: update.date,
         }));
 
-        return NextResponse.json({
+        const res = NextResponse.json({
           success: true,
           data: {
             notifications: notifications.slice(0, limit),
@@ -90,6 +94,8 @@ export async function GET(request: NextRequest) {
             lastChecked: updateResult.lastChecked,
           }
         });
+        res.headers.set('Cache-Control', 'public, max-age=0, s-maxage=600, stale-while-revalidate=120');
+        return res;
 
       default:
         return NextResponse.json(

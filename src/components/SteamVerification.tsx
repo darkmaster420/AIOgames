@@ -152,12 +152,12 @@ export function SteamVerification({
       {/* Current Status */}
       <div className="flex items-center gap-2 mb-2">
         {steamVerified && steamName ? (
-          <div className="flex items-center gap-1 text-xs bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 px-2 py-1 rounded">
-            <span>✅</span>
+          <div className="flex items-center gap-1 text-xs bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 px-2 py-1 rounded border border-gray-300 dark:border-gray-600">
+            <span>✔️</span>
             <span>Steam: {steamName}</span>
             <button
               onClick={handleToggle}
-              className="ml-1 text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-200"
+              className="ml-1 text-white-600 dark:text-white-400 hover:text-white-800 dark:hover:text-white-200"
             >
               ⚙️
             </button>
@@ -194,13 +194,13 @@ export function SteamVerification({
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Search Steam:
               </label>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-col sm:flex-row">
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder={`Try: "${cleanedTitle}"`}
-                  className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full sm:flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleSearch();
                   }}
@@ -208,7 +208,7 @@ export function SteamVerification({
                 <button
                   onClick={handleSearch}
                   disabled={isSearching}
-                  className="px-3 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                  className="px-3 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 w-full sm:w-auto"
                 >
                   {isSearching ? '🔄' : '🔍'}
                 </button>

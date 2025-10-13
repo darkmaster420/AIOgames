@@ -18,26 +18,77 @@ export interface SteamDBResponse {
   lastChecked: string;
 }
 
+// In-memory cache and rate limiting for SteamDB requests
+const STEAMDB_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const MIN_FETCH_INTERVAL_MS = 2000; // global min interval between upstream requests
+
+const steamdbCache = new Map<string, { timestamp: number; updates: SteamDBUpdate[] }>();
+const pendingFetches = new Map<string, Promise<SteamDBUpdate[]>>();
+let lastFetchAt = 0;
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function ensureGlobalRateLimit() {
+  const now = Date.now();
+  const elapsed = now - lastFetchAt;
+  if (elapsed < MIN_FETCH_INTERVAL_MS) {
+    await sleep(MIN_FETCH_INTERVAL_MS - elapsed);
+  }
+  lastFetchAt = Date.now();
+}
+
 /**
  * Fetch patch notes for a specific Steam app from SteamDB
  */
 export async function fetchSteamDBUpdates(appId: string): Promise<SteamDBUpdate[]> {
   try {
-    const url = `https://steamdb.info/api/PatchnotesRSS/?appid=${appId}`;
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'AIOGames/1.1.1 (Game Update Tracker)',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`SteamDB API error: ${response.status}`);
+    // Serve from cache if fresh
+    const cached = steamdbCache.get(appId);
+    if (cached && Date.now() - cached.timestamp < STEAMDB_CACHE_TTL_MS) {
+      return cached.updates;
     }
 
-    const rssText = await response.text();
-    return parseSteamDBRSS(rssText, appId);
+    // De-duplicate concurrent requests for the same appId
+    const inFlight = pendingFetches.get(appId);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    // Create fetch promise and store as pending
+    const fetchPromise = (async () => {
+      await ensureGlobalRateLimit();
+
+      const url = `https://steamdb.info/api/PatchnotesRSS/?appid=${appId}`;
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'AIOGames/1.2.1 (Game Update Tracker)'
+        },
+      });
+
+      if (!response.ok) {
+        // On failure, return stale cache if available
+        if (cached) return cached.updates;
+        throw new Error(`SteamDB API error: ${response.status}`);
+      }
+
+      const rssText = await response.text();
+      const updates = parseSteamDBRSS(rssText, appId);
+      steamdbCache.set(appId, { timestamp: Date.now(), updates });
+      return updates;
+    })()
+    .finally(() => {
+      pendingFetches.delete(appId);
+    });
+
+    pendingFetches.set(appId, fetchPromise);
+    return await fetchPromise;
   } catch (error) {
     console.error(`Error fetching SteamDB updates for app ${appId}:`, error);
+    // On error, return stale cache if available
+    const cached = steamdbCache.get(appId);
+    if (cached) return cached.updates;
     return [];
   }
 }

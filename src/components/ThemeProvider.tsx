@@ -24,7 +24,8 @@ interface ThemeProviderProps {
 }
 
 export const ThemeProvider = ({ children }: ThemeProviderProps) => {
-  const [theme, setTheme] = useState<Theme>('light');
+  // Default to dark to match desired default theme
+  const [theme, setTheme] = useState<Theme>('dark');
   const [mounted, setMounted] = useState(false);
 
   // Set initial theme from localStorage or system preference
@@ -33,9 +34,8 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
     if (stored) {
       setTheme(stored);
     } else {
-      // Check system preference
-      const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      setTheme(systemPrefersDark ? 'dark' : 'light');
+      // Default to dark when no preference stored
+      setTheme('dark');
     }
     setMounted(true);
   }, []);

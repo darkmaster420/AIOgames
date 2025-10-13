@@ -106,6 +106,15 @@ export default function TrackingDashboard() {
   const [error, setError] = useState('');
   const [checkingSingleGame, setCheckingSingleGame] = useState<string | null>(null);
 
+  // Steam latest version/build info fetched from SteamDB RSS
+  interface SteamLatestInfo {
+    version?: string;
+    build?: string;
+    date?: string;
+    link?: string;
+  }
+  const [steamLatest, setSteamLatest] = useState<Record<string, SteamLatestInfo>>({});
+
   // Sort functionality
   const [sortBy, setSortBy] = useState<'title' | 'dateAdded' | 'lastChecked' | 'lastUpdated'>('dateAdded');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -349,6 +358,17 @@ export default function TrackingDashboard() {
             
             if (steamUpdates.length > 0) {
               const latestSteamUpdate = steamUpdates[0]; // Most recent update
+
+              // Store latest Steam info for this game card
+              setSteamLatest(prev => ({
+                ...prev,
+                [game._id]: {
+                  version: latestSteamUpdate.version,
+                  build: latestSteamUpdate.changeNumber,
+                  date: latestSteamUpdate.date,
+                  link: latestSteamUpdate.link,
+                },
+              }));
               
               // Check if there are recent updates (last 7 days)
               const weekAgo = new Date();
@@ -437,6 +457,46 @@ export default function TrackingDashboard() {
     const sortedGames = sortGames(games, sortBy, sortOrder);
     setFilteredGames(sortedGames);
   }, [trackedGames, searchQuery, sortBy, sortOrder]);
+
+  // After loading tracked games, fetch latest Steam info for Steam-verified ones
+  useEffect(() => {
+    const fetchSteamLatestForGames = async () => {
+      const toFetch = trackedGames.filter(g => g.steamVerified && g.steamAppId && !steamLatest[g._id]);
+      // Fetch sequentially with a small delay to be polite
+      for (const g of toFetch) {
+        try {
+          const res = await fetch(`/api/steamdb?action=updates&appId=${g.steamAppId}&limit=1`, {
+            // Leverage route cache headers via Next fetch cache
+            cache: 'force-cache',
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const latest = data.data?.updates?.[0];
+            if (latest) {
+              setSteamLatest(prev => ({
+                ...prev,
+                [g._id]: {
+                  version: latest.version,
+                  build: latest.changeNumber,
+                  date: latest.date,
+                  link: latest.link,
+                },
+              }));
+            }
+          }
+        } catch (e) {
+          // Ignore per-game errors
+        }
+        // Throttle a bit between requests to avoid bursts
+        await new Promise(r => setTimeout(r, 350));
+      }
+    };
+
+    if (trackedGames.length) {
+      fetchSteamLatestForGames();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackedGames]);
 
   const loadTrackedGames = useCallback(async () => {
     try {
@@ -1052,6 +1112,34 @@ export default function TrackingDashboard() {
                                   {new Date(game.steamdbUpdate.date).toLocaleDateString()}
                                 </div>
                               </div>
+                            </div>
+                          )}
+
+                          {/* Steam Latest Version/Build (SteamDB) */}
+                          {game.steamVerified && steamLatest[game._id] && (
+                            <div className="mt-2 text-xs text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                              <span className="font-semibold">Steam Latest:</span>
+                              {steamLatest[game._id].version && (
+                                <span className="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 rounded">
+                                  v{steamLatest[game._id].version}
+                                </span>
+                              )}
+                              {steamLatest[game._id].build && (
+                                <span className="px-1.5 py-0.5 bg-sky-100 dark:bg-sky-900 text-sky-800 dark:text-sky-200 rounded">
+                                  Build {steamLatest[game._id].build}
+                                </span>
+                              )}
+                              {steamLatest[game._id].link && (
+                                <a
+                                  href={steamLatest[game._id].link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sky-600 dark:text-sky-400 hover:underline inline-flex items-center gap-1"
+                                  title="View on SteamDB"
+                                >
+                                  <ExternalLinkIcon className="w-3 h-3" />
+                                </a>
+                              )}
                             </div>
                           )}
                         </div>
