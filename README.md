@@ -3,7 +3,7 @@
 
 A powerful Next.js application that automatically tracks game updates across multiple sites with intelligent Steam integration and real-time notifications.
 
-**[🌐 Live Demo](https://aiogames.iforgor.cc/tracking) | [📚 Game API](https://github.com/darkmaster420/gameapi)**
+**[🌐 Live Demo](https://aiogames.iforgor.cc) | [📚 Game API](https://github.com/darkmaster420/gameapi)**
 
 > **Note**: The demo site is frequently updated and may be unstable. For reliable use, self-hosting is recommended.
 
