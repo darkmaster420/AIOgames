@@ -484,7 +484,7 @@ export default function TrackingDashboard() {
               }));
             }
           }
-        } catch (e) {
+        } catch {
           // Ignore per-game errors
         }
         // Throttle a bit between requests to avoid bursts
