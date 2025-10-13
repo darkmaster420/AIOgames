@@ -540,17 +540,18 @@ function DashboardInner() {
                   )}
                   
                   {/* Game Image - Made Even Bigger and Taller */}
-                  <div className="relative z-10 mx-auto mt-4 mb-3">
-                    <ImageWithFallback
-                      src={game.image}
-                      alt={game.title}
-                      width={320}
-                      height={240}
-                      className="w-64 h-48 sm:w-72 sm:h-54 object-cover rounded-lg shadow-lg border border-gray-200 dark:border-gray-600"
-                    />
-                  </div>
-
-                  {/* Action Icons (moved under image) */}
+                  {/* Game Image */}
+                  {game.image && (
+                    <div className="relative z-10 mx-auto mt-4 mb-3 flex justify-center items-center">
+                      <ImageWithFallback
+                        src={game.image}
+                        alt={game.title}
+                        width={240}
+                        height={360}
+                        className="w-auto h-auto max-w-[240px] rounded-lg shadow-lg border border-gray-200 dark:border-gray-600"
+                      />
+                    </div>
+                  )}                  {/* Action Icons (moved under image) */}
                   <div className="relative z-10 flex justify-center gap-2 mb-3">
                     <a
                       href={game.link}

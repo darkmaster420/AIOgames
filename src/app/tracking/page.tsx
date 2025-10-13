@@ -693,6 +693,7 @@ export default function TrackingDashboard() {
   };
 
   // Show loading spinner while checking auth
+
   if (status === 'loading') {
     return (
       <div className="min-h-screen bg-hero flex items-center justify-center">
@@ -702,6 +703,14 @@ export default function TrackingDashboard() {
         </div>
       </div>
     );
+  }
+
+  // If not authenticated, redirect to sign in
+  if (status === 'unauthenticated') {
+    if (typeof window !== 'undefined') {
+      window.location.href = `/auth/signin?callbackUrl=/tracking`;
+    }
+    return null;
   }
 
     return (
@@ -928,30 +937,6 @@ export default function TrackingDashboard() {
                     }}
                   />
                 )}
-                {/* Corner Action Icons (top-right) */}
-                <div className="absolute top-2 right-2 flex flex-col gap-2 z-20">
-                  <button
-                    onClick={() => handleSingleGameUpdate(game._id, game.title)}
-                    disabled={checkingSingleGame === game._id}
-                    title="Check updates now"
-                    className="h-10 w-10 flex items-center justify-center rounded-lg bg-white/90 dark:bg-gray-900/80 border border-gray-300 dark:border-gray-600 text-sm hover:bg-blue-100 dark:hover:bg-blue-800/40 transition disabled:opacity-50 disabled:cursor-not-allowed shadow"
-                  >
-                    {checkingSingleGame === game._id ? (
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-400 border-t-transparent" />
-                    ) : (
-                      <span role="img" aria-label="refresh">🔄</span>
-                    )}
-                  </button>
-                  <a
-                    href={game.gameLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Open latest post"
-                    className="h-10 w-10 flex items-center justify-center rounded-lg bg-white/90 dark:bg-gray-900/80 border border-gray-300 dark:border-gray-600 text-sm hover:bg-green-100 dark:hover:bg-green-800/40 transition shadow"
-                  >
-                    <ExternalLinkIcon className="w-6 h-6" />
-                  </a>
-                </div>
                 {/* Top-left Untrack Icon */}
                 <button
                   onClick={async () => {
@@ -971,16 +956,41 @@ export default function TrackingDashboard() {
                 <div className="flex flex-col gap-4 p-4 sm:p-6 flex-1 relative z-10">
                   {/* Game Image */}
                   {game.image && (
-                    <div className="flex-shrink-0 mx-auto">
+                    <div className="relative z-10 mx-auto mt-2 mb-2 sm:mt-4 sm:mb-3 flex justify-center items-center">
                       <ImageWithFallback
                         src={game.image}
                         alt={game.title}
-                        width={96}
-                        height={96}
-                        className="w-20 h-20 sm:w-24 sm:h-24 object-cover rounded-lg"
+                        width={240}
+                        height={360}
+                        className="w-auto h-auto max-w-[240px] rounded-lg shadow-lg border border-gray-200 dark:border-gray-600"
                       />
                     </div>
                   )}
+
+                  {/* Action Icons (under image) */}
+                  <div className="relative z-10 flex justify-center gap-2 mb-2 sm:mb-3">
+                    <button
+                      onClick={() => handleSingleGameUpdate(game._id, game.title)}
+                      disabled={checkingSingleGame === game._id}
+                      title="Check updates now"
+                      className="h-10 w-10 sm:h-9 sm:w-9 flex items-center justify-center rounded-lg bg-white/90 dark:bg-gray-900/80 border border-gray-300 dark:border-gray-600 text-sm hover:bg-blue-100 dark:hover:bg-blue-800/40 transition disabled:opacity-50 disabled:cursor-not-allowed shadow"
+                    >
+                      {checkingSingleGame === game._id ? (
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-400 border-t-transparent" />
+                      ) : (
+                        <span role="img" aria-label="refresh">🔄</span>
+                      )}
+                    </button>
+                    <a
+                      href={game.gameLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Open latest post"
+                      className="h-10 w-10 sm:h-9 sm:w-9 flex items-center justify-center rounded-lg bg-white/90 dark:bg-gray-900/80 border border-gray-300 dark:border-gray-600 text-sm hover:bg-green-100 dark:hover:bg-green-800/40 transition shadow"
+                    >
+                      <ExternalLinkIcon className="w-5 h-5" />
+                    </a>
+                  </div>
                   
                   {/* Game Details */}
                   <div className="flex-1 min-w-0">
@@ -1022,26 +1032,6 @@ export default function TrackingDashboard() {
                             )}
                           </div>
 
-                          {game.lastKnownVersion && (() => {
-                            // Split version and build for separate badges
-                            const versionMatch = game.lastKnownVersion.match(/^(\d+(?:\.\d+)+)/);
-                            const buildMatch = game.lastKnownVersion.match(/Build\s*(\d+)/i);
-                            return (
-                              <div className="inline-flex items-center gap-1.5 mt-2">
-                                {versionMatch && (
-                                  <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-xs rounded-full">
-                                    {`v${versionMatch[1]}`}
-                                  </span>
-                                )}
-                                {buildMatch && (
-                                  <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs rounded-full">
-                                    {`Build ${buildMatch[1]}`}
-                                  </span>
-                                )}
-                              </div>
-                            );
-                          })()}
-                          
                           {/* SteamDB Update Alert */}
                           {game.steamdbUpdate && (
                             <div className={`mt-2 p-3 border rounded-lg ${
@@ -1115,8 +1105,8 @@ export default function TrackingDashboard() {
                             </div>
                           )}
 
-                          {/* Steam Latest Version/Build (SteamDB) */}
-                          {game.steamVerified && steamLatest[game._id] && (
+                          {/* Steam Latest Version/Build (SteamDB) - Advanced Mode Only */}
+                          {showAdvanced && game.steamVerified && steamLatest[game._id] && (
                             <div className="mt-2 text-xs text-slate-700 dark:text-slate-300 flex items-center gap-2">
                               <span className="font-semibold">Steam Latest:</span>
                               {steamLatest[game._id].version && (

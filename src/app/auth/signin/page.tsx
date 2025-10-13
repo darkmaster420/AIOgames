@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { signIn, useSession } from 'next-auth/react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { validateEmailOrUsername, normalizeLoginInput } from '../../../utils/authUtils';
 
@@ -14,7 +14,6 @@ function SignInInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [inputValidation, setInputValidation] = useState<{ isValid: boolean; type: 'email' | 'username' | null }>({ isValid: false, type: null });
-  const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get('callbackUrl') || '/';
   const message = searchParams.get('message');
@@ -23,9 +22,9 @@ function SignInInner() {
   // If already authenticated, redirect away quickly
   useEffect(() => {
     if (status === 'authenticated') {
-      router.replace(callbackUrl);
+      window.location.href = callbackUrl;
     }
-  }, [status, router, callbackUrl]);
+  }, [status, callbackUrl]);
 
   // Validate input as user types
   const handleInputChange = (value: string) => {
@@ -67,7 +66,8 @@ function SignInInner() {
         }
         await delay(100);
       }
-      router.replace(callbackUrl);
+      // Use window.location.href for a proper redirect with full page load
+      window.location.href = callbackUrl;
     } catch {
       setError('An error occurred during sign in');
     } finally {

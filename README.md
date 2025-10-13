@@ -1,5 +1,26 @@
 
+
 # 🎮 AIO-Games - Advanced Game Update Tracker
+
+## 🖼️ Screenshots
+
+| Platform | Home (No Posts) | Home (With Posts) | Tracking Page | Tracking Page (DL Options) |
+|----------|-----------------|-------------------|---------------|---------------------------|
+| **PC**   | ![PC Home No Posts](docs/images/pc-home-no-posts.png) | ![PC Home With Posts](docs/images/pc-home-with-posts.png) | ![PC Tracking Page](docs/images/pc-tracking-page.png) | ![PC Tracking DL Options](docs/images/pc-tracking-page-dl-options.png) |
+| **Mobile** | ![Mobile Home No Posts](docs/images/mobile-home-no-posts.png) | ![Mobile Home With Posts](docs/images/moble-home-with-posts.png) | ![Mobile Tracking Page](docs/images/mobile-tracking-page.png) | ![Mobile Tracking DL Options](docs/images/mobile-tracking-page-dl-options.png) |
+
+---
+
+## 📖 Documentation
+
+All guides and advanced docs are now in the [docs/README.md](docs/README.md) documentation hub. See there for:
+- Production deployment
+- Docker setup
+- Scheduler details
+- AI/Steam integration
+- Game tracking and more
+
+---
 
 A powerful Next.js application that automatically tracks game updates across multiple sites with intelligent Steam integration and real-time notifications.
 
@@ -22,7 +43,8 @@ Gamers who sail the high seas don't get automated update notifications like legi
 ---
 
 
-## ✨ Latest Features (v1.2.0)
+
+## ✨ Latest Features (v1.2.2)
 
 - 🎮 **SteamDB Integration**: Real-time Steam update detection with RSS feeds
 - ⚠️ **Version Cross-Checking**: Smart comparison between tracked and Steam versions  
@@ -31,6 +53,7 @@ Gamers who sail the high seas don't get automated update notifications like legi
 - 📱 **Mobile-Optimized UI**: Responsive design with advanced controls
 - 🔄 **Single Game Updates**: Per-game update checking with SteamDB cross-reference
 - 🏗️ **Build Number Tracking**: Precise version tracking with SteamDB build numbers
+- 📲 **Telegram Notifications**: Get update alerts via Telegram
 
 ---
 
@@ -101,26 +124,13 @@ This Cloudflare Workers-based API provides:
 1. Clone the gameapi repository
 2. Deploy to Cloudflare Workers
 3. Update your `GAME_API_URL` environment variable
-
-```bash
-# Clone and deploy gameapi
-git clone https://github.com/darkmaster420/gameapi.git
 cd gameapi
 npm install
 npm run deploy
-```
 
 ### 🔗 API Integration
 The Game API handles:
-- **Site Scraping**: Real-time data from GameDrive, SteamRip, etc.
-- **Data Processing**: Cleans and normalizes game information
-- **Performance**: Caches results for faster response times
-- **Reliability**: Handles site changes and downtime gracefully
-
-## 🚀 Quick Start
-
 ### Option 1: Docker Deployment (Recommended)
-
 ```bash
 # 1. Setup Game API first (see above)
 
@@ -129,18 +139,11 @@ git clone https://github.com/darkmaster420/AIOgames.git
 cd AIOgames
 
 # 3. Copy and configure environment
-cp .env.example .env
 # Edit .env with your Game API URL and other settings
 
 # 4. Start with Docker Compose
 docker compose -f docker-compose.production.yml up -d
-```
-
-### Option 2: Local Development
-
-```bash
 # 1. Ensure Game API is deployed and accessible
-
 # 2. Install dependencies
 npm install
 
@@ -151,6 +154,7 @@ cp .env.example .env.local
 # 4. Start development server
 npm run dev
 ```
+
 
 ## ⚙️ Environment Configuration
 
@@ -172,76 +176,28 @@ GAME_API_URL=https://your-gameapi-instance.workers.dev
 STEAM_API_KEY=your-steam-api-key
 # Get from: https://steamcommunity.com/dev/apikey
 
-# Telegram Bot (Optional)
-TELEGRAM_WEBHOOK_TOKEN=your-webhook-verification-token
-
 # Push Notifications (Optional)
 NEXT_PUBLIC_VAPID_PUBLIC_KEY=your-vapid-key
 VAPID_PRIVATE_KEY=your-vapid-private-key
 
+# Telegram Notifications (coming soon)
+# TELEGRAM_WEBHOOK_TOKEN=your-webhook-verification-token
+
 # SteamDB Integration (Automatic)
 # No configuration needed - uses public RSS feeds
 ```
+
 
 ### 🔑 API Keys Guide
 
 1. **Game API URL**: Deploy the [gameapi repository](https://github.com/darkmaster420/gameapi) to Cloudflare Workers
 2. **Steam API Key**: Optional, but enables Steam verification features
 3. **VAPID Keys**: Auto-generated on first run for push notifications
-4. **Telegram Token**: Create a bot via [@BotFather](https://t.me/BotFather)
 
-## 🤖 Telegram Bot Integration (not currently working)
 
-AIOgames features a powerful Telegram bot system that allows users to manage their game tracking directly from Telegram.
+## 📲 Telegram Notifications (coming soon)
 
-### Setup Instructions
-
-1. **Create a Bot**:
-   - Message [@BotFather](https://t.me/BotFather) on Telegram
-   - Use `/newbot` to create a new bot
-   - Save the bot token
-
-2. **Get Your Chat ID**:
-   - Message [@userinfobot](https://t.me/userinfobot) 
-   - Copy your chat ID
-
-3. **Configure in App**:
-   - Go to User Settings → Telegram Bot Management
-   - Enter your bot token and chat ID
-   - Click "Setup Bot"
-
-4. **Start Using**:
-   - Message your bot with `/start`
-   - Use commands like `/help`, `/update`, `/track`, etc.
-
-### Available Bot Commands
-
-| Command | Description |
-|---------|-------------|
-| `/start` | Welcome message and setup confirmation |
-| `/help` | Show all available commands |
-| `/update` | Check all tracked games for updates |
-| `/track <game title>` | Add a game to your tracking list |
-| `/untrack <game title>` | Remove a game from tracking |
-| `/search <query>` | Search for games to track |
-| `/list` | Show all your tracked games |
-| `/settings` | Get link to manage your settings |
-
-### Bot Features
-
-- **🎮 Game Sharing**: Send games from the web interface directly to Telegram
-- **📱 Mobile Management**: Full game tracking control from your phone
-- **🔄 Update Notifications**: Get instant updates when games are updated
-- **🔍 Smart Search**: Search and track games without opening the website
-- **📊 Status Overview**: View your tracking status and recent updates
-
-### Technical Details
-
-The Telegram integration uses:
-- **User-owned bots**: Each user configures their own bot (more reliable than shared bots)
-- **Webhook system**: Real-time command processing
-- **Secure authentication**: Commands are validated against registered users
-- **Rich messaging**: Formatted messages with game details and links
+Get update alerts via Telegram as soon as new game updates are detected. Setup and management will be available in a future release.
 
 ## 📖 How It Works
 
@@ -258,7 +214,7 @@ The Telegram integration uses:
    - New game releases
    - Version updates with precise build numbers
    - When your tracked version falls behind Steam
-6. **📱 Instant Notifications**: Receive updates via Telegram bot or web push notifications
+6. **📱 Instant Notifications**: Receive updates via web push notifications (Telegram coming soon)
 
 ### 🎮 SteamDB Integration
 
@@ -292,7 +248,7 @@ AIOgames now includes advanced Steam integration:
 - ✅ **Cross-Site Coverage**: Updates tracked across all supported sites
 
 ### Robust Notifications
-- ✅ **Telegram Integration**: Rich messages with download links
+-- ✅ **Telegram Notifications**: Get update alerts via Telegram (coming soon)
 - ✅ **Web Push Notifications**: Browser notifications with service worker
 - ✅ **Update History**: Complete tracking of all game updates
 - ✅ **Sequel Detection**: Automatically detect game sequels and expansions
@@ -326,7 +282,7 @@ AIOgames now includes advanced Steam integration:
 
 ### Notifications
 - `GET /api/notifications` - Get user notifications
-- `POST /api/notifications/test-telegram` - Test Telegram integration
+
 - `GET /api/notifications/vapid-public` - Get VAPID public key
 
 ## 🐳 Docker Deployment
@@ -370,7 +326,7 @@ docker compose -f docker-compose.development.yml up -d
 - **[Game API](https://github.com/darkmaster420/gameapi)** - Cloudflare Workers for game data
 - **SteamDB RSS** - Real-time Steam update feeds
 - **Steam Web API** - Game verification and metadata
-- **Telegram Bot API** - Rich messaging and notifications
+-- **Telegram Notifications** - Get update alerts via Telegram (coming soon)
 
 ### Infrastructure
 - **Docker** with multi-stage builds for production
@@ -426,7 +382,7 @@ We welcome contributions! Here's how to get started:
 - Test with both Steam-verified and non-verified games
 - Verify SteamDB integration works correctly
 - Check mobile responsiveness
-- Test Telegram bot functionality
+-- Test Telegram notification functionality (coming soon)
 
 ## 📄 License
 
@@ -457,4 +413,4 @@ All of these projects are open source and free to use:
 
 **🎯 Built with ❤️ for the gaming community**
 
-*AIOgames v1.2.1 - Now with advanced Steam integration and real-time update detection*
+*AIOgames v1.2.2 - Now with advanced Steam integration and real-time update detection*

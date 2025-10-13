@@ -255,7 +255,9 @@ export default function UserManagePage() {
               onChange={handleChange}
               required
               className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              disabled
             />
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Email notifications coming soon.</p>
           </div>
 
           <div>
@@ -353,16 +355,10 @@ export default function UserManagePage() {
                       Notifications will be sent to your registered email: <span className="font-mono">{form.email}</span>
                     </p>
                   </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
-                    <p><strong>Email Setup:</strong></p>
-                    <p>• Updates sent to your registered email address</p>
-                    <p>• Check your spam folder if you don&apos;t receive emails</p>
-                    <p>• Email notifications may have a slight delay</p>
-                  </div>
                 </div>
               )}
 
-              {/* Telegram Bot Settings */}
+              {/* Telegram Settings */}
               {form.notificationsProvider === 'telegram' && (
                 <div className="space-y-3 p-4 border border-purple-200 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/20 rounded-md">
                   <div className="flex items-center space-x-2">
@@ -373,9 +369,8 @@ export default function UserManagePage() {
                       onChange={(e) => setForm({ ...form, telegramEnabled: e.target.checked })}
                       className="w-4 h-4"
                     />
-                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Enable Telegram Bot Notifications</label>
+                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Enable Telegram Notifications</label>
                   </div>
-                  
                   {form.telegramEnabled && (
                     <>
                       <div>
@@ -392,7 +387,6 @@ export default function UserManagePage() {
                           className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                         />
                       </div>
-                      
                       <div>
                         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                           Chat ID
@@ -407,47 +401,21 @@ export default function UserManagePage() {
                           className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                         />
                       </div>
-
-                      <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
-                        <p><strong>Telegram Setup Instructions:</strong></p>
-                        <p>1. Message @BotFather on Telegram to create a new bot</p>
-                        <p>2. Get your chat ID from @userinfobot (message it and it replies with your ID)</p>
-                        <p>3. Start a conversation with your bot first (send any message)</p>
-                        <p>4. Use the &ldquo;Test Telegram&rdquo; button below to verify everything works</p>
-                        <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-700">
-                          <p className="text-blue-700 dark:text-blue-300 font-medium">✨ Features Available:</p>
-                          <p className="text-blue-600 dark:text-blue-400">• Send games from homepage directly to Telegram</p>
-                          <p className="text-blue-600 dark:text-blue-400">• Use bot commands to manage tracking</p>
+                      <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-800 rounded border">
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            name="telegramBotManagementEnabled"
+                            checked={form.telegramBotManagementEnabled}
+                            onChange={(e) => setForm({ ...form, telegramBotManagementEnabled: e.target.checked })}
+                            className="w-4 h-4"
+                            disabled
+                          />
+                          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">🤖 Telegram Bot Management <span className="ml-2 text-xs text-orange-500">(coming soon)</span></label>
                         </div>
-                        
-                        {/* Bot Management Toggle */}
-                        <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-800 rounded border">
-                          <div className="flex items-center space-x-2">
-                            <input
-                              type="checkbox"
-                              name="telegramBotManagementEnabled"
-                              checked={form.telegramBotManagementEnabled}
-                              onChange={(e) => setForm({ ...form, telegramBotManagementEnabled: e.target.checked })}
-                              className="w-4 h-4"
-                            />
-                            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">🤖 Enable Telegram Bot Management</label>
-                          </div>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            Allow your bot to respond to commands like /track, /untrack, /update, /search
-                          </p>
-                          {form.telegramBotManagementEnabled && (
-                            <div className="mt-2 text-xs text-purple-600 dark:text-purple-400 space-y-1">
-                              <p><strong>Available Bot Commands:</strong></p>
-                              <p>• /start - Welcome message</p>
-                              <p>• /track &lt;game&gt; - Track a game</p>
-                              <p>• /untrack &lt;game&gt; - Untrack a game</p>
-                              <p>• /list - Show tracked games</p>
-                              <p>• /update - Check for updates</p>
-                              <p>• /search &lt;query&gt; - Search games</p>
-                              <p>• /help - Show all commands</p>
-                            </div>
-                          )}
-                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Manage your tracked games directly from Telegram (add, remove, list, update) — coming soon!
+                        </p>
                       </div>
                     </>
                   )}
