@@ -267,7 +267,7 @@ export function SteamVerification({
                     }}
                   />
                   <button
-                    onClick={handleSearch}
+                    onClick={() => handleSearch()}
                     disabled={isSearching}
                     className="px-4 py-2 text-sm font-medium bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
