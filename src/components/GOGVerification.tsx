@@ -16,6 +16,9 @@ interface GOGVerificationProps {
   currentGogVersion?: string;
   currentGogBuildId?: string;
   isVerified?: boolean;
+  gogLatestVersion?: string;
+  gogLatestBuildId?: string;
+  gogLatestDate?: string;
   onVerificationComplete?: () => void;
 }
 
@@ -27,6 +30,9 @@ export default function GOGVerification({
   currentGogVersion,
   currentGogBuildId,
   isVerified = false,
+  gogLatestVersion,
+  gogLatestBuildId,
+  gogLatestDate,
   onVerificationComplete
 }: GOGVerificationProps) {
   const [isSearching, setIsSearching] = useState(false);
@@ -209,11 +215,30 @@ interface GOGDBSearchResult {
                 </span>
               </div>
               <div className="text-sm text-gray-300 mb-1">{currentGogName}</div>
-              {(currentGogVersion || currentGogBuildId) && (
-                <div className="text-xs text-gray-400">
-                  {currentGogVersion && `Version: ${currentGogVersion}`}
-                  {currentGogVersion && currentGogBuildId && ' • '}
-                  {currentGogBuildId && `Build: ${currentGogBuildId}`}
+              {/* Latest Version Info */}
+              {(gogLatestVersion || gogLatestBuildId) && (
+                <div className="mt-2 pt-2 border-t border-purple-500/20">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-semibold text-purple-300">Latest Version:</span>
+                    {gogLatestVersion && (
+                      <span className="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded text-xs">
+                        v{gogLatestVersion}
+                      </span>
+                    )}
+                    {gogLatestBuildId && (
+                      <span className="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded text-xs">
+                        Build {gogLatestBuildId}
+                      </span>
+                    )}
+                    {gogLatestDate && (
+                      <span className="text-xs text-gray-400">
+                        {new Date(gogLatestDate).toLocaleDateString()}
+                      </span>
+                    )}
+                    <span className="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded text-[10px] font-bold">
+                      PRIORITY
+                    </span>
+                  </div>
                 </div>
               )}
             </div>

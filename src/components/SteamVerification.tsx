@@ -24,6 +24,9 @@ interface SteamVerificationProps {
   gameTitle: string;
   steamName?: string;
   steamVerified?: boolean;
+  steamLatestVersion?: string;
+  steamLatestBuild?: string;
+  steamLatestLink?: string;
   onVerificationUpdate: (gameId: string, verified: boolean, steamAppId?: number, steamName?: string) => void;
 }
 
@@ -31,7 +34,10 @@ export function SteamVerification({
   gameId, 
   gameTitle, 
   steamName, 
-  steamVerified = false, 
+  steamVerified = false,
+  steamLatestVersion,
+  steamLatestBuild,
+  steamLatestLink,
   onVerificationUpdate 
 }: SteamVerificationProps) {
   const { showError } = useNotification();
@@ -158,6 +164,35 @@ export function SteamVerification({
                 <span className="text-sm font-medium text-blue-400">Steam Verified</span>
               </div>
               <div className="text-sm text-gray-300 mb-1">{steamName}</div>
+              {/* Latest Version Info */}
+              {(steamLatestVersion || steamLatestBuild) && (
+                <div className="mt-2 pt-2 border-t border-blue-500/20">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-semibold text-blue-300">Latest Version:</span>
+                    {steamLatestVersion && (
+                      <span className="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 rounded text-xs">
+                        v{steamLatestVersion}
+                      </span>
+                    )}
+                    {steamLatestBuild && (
+                      <span className="px-1.5 py-0.5 bg-sky-100 dark:bg-sky-900 text-sky-800 dark:text-sky-200 rounded text-xs">
+                        Build {steamLatestBuild}
+                      </span>
+                    )}
+                    {steamLatestLink && (
+                      <a
+                        href={steamLatestLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sky-400 hover:text-sky-300 transition-colors text-xs inline-flex items-center gap-1"
+                        title="View on SteamDB"
+                      >
+                        🔗 SteamDB
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex gap-2">
               <button

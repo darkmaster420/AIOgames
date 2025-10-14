@@ -1155,64 +1155,6 @@ export default function TrackingDashboard() {
                               </div>
                             </div>
                           )}
-
-                          {/* GOG Latest Version - Show when GOG verified (PRIORITY) */}
-                          {game.gogVerified && gogLatest[game._id] && (
-                            <div className="mt-2 text-xs text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                              <span className="font-semibold">GOG Latest:</span>
-                              {gogLatest[game._id].version && (
-                                <span className="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded">
-                                  v{gogLatest[game._id].version}
-                                </span>
-                              )}
-                              {gogLatest[game._id].buildId && (
-                                <span className="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded">
-                                  Build {gogLatest[game._id].buildId}
-                                </span>
-                              )}
-                              {gogLatest[game._id].date && (
-                                <span className="text-slate-500 dark:text-slate-400">
-                                  {new Date(gogLatest[game._id].date!).toLocaleDateString()}
-                                </span>
-                              )}
-                              <span className="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded text-[10px] font-bold">
-                                PRIORITY
-                              </span>
-                            </div>
-                          )}
-
-                          {/* Steam Latest Version/Build - Advanced Mode Only (when GOG also exists) or Always show (no GOG) */}
-                          {(showAdvanced || !game.gogVerified) && game.steamVerified && steamLatest[game._id] && (
-                            <div className="mt-2 text-xs text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                              <span className="font-semibold">Steam Latest:</span>
-                              {steamLatest[game._id].version && (
-                                <span className="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 rounded">
-                                  v{steamLatest[game._id].version}
-                                </span>
-                              )}
-                              {steamLatest[game._id].build && (
-                                <span className="px-1.5 py-0.5 bg-sky-100 dark:bg-sky-900 text-sky-800 dark:text-sky-200 rounded">
-                                  Build {steamLatest[game._id].build}
-                                </span>
-                              )}
-                              {steamLatest[game._id].link && (
-                                <a
-                                  href={steamLatest[game._id].link}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-sky-600 dark:text-sky-400 hover:underline inline-flex items-center gap-1"
-                                  title="View on SteamDB"
-                                >
-                                  <ExternalLinkIcon className="w-3 h-3" />
-                                </a>
-                              )}
-                              {game.gogVerified && showAdvanced && (
-                                <span className="text-xs text-gray-500 dark:text-gray-400">
-                                  (Secondary)
-                                </span>
-                              )}
-                            </div>
-                          )}
                         </div>
                         
                         {/* GOG Verification - Show First (PRIORITY) */}
@@ -1225,6 +1167,9 @@ export default function TrackingDashboard() {
                             currentGogVersion={game.gogVersion}
                             currentGogBuildId={game.gogBuildId}
                             isVerified={game.gogVerified}
+                            gogLatestVersion={gogLatest[game._id]?.version}
+                            gogLatestBuildId={gogLatest[game._id]?.buildId}
+                            gogLatestDate={gogLatest[game._id]?.date}
                             onVerificationComplete={() => {
                               // Refresh the game data after verification
                               loadTrackedGames();
@@ -1240,6 +1185,9 @@ export default function TrackingDashboard() {
                               gameTitle={game.title}
                               steamName={game.steamName}
                               steamVerified={game.steamVerified}
+                              steamLatestVersion={steamLatest[game._id]?.version}
+                              steamLatestBuild={steamLatest[game._id]?.build}
+                              steamLatestLink={steamLatest[game._id]?.link}
                               onVerificationUpdate={handleVerificationUpdate}
                             />
                           </div>
