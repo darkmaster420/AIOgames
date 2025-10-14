@@ -140,85 +140,59 @@ export async function getGOGDBProductFromIndex(productId: number): Promise<GOGDB
 }
 
 /**
- * Get builds from GOGDB API (by parsing directory listing)
+ * Get builds from GOGDB API (using product.json)
  */
 export async function getGOGDBBuildsFromIndex(
   productId: number,
   os: 'windows' | 'mac' | 'linux' = 'windows'
 ): Promise<GOGDBBuild[]> {
   try {
-    // GOGDB stores builds as individual JSON files in a directory
-    // We need to fetch the directory listing and parse it
-    const buildsDir = `${GOGDB_API}/products/${productId}/builds/`;
+    // GOGDB has a product.json file with all builds info
+    const productUrl = `${GOGDB_API}/products/${productId}/product.json`;
     
-    logger.info(`🔍 Fetching GOGDB builds directory for product ${productId}`);
+    logger.info(`🔍 Fetching GOGDB product data for ${productId}`);
     
-    const response = await fetch(buildsDir, {
+    const response = await fetch(productUrl, {
       headers: {
         'User-Agent': 'AIOgames/1.3.1'
       }
     });
     
     if (!response.ok) {
-      logger.warn(`⚠️ GOGDB builds not found for ${productId}`);
+      logger.warn(`⚠️ GOGDB product data not found for ${productId}`);
       return [];
     }
 
-    const html = await response.text();
+    const data = await response.json();
     
-    // Parse HTML to extract build JSON filenames
-    // Example: <a href="59050354429215144.json">59050354429215144.json</a>
-    const buildFileRegex = /<a href="(\d+)\.json">/g;
-    const buildIds: string[] = [];
-    let match;
-    
-    while ((match = buildFileRegex.exec(html)) !== null) {
-      buildIds.push(match[1]);
-    }
-    
-    if (buildIds.length === 0) {
-      logger.warn(`⚠️ No build files found for product ${productId}`);
+    if (!data.builds || !Array.isArray(data.builds)) {
+      logger.warn(`⚠️ No builds found in product data for ${productId}`);
       return [];
     }
     
-    logger.info(`✅ Found ${buildIds.length} builds for product ${productId}`);
+    // Filter builds by OS and generation
+    const builds: GOGDBBuild[] = data.builds
+      .filter((build: any) => build.os === os && build.generation === 2)
+      .map((build: any) => ({
+        product_id: productId,
+        build_id: build.id.toString(),
+        version: build.version || null,
+        generation: build.generation,
+        date_published: build.date_published,
+        os: build.os
+      }));
     
-    // Fetch the latest build (last in the list, as they're sorted by date in the HTML)
-    const latestBuildId = buildIds[buildIds.length - 1];
-    const buildUrl = `${GOGDB_API}/products/${productId}/builds/${latestBuildId}.json`;
-    
-    const buildResponse = await fetch(buildUrl, {
-      headers: {
-        'User-Agent': 'AIOgames/1.3.1'
-      }
-    });
-    
-    if (!buildResponse.ok) {
-      logger.error(`❌ Failed to fetch build ${latestBuildId}`);
+    if (builds.length === 0) {
+      logger.warn(`⚠️ No ${os} builds found for product ${productId}`);
       return [];
     }
     
-    const buildData = await buildResponse.json();
+    // Sort by date (newest first)
+    builds.sort((a, b) => new Date(b.date_published).getTime() - new Date(a.date_published).getTime());
     
-    // Check if the build matches the requested OS
-    const platform = buildData.platform || 'windows';
-    if (platform !== os) {
-      logger.warn(`⚠️ Build ${latestBuildId} is for ${platform}, not ${os}`);
-      return [];
-    }
+    logger.info(`✅ Found ${builds.length} ${os} builds for product ${productId}, latest version: ${builds[0].version || 'unknown'}`);
     
-    // Extract version from the build
-    // GOGDB build files don't have a version field, but we can get it from tags or other fields
-    const version = buildData.version || buildData.versionName || null;
-    
-    return [{
-      product_id: productId,
-      build_id: latestBuildId,
-      version: version,
-      generation: buildData.version || 2,
-      date_published: buildData.datePublished || new Date().toISOString(),
-      os: platform
-    }];
+    return builds;
   } catch (error) {
     logger.error('❌ Failed to fetch builds from GOGDB:', error);
     return [];
