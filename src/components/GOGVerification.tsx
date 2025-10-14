@@ -58,9 +58,15 @@ interface GOGDBSearchResult {
       const data = await response.json();
 
       if (data.success && data.results && data.results.length > 0) {
-        // Find exact match (case-insensitive)
+        // Normalize function to handle punctuation and case differences
+        const normalize = (str: string) => 
+          str.toLowerCase().replace(/[^a-z0-9]/g, '');
+        
+        const normalizedGameTitle = normalize(gameTitle);
+        
+        // Find exact match (case-insensitive, punctuation-insensitive)
         const exactMatch = data.results.find((r: GOGDBSearchResult) => 
-          r.title.toLowerCase() === gameTitle.toLowerCase()
+          normalize(r.title) === normalizedGameTitle
         );
 
         if (exactMatch) {
