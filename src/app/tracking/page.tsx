@@ -211,14 +211,7 @@ export default function TrackingDashboard() {
     ));
   };
 
-  // Handle GOG verification updates
-  const handleGOGVerificationUpdate = (gameId: string, verified: boolean, gogProductId?: number, gogName?: string, gogVersion?: string, gogBuildId?: string) => {
-    setTrackedGames(prev => prev.map(game => 
-      game._id === gameId 
-        ? { ...game, gogVerified: verified, gogProductId, gogName, gogVersion, gogBuildId }
-        : game
-    ));
-  };
+  // Note: GOG verification updates are handled via loadTrackedGames() callback
 
   // Handle marking update as seen
   const handleMarkUpdateSeen = async (gameId: string) => {
