@@ -58,37 +58,42 @@ interface GOGDBSearchResult {
       const data = await response.json();
 
       if (data.success && data.results && data.results.length > 0) {
-        // Find exact match or use first result
+        // Find exact match (case-insensitive)
         const exactMatch = data.results.find((r: GOGDBSearchResult) => 
           r.title.toLowerCase() === gameTitle.toLowerCase()
         );
-        const selectedResult = exactMatch || data.results[0];
 
-        // Get version info for selected product
-        const versionResponse = await fetch(`/api/gogdb?action=version&productId=${selectedResult.id}`);
-        const versionData = await versionResponse.json();
+        if (exactMatch) {
+          // Only auto-verify if we have an exact match
+          const versionResponse = await fetch(`/api/gogdb?action=version&productId=${exactMatch.id}`);
+          const versionData = await versionResponse.json();
 
-        // Update the game with GOG verification
-        const updateResponse = await fetch(`/api/games/gog-verify`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            gameId,
-            gogId: selectedResult.id,
-            gogName: selectedResult.title,
-            gogVersion: versionData.version || undefined,
-            gogBuildId: versionData.buildId || undefined
-          })
-        });
+          const updateResponse = await fetch(`/api/games/gog-verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              gameId,
+              gogId: exactMatch.id,
+              gogName: exactMatch.title,
+              gogVersion: versionData.version || undefined,
+              gogBuildId: versionData.buildId || undefined
+            })
+          });
 
-        if (updateResponse.ok) {
-          showSuccess(`✅ GOG verification successful: ${selectedResult.title}`);
-          if (onVerificationComplete) onVerificationComplete();
+          if (updateResponse.ok) {
+            showSuccess(`✅ GOG verification successful: ${exactMatch.title}`);
+            if (onVerificationComplete) onVerificationComplete();
+          } else {
+            showError('❌ Failed to save GOG verification');
+          }
         } else {
-          showError('❌ Failed to save GOG verification');
+          // No exact match - show results for user to choose
+          showInfo(`🔍 Found ${data.results.length} results. Please select the correct game.`);
+          setSearchResults(data.results);
+          setShowResults(true);
         }
       } else {
-        showWarning('⚠️ No GOG match found. Try manual search.');
+        showWarning('⚠️ No GOG match found. Try a different search term.');
       }
     } catch (error) {
       console.error('GOG verification error:', error);

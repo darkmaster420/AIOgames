@@ -87,8 +87,8 @@ export async function searchGOGDBIndex(query: string, limit: number = 10): Promi
 
     logger.info(`✅ Found ${data.products.length} results for: ${query}`);
 
-    // Convert GOG catalog format to our format
-    return data.products.map((product: GOGCatalogProduct) => ({
+    // Convert GOG catalog format to our format and filter to games only
+    const allResults: GOGDBIndexGame[] = data.products.map((product: GOGCatalogProduct) => ({
       id: parseInt(product.id, 10),
       title: product.title,
       slug: product.slug,
@@ -98,6 +98,14 @@ export async function searchGOGDBIndex(query: string, limit: number = 10): Promi
       publishers: product.publishers ? product.publishers.join(', ') : null,
       genres: product.genres ? product.genres.map(g => g.name).join(', ') : null
     }));
+
+    // Prioritize games, filter out DLCs and packs unless no games found
+    const gamesOnly = allResults.filter((r: GOGDBIndexGame) => r.type === 'game');
+    const results = gamesOnly.length > 0 ? gamesOnly : allResults;
+
+    logger.info(`🎮 Filtered to ${results.length} game(s) from ${allResults.length} total results`);
+    
+    return results;
   } catch (error) {
     logger.error('❌ Failed to search GOG catalog:', error);
     return [];
