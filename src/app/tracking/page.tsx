@@ -1156,8 +1156,8 @@ export default function TrackingDashboard() {
                             </div>
                           )}
 
-                          {/* GOG Latest Version - Advanced Mode Only - PRIORITY OVER STEAM */}
-                          {showAdvanced && game.gogVerified && gogLatest[game._id] && (
+                          {/* GOG Latest Version - Show when GOG verified (PRIORITY) */}
+                          {game.gogVerified && gogLatest[game._id] && (
                             <div className="mt-2 text-xs text-slate-700 dark:text-slate-300 flex items-center gap-2">
                               <span className="font-semibold">GOG Latest:</span>
                               {gogLatest[game._id].version && (
@@ -1181,8 +1181,8 @@ export default function TrackingDashboard() {
                             </div>
                           )}
 
-                          {/* Steam Latest Version/Build (SteamDB) - Advanced Mode Only */}
-                          {showAdvanced && game.steamVerified && steamLatest[game._id] && (
+                          {/* Steam Latest Version/Build - Advanced Mode Only (when GOG also exists) or Always show (no GOG) */}
+                          {(showAdvanced || !game.gogVerified) && game.steamVerified && steamLatest[game._id] && (
                             <div className="mt-2 text-xs text-slate-700 dark:text-slate-300 flex items-center gap-2">
                               <span className="font-semibold">Steam Latest:</span>
                               {steamLatest[game._id].version && (
@@ -1206,22 +1206,16 @@ export default function TrackingDashboard() {
                                   <ExternalLinkIcon className="w-3 h-3" />
                                 </a>
                               )}
+                              {game.gogVerified && showAdvanced && (
+                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                  (Secondary)
+                                </span>
+                              )}
                             </div>
                           )}
                         </div>
                         
-                        {/* Steam Verification */}
-                        <div className="mt-2">
-                          <SteamVerification
-                            gameId={game._id}
-                            gameTitle={game.title}
-                            steamName={game.steamName}
-                            steamVerified={game.steamVerified}
-                            onVerificationUpdate={handleVerificationUpdate}
-                          />
-                        </div>
-
-                        {/* GOG Verification */}
+                        {/* GOG Verification - Show First (PRIORITY) */}
                         <div className="mt-2">
                           <GOGVerification
                             gameId={game._id}
@@ -1237,6 +1231,19 @@ export default function TrackingDashboard() {
                             }}
                           />
                         </div>
+
+                        {/* Steam Verification - Show in Advanced Mode OR when no GOG */}
+                        {(showAdvanced || !game.gogVerified) && (
+                          <div className="mt-2">
+                            <SteamVerification
+                              gameId={game._id}
+                              gameTitle={game.title}
+                              steamName={game.steamName}
+                              steamVerified={game.steamVerified}
+                              onVerificationUpdate={handleVerificationUpdate}
+                            />
+                          </div>
+                        )}
                         
                         {/* Smart Version & Build Number Verification */}
                         <div className="mt-2">

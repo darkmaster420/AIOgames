@@ -148,145 +148,150 @@ export function SteamVerification({
   };
 
   return (
-    <div className="steam-verification-container">
-      {/* Current Status */}
-      <div className="flex items-center gap-2 mb-2">
-        {steamVerified && steamName ? (
-          <div className="flex items-center gap-1 text-xs bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 px-2 py-1 rounded border border-gray-300 dark:border-gray-600">
-            <span>✔️</span>
-            <span>Steam: {steamName}</span>
-            <button
-              onClick={handleToggle}
-              className="ml-1 text-white-600 dark:text-white-400 hover:text-white-800 dark:hover:text-white-200"
-            >
-              ⚙️
-            </button>
+    <div className="steam-verification-container space-y-3">
+      {/* Current Steam Status */}
+      {steamVerified && steamName ? (
+        <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-sm font-medium text-blue-400">Steam Verified</span>
+              </div>
+              <div className="text-sm text-gray-300 mb-1">{steamName}</div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleToggle}
+                className="px-3 py-1.5 text-xs font-medium bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 rounded transition-colors"
+              >
+                ⚙️ Manage
+              </button>
+              <button
+                onClick={handleRemoveVerification}
+                disabled={isLinking}
+                className="px-3 py-1.5 text-xs font-medium bg-gray-500/20 hover:bg-gray-500/30 text-gray-300 rounded transition-colors disabled:opacity-50"
+              >
+                ❌
+              </button>
+            </div>
           </div>
-        ) : (
+        </div>
+      ) : (
+        /* Verification Buttons */
+        <div className="flex gap-2">
           <button
             onClick={handleToggle}
-            className="flex items-center gap-1 text-xs bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300 px-2 py-1 rounded hover:bg-yellow-200 dark:hover:bg-yellow-800 transition-colors"
+            className="flex-1 px-3 py-2 text-sm font-medium bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 rounded-lg transition-colors"
           >
-            <span>🔍</span>
-            <span>Verify with Steam</span>
+            🔍 Verify with Steam
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* Search Interface - using fixed positioning like DownloadLinks */}
+      {/* Search Results Modal */}
       {isOpen && (
-        <div className="mt-2 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600">
-          <div className="space-y-3">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-medium text-gray-900 dark:text-white">
-                Steam Verification
-              </h4>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 border border-gray-700 rounded-xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="p-4 border-b border-gray-700 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-white">Steam Verification</h3>
               <button
                 onClick={() => setIsOpen(false)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                className="text-gray-400 hover:text-white transition-colors"
               >
                 ✕
               </button>
             </div>
-            {/* Search Input */}
-            <div>
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Search Steam:
-              </label>
-              <div className="flex gap-2 flex-col sm:flex-row">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={`Try: "${cleanedTitle}"`}
-                  className="w-full sm:flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleSearch();
-                  }}
-                />
-                <button
-                  onClick={handleSearch}
-                  disabled={isSearching}
-                  className="px-3 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 w-full sm:w-auto"
-                >
-                  {isSearching ? '🔄' : '🔍'}
-                </button>
-              </div>
-            </div>
-
-            {/* Quick Fill Button */}
-            <button
-              onClick={() => setSearchQuery(cleanedTitle)}
-              className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 underline"
-            >
-              Use cleaned title: &ldquo;{cleanedTitle}&rdquo;
-            </button>
-
-            {/* Search Results */}
-            {searchResults.length > 0 && (
+            
+            <div className="p-4 space-y-4 overflow-y-auto">
+              {/* Search Input */}
               <div>
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Select Steam Game:
-                </h4>
-                <div className="space-y-2 max-h-64 overflow-y-auto">
+                <label className="block text-xs font-medium text-gray-300 mb-2">
+                  Search Steam:
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder={`Try: "${cleanedTitle}"`}
+                    className="flex-1 px-3 py-2 text-sm border border-gray-600 rounded-lg bg-gray-700 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSearch();
+                    }}
+                  />
+                  <button
+                    onClick={handleSearch}
+                    disabled={isSearching}
+                    className="px-4 py-2 text-sm font-medium bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSearching ? '⏳' : '🔍'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Fill Button */}
+              <button
+                onClick={() => setSearchQuery(cleanedTitle)}
+                className="text-sm text-blue-400 hover:text-blue-300 underline"
+              >
+                Use cleaned title: &ldquo;{cleanedTitle}&rdquo;
+              </button>
+
+              {/* Search Results */}
+              {searchResults.length > 0 && (
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  <h4 className="text-sm font-medium text-gray-300 mb-2">
+                    Select Steam Game:
+                  </h4>
                   {searchResults.map((result) => (
-                    <div
+                    <button
                       key={result.appid}
-                      className="p-3 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 cursor-pointer transition-colors"
                       onClick={() => handleLinkGame(result)}
+                      disabled={isLinking}
+                      className="w-full p-3 bg-gray-700/50 hover:bg-gray-700 border border-gray-600 rounded-lg transition-colors text-left disabled:opacity-50"
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                          <p className="text-sm font-medium text-white truncate">
                             {result.name}
                           </p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                          <p className="text-xs text-gray-400">
                             App ID: {result.appid}
                           </p>
                           {result.developer && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                            <p className="text-xs text-gray-400">
                               by {result.developer}
                             </p>
                           )}
                         </div>
                         <div className="text-right">
                           {result.score_rank && (
-                            <div className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-2 py-1 rounded mb-1">
+                            <div className="text-xs bg-blue-500/20 text-blue-300 px-2 py-1 rounded mb-1">
                               #{result.score_rank}
                             </div>
                           )}
                           {result.positive && result.negative && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                            <p className="text-xs text-gray-400">
                               {Math.round((result.positive / (result.positive + result.negative)) * 100)}% positive
                             </p>
                           )}
                         </div>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
-              </div>
-            )}
-
-            {/* Action Buttons */}
-            <div className="flex gap-2 pt-3 border-t border-gray-200 dark:border-gray-600">
-              {steamVerified && (
-                <button
-                  onClick={handleRemoveVerification}
-                  disabled={isLinking}
-                  className="text-sm px-3 py-1 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded hover:bg-red-200 dark:hover:bg-red-800 disabled:opacity-50"
-                >
-                  {isLinking ? '🔄' : 'Remove Link'}
-                </button>
               )}
-              <button
-                onClick={() => handleLinkGame(null)}
-                disabled={isLinking}
-                className="text-sm px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
-              >
-                {isLinking ? '🔄' : 'Mark as Non-Steam'}
-              </button>
+
+              {/* Action Buttons */}
+              <div className="flex gap-2 pt-3 border-t border-gray-600">
+                <button
+                  onClick={() => handleLinkGame(null)}
+                  disabled={isLinking}
+                  className="px-3 py-2 text-sm font-medium bg-gray-600/50 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {isLinking ? '⏳' : 'Mark as Non-Steam'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

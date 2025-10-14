@@ -75,5 +75,4 @@ Thumbs.db
 *.tmp
 *.bak
 *.backup
-# Trigger commit to ensure GitHub sync
-AIOgames.code-workspace
+index.sqlite3
