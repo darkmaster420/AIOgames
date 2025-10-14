@@ -40,6 +40,18 @@ interface GOGCatalogProduct {
   genres?: { name: string; slug: string }[];
 }
 
+interface GOGDBProductBuild {
+  id: number;
+  os: string;
+  version?: string;
+  generation: number;
+  date_published: string;
+  branch?: string | null;
+  listed?: boolean;
+  public?: boolean;
+  tags?: string[];
+}
+
 /**
  * Initialize the GOGDB (no-op for API-based approach)
  */
@@ -172,8 +184,8 @@ export async function getGOGDBBuildsFromIndex(
     
     // Filter builds by OS and generation
     const builds: GOGDBBuild[] = data.builds
-      .filter((build: any) => build.os === os && build.generation === 2)
-      .map((build: any) => ({
+      .filter((build: GOGDBProductBuild) => build.os === os && build.generation === 2)
+      .map((build: GOGDBProductBuild) => ({
         product_id: productId,
         build_id: build.id.toString(),
         version: build.version || null,
