@@ -49,28 +49,9 @@ export function SteamVerification({
 
   const cleanedTitle = cleanGameTitle(gameTitle);
 
-  const handleToggle = () => {
-    setIsOpen(!isOpen);
-  };
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (isOpen && event.target instanceof Element && !event.target.closest('.steam-verification-container')) {
-        setIsOpen(false);
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => {
-        document.removeEventListener('mousedown', handleClickOutside);
-      };
-    }
-  }, [isOpen]);
-
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
+  const handleSearch = async (query?: string) => {
+    const searchTerm = query || searchQuery;
+    if (!searchTerm.trim()) return;
     
     setIsSearching(true);
     try {
@@ -81,7 +62,7 @@ export function SteamVerification({
         },
         body: JSON.stringify({
           gameId,
-          query: searchQuery.trim()
+          query: searchTerm.trim()
         }),
       });
 
@@ -98,6 +79,33 @@ export function SteamVerification({
       setIsSearching(false);
     }
   };
+
+  const handleToggle = () => {
+    const willBeOpen = !isOpen;
+    setIsOpen(willBeOpen);
+    // Auto-search when opening
+    if (willBeOpen) {
+      setSearchQuery(cleanedTitle);
+      // Trigger search after state update
+      setTimeout(() => handleSearch(cleanedTitle), 0);
+    }
+  };
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (isOpen && event.target instanceof Element && !event.target.closest('.steam-verification-container')) {
+        setIsOpen(false);
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [isOpen]);
 
   const handleLinkGame = async (steamApp: SteamGameResult | null) => {
     setIsLinking(true);
@@ -230,7 +238,11 @@ export function SteamVerification({
             <div className="p-4 border-b border-gray-700 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-white">Steam Verification</h3>
               <button
-                onClick={() => setIsOpen(false)}
+                onClick={() => {
+                  setIsOpen(false);
+                  setSearchResults([]);
+                  setSearchQuery('');
+                }}
                 className="text-gray-400 hover:text-white transition-colors"
               >
                 ✕

@@ -38,6 +38,7 @@ export default function GOGVerification({
   const [isSearching, setIsSearching] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
   const [searchResults, setSearchResults] = useState<GOGDBSearchResult[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [showResults, setShowResults] = useState(false);
   const { showSuccess, showError, showWarning, showInfo } = useNotification();
 
@@ -110,16 +111,18 @@ interface GOGDBSearchResult {
   };
 
   const handleManualSearch = async () => {
+    if (!searchQuery.trim()) return;
+    
     setIsSearching(true);
     try {
-      const response = await fetch(`/api/gogdb?action=search&query=${encodeURIComponent(gameTitle)}`);
+      const response = await fetch(`/api/gogdb?action=search&query=${encodeURIComponent(searchQuery.trim())}`);
       const data = await response.json();
 
       if (data.success && data.results.length > 0) {
         setSearchResults(data.results);
-        setShowResults(true);
       } else {
         showWarning('⚠️ No GOG results found');
+        setSearchResults([]);
       }
     } catch (error) {
       console.error('GOG search error:', error);
@@ -151,6 +154,8 @@ interface GOGDBSearchResult {
       if (updateResponse.ok) {
         showSuccess(`✅ GOG verified: ${result.title}`);
         setShowResults(false);
+        setSearchResults([]);
+        setSearchQuery('');
         if (onVerificationComplete) onVerificationComplete();
       } else {
         showError('❌ Failed to save GOG verification');
@@ -281,9 +286,8 @@ interface GOGDBSearchResult {
             {isSearching ? '⏳ Searching...' : '🔍 Auto-Verify GOG'}
           </button>
           <button
-            onClick={handleManualSearch}
-            disabled={isSearching}
-            className="px-3 py-2 text-sm font-medium bg-gray-600/20 hover:bg-gray-600/30 text-gray-300 rounded-lg transition-colors disabled:opacity-50"
+            onClick={() => setShowResults(true)}
+            className="px-3 py-2 text-sm font-medium bg-gray-600/20 hover:bg-gray-600/30 text-gray-300 rounded-lg transition-colors"
           >
             📋 Manual
           </button>
@@ -295,42 +299,83 @@ interface GOGDBSearchResult {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-gray-800 border border-gray-700 rounded-xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
             <div className="p-4 border-b border-gray-700 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-white">Select GOG Game</h3>
+              <h3 className="text-lg font-semibold text-white">GOG Verification</h3>
               <button
-                onClick={() => setShowResults(false)}
+                onClick={() => {
+                  setShowResults(false);
+                  setSearchResults([]);
+                  setSearchQuery('');
+                }}
                 className="text-gray-400 hover:text-white transition-colors"
               >
                 ✕
               </button>
             </div>
-            <div className="overflow-y-auto p-4 space-y-2">
-              {searchResults.map((result) => (
-                <button
-                  key={result.id}
-                  onClick={() => handleSelectResult(result)}
-                  className="w-full p-3 bg-gray-700/50 hover:bg-gray-700 border border-gray-600 rounded-lg transition-colors text-left"
-                >
-                  <div className="flex items-start gap-3">
-                    {result.image && (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img
-                        src={result.image}
-                        alt={result.title}
-                        className="w-12 h-12 object-cover rounded"
-                      />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-white truncate">{result.title}</div>
-                      <div className="text-sm text-gray-400">
-                        ID: {result.id} • Type: {result.type}
-                      </div>
-                      {result.releaseDate && (
-                        <div className="text-xs text-gray-500">Released: {result.releaseDate}</div>
-                      )}
-                    </div>
+            
+            <div className="p-4 space-y-4 overflow-y-auto">
+              {/* Search Input */}
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-2">
+                  Search GOG:
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleManualSearch();
+                      }
+                    }}
+                    placeholder="Enter game name..."
+                    className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                  <button
+                    onClick={handleManualSearch}
+                    disabled={isSearching || !searchQuery.trim()}
+                    className="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSearching ? '⏳' : '🔍'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Search Results */}
+              {searchResults.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-gray-400">
+                    Found {searchResults.length} result(s):
                   </div>
-                </button>
-              ))}
+                  {searchResults.map((result) => (
+                    <button
+                      key={result.id}
+                      onClick={() => handleSelectResult(result)}
+                      className="w-full p-3 bg-gray-700/50 hover:bg-gray-700 border border-gray-600 rounded-lg transition-colors text-left"
+                    >
+                      <div className="flex items-start gap-3">
+                        {result.image && (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={result.image}
+                            alt={result.title}
+                            className="w-12 h-12 object-cover rounded"
+                          />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-white truncate">{result.title}</div>
+                          <div className="text-sm text-gray-400">
+                            ID: {result.id} • Type: {result.type}
+                          </div>
+                          {result.releaseDate && (
+                            <div className="text-xs text-gray-500">Released: {result.releaseDate}</div>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
