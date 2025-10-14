@@ -6,6 +6,7 @@ import { useSession } from 'next-auth/react';
 import { GameDownloadLinks } from '../../components/GameDownloadLinks';
 import { SteamVerification } from '../../components/SteamVerification';
 import { SmartVersionVerification } from '../../components/SmartVersionVerification';
+import GOGVerification from '../../components/GOGVerification';
 
 import { SequelNotifications } from '../../components/SequelNotifications';
 import { AddCustomGame } from '../../components/AddCustomGame';
@@ -33,6 +34,12 @@ interface TrackedGame {
   steamAppId?: number;
   steamName?: string;
   steamVerified?: boolean;
+  gogVerified?: boolean;
+  gogProductId?: number;
+  gogName?: string;
+  gogVersion?: string;
+  gogBuildId?: string;
+  gogLastChecked?: Date;
   buildNumberVerified?: boolean;
   currentBuildNumber?: string;
   buildNumberSource?: string;
@@ -115,6 +122,13 @@ export default function TrackingDashboard() {
   }
   const [steamLatest, setSteamLatest] = useState<Record<string, SteamLatestInfo>>({});
 
+  interface GOGLatestInfo {
+    version?: string;
+    buildId?: string;
+    date?: string;
+  }
+  const [gogLatest, setGogLatest] = useState<Record<string, GOGLatestInfo>>({});
+
   // Sort functionality
   const [sortBy, setSortBy] = useState<'title' | 'dateAdded' | 'lastChecked' | 'lastUpdated'>('dateAdded');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -193,8 +207,15 @@ export default function TrackingDashboard() {
     setTrackedGames(prev => prev.map(game => 
       game._id === gameId 
         ? { ...game, steamVerified: verified, steamAppId, steamName }
+        : game
+    ));
+  };
 
-
+  // Handle GOG verification updates
+  const handleGOGVerificationUpdate = (gameId: string, verified: boolean, gogProductId?: number, gogName?: string, gogVersion?: string, gogBuildId?: string) => {
+    setTrackedGames(prev => prev.map(game => 
+      game._id === gameId 
+        ? { ...game, gogVerified: verified, gogProductId, gogName, gogVersion, gogBuildId }
         : game
     ));
   };
@@ -494,6 +515,43 @@ export default function TrackingDashboard() {
 
     if (trackedGames.length) {
       fetchSteamLatestForGames();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackedGames]);
+
+  // Fetch latest GOG info for GOG-verified games
+  useEffect(() => {
+    const fetchGOGLatestForGames = async () => {
+      const toFetch = trackedGames.filter(g => g.gogVerified && g.gogProductId && !gogLatest[g._id]);
+      // Fetch sequentially with a small delay
+      for (const g of toFetch) {
+        try {
+          const res = await fetch(`/api/gogdb?action=version&productId=${g.gogProductId}&os=windows`, {
+            cache: 'force-cache',
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success && (data.version || data.buildId)) {
+              setGogLatest(prev => ({
+                ...prev,
+                [g._id]: {
+                  version: data.version,
+                  buildId: data.buildId,
+                  date: data.date,
+                },
+              }));
+            }
+          }
+        } catch {
+          // Ignore per-game errors
+        }
+        // Throttle between requests
+        await new Promise(r => setTimeout(r, 350));
+      }
+    };
+
+    if (trackedGames.length) {
+      fetchGOGLatestForGames();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackedGames]);
@@ -1105,6 +1163,31 @@ export default function TrackingDashboard() {
                             </div>
                           )}
 
+                          {/* GOG Latest Version - Advanced Mode Only - PRIORITY OVER STEAM */}
+                          {showAdvanced && game.gogVerified && gogLatest[game._id] && (
+                            <div className="mt-2 text-xs text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                              <span className="font-semibold">GOG Latest:</span>
+                              {gogLatest[game._id].version && (
+                                <span className="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded">
+                                  v{gogLatest[game._id].version}
+                                </span>
+                              )}
+                              {gogLatest[game._id].buildId && (
+                                <span className="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded">
+                                  Build {gogLatest[game._id].buildId}
+                                </span>
+                              )}
+                              {gogLatest[game._id].date && (
+                                <span className="text-slate-500 dark:text-slate-400">
+                                  {new Date(gogLatest[game._id].date!).toLocaleDateString()}
+                                </span>
+                              )}
+                              <span className="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded text-[10px] font-bold">
+                                PRIORITY
+                              </span>
+                            </div>
+                          )}
+
                           {/* Steam Latest Version/Build (SteamDB) - Advanced Mode Only */}
                           {showAdvanced && game.steamVerified && steamLatest[game._id] && (
                             <div className="mt-2 text-xs text-slate-700 dark:text-slate-300 flex items-center gap-2">
@@ -1142,6 +1225,23 @@ export default function TrackingDashboard() {
                             steamName={game.steamName}
                             steamVerified={game.steamVerified}
                             onVerificationUpdate={handleVerificationUpdate}
+                          />
+                        </div>
+
+                        {/* GOG Verification */}
+                        <div className="mt-2">
+                          <GOGVerification
+                            gameId={game._id}
+                            gameTitle={game.title}
+                            currentGogId={game.gogProductId}
+                            currentGogName={game.gogName}
+                            currentGogVersion={game.gogVersion}
+                            currentGogBuildId={game.gogBuildId}
+                            isVerified={game.gogVerified}
+                            onVerificationComplete={() => {
+                              // Refresh the game data after verification
+                              loadTrackedGames();
+                            }}
                           />
                         </div>
                         

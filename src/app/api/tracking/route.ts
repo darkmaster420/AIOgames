@@ -7,6 +7,7 @@ import logger from '../../../utils/logger';
 import { autoVerifyWithSteam } from '../../../utils/autoSteamVerification';
 import { updateScheduler } from '../../../lib/scheduler';
 import { analyzeGameTitle } from '../../../utils/versionDetection';
+import { searchGOGDBIndex, getLatestGOGVersion, initializeGOGDB } from '../../../utils/gogdbIndex';
 
 // GET - Fetch all tracked games for the current user
 export async function GET() {
@@ -25,7 +26,7 @@ export async function GET() {
       userId: user.id,
       isActive: true 
     })
-    .select('gameId title originalTitle source image description gameLink lastKnownVersion steamAppId steamName steamVerified buildNumberVerified currentBuildNumber buildNumberSource versionNumberVerified currentVersionNumber versionNumberSource lastVersionDate dateAdded lastChecked notificationsEnabled checkFrequency updateHistory pendingUpdates isActive')
+    .select('gameId title originalTitle source image description gameLink lastKnownVersion steamAppId steamName steamVerified gogVerified gogProductId gogName gogVersion gogBuildId gogLastChecked buildNumberVerified currentBuildNumber buildNumberSource versionNumberVerified currentVersionNumber versionNumberSource lastVersionDate dateAdded lastChecked notificationsEnabled checkFrequency updateHistory pendingUpdates isActive')
     .sort({ dateAdded: -1 });
     
     return NextResponse.json({
@@ -91,6 +92,46 @@ export async function POST(request: NextRequest) {
     });
 
     await trackedGame.save();
+
+    // Attempt automatic GOG verification FIRST (priority over Steam)
+    try {
+      await initializeGOGDB();
+      logger.info(`🔍 Auto GOG verification for newly added game: "${originalTitle || title}"`);
+      
+      const titleForGOG = originalTitle || title;
+      const gogResults = await searchGOGDBIndex(titleForGOG, 5);
+      
+      if (gogResults.length > 0) {
+        // Find best match (exact or highest similarity)
+        const bestMatch = gogResults.find(game => 
+          game.title.toLowerCase() === titleForGOG.toLowerCase()
+        ) || gogResults[0];
+        
+        // Get latest version info
+        const latestVersion = await getLatestGOGVersion(bestMatch.id, 'windows');
+        
+        if (latestVersion) {
+          trackedGame.gogVerified = true;
+          trackedGame.gogProductId = bestMatch.id;
+          trackedGame.gogName = bestMatch.title;
+          trackedGame.gogVersion = latestVersion.version;
+          trackedGame.gogBuildId = latestVersion.buildId;
+          trackedGame.gogLastChecked = new Date();
+          
+          logger.info(`✅ Auto GOG verification successful for "${title}": ${bestMatch.title} (ID: ${bestMatch.id})`);
+          if (latestVersion.version) {
+            logger.info(`📦 GOG Latest Version: ${latestVersion.version}`);
+          }
+          
+          await trackedGame.save();
+        }
+      } else {
+        logger.debug(`ℹ️ No GOG match found for "${title}"`);
+      }
+    } catch (gogError) {
+      logger.warn(`⚠️ Auto GOG verification error for "${title}":`, gogError);
+      // Don't fail the entire request if GOG verification fails
+    }
 
     // Attempt automatic Steam verification
     try {

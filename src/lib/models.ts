@@ -230,6 +230,32 @@ const trackedGameSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  
+  // GOG verification
+  gogVerified: {
+    type: Boolean,
+    default: false
+  },
+  gogProductId: {
+    type: Number,
+    default: null
+  },
+  gogName: {
+    type: String,
+    default: null
+  },
+  gogVersion: {
+    type: String,
+    default: null
+  },
+  gogBuildId: {
+    type: String,
+    default: null
+  },
+  gogLastChecked: {
+    type: Date
+  },
+  
   // Build number verification (manual SteamDB input)
   buildNumberVerified: {
     type: Boolean,
