@@ -47,35 +47,46 @@ interface GOGDBSearchResult {
   const handleAutoVerify = async () => {
     setIsSearching(true);
     try {
-      const response = await fetch(`/api/gogdb?action=verify&gameTitle=${encodeURIComponent(gameTitle)}`);
+      // Search for the game
+      const response = await fetch(`/api/gogdb?action=search&query=${encodeURIComponent(gameTitle)}`);
       const data = await response.json();
 
-      if (data.success && data.verified && data.gogId) {
+      if (data.success && data.results && data.results.length > 0) {
+        // Find exact match or use first result
+        const exactMatch = data.results.find((r: GOGDBSearchResult) => 
+          r.title.toLowerCase() === gameTitle.toLowerCase()
+        );
+        const selectedResult = exactMatch || data.results[0];
+
+        // Get version info for selected product
+        const versionResponse = await fetch(`/api/gogdb?action=version&productId=${selectedResult.id}`);
+        const versionData = await versionResponse.json();
+
         // Update the game with GOG verification
         const updateResponse = await fetch(`/api/games/gog-verify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             gameId,
-            gogId: data.gogId,
-            gogName: data.gogTitle,
-            gogVersion: data.version,
-            gogBuildId: data.buildId
+            gogId: selectedResult.id,
+            gogName: selectedResult.title,
+            gogVersion: versionData.version || undefined,
+            gogBuildId: versionData.buildId || undefined
           })
         });
 
         if (updateResponse.ok) {
-          showSuccess( `✅ GOG verification successful: ${data.gogTitle}`);
+          showSuccess(`✅ GOG verification successful: ${selectedResult.title}`);
           if (onVerificationComplete) onVerificationComplete();
         } else {
-          showError( '❌ Failed to save GOG verification');
+          showError('❌ Failed to save GOG verification');
         }
       } else {
-        showWarning( '⚠️ No GOG match found. Try manual search.');
+        showWarning('⚠️ No GOG match found. Try manual search.');
       }
     } catch (error) {
       console.error('GOG verification error:', error);
-      showError( '❌ GOG verification failed');
+      showError('❌ GOG verification failed');
     } finally {
       setIsSearching(false);
     }
@@ -91,11 +102,11 @@ interface GOGDBSearchResult {
         setSearchResults(data.results);
         setShowResults(true);
       } else {
-        showWarning( '⚠️ No GOG results found');
+        showWarning('⚠️ No GOG results found');
       }
     } catch (error) {
       console.error('GOG search error:', error);
-      showError( '❌ GOG search failed');
+      showError('❌ GOG search failed');
     } finally {
       setIsSearching(false);
     }
@@ -115,21 +126,21 @@ interface GOGDBSearchResult {
           gameId,
           gogId: result.id,
           gogName: result.title,
-          gogVersion: versionData.version,
-          gogBuildId: versionData.buildId
+          gogVersion: versionData.version || undefined,
+          gogBuildId: versionData.buildId || undefined
         })
       });
 
       if (updateResponse.ok) {
-        showSuccess( `✅ GOG verified: ${result.title}`);
+        showSuccess(`✅ GOG verified: ${result.title}`);
         setShowResults(false);
         if (onVerificationComplete) onVerificationComplete();
       } else {
-        showError( '❌ Failed to save GOG verification');
+        showError('❌ Failed to save GOG verification');
       }
     } catch (error) {
       console.error('GOG selection error:', error);
-      showError( '❌ Failed to verify GOG game');
+      showError('❌ Failed to verify GOG game');
     }
   };
 
@@ -147,18 +158,18 @@ interface GOGDBSearchResult {
 
       if (data.success) {
         if (data.hasUpdate) {
-          showInfo( 
+          showInfo(
             `🆕 GOG Update Available!\n` +
             `Current: ${currentGogVersion || currentGogBuildId || 'Unknown'}\n` +
             `Latest: ${data.latestVersion || data.latestBuild || 'Unknown'}`
           );
         } else {
-          showSuccess( '✅ GOG version is up to date');
+          showSuccess('✅ GOG version is up to date');
         }
       }
     } catch (error) {
       console.error('GOG update check error:', error);
-      showError( '❌ Failed to check GOG updates');
+      showError('❌ Failed to check GOG updates');
     } finally {
       setIsChecking(false);
     }
@@ -173,14 +184,14 @@ interface GOGDBSearchResult {
       });
 
       if (response.ok) {
-        showSuccess( '✅ GOG verification removed');
+        showSuccess('✅ GOG verification removed');
         if (onVerificationComplete) onVerificationComplete();
       } else {
-        showError( '❌ Failed to remove GOG verification');
+        showError('❌ Failed to remove GOG verification');
       }
     } catch (error) {
       console.error('GOG removal error:', error);
-      showError( '❌ Failed to remove GOG verification');
+      showError('❌ Failed to remove GOG verification');
     }
   };
 

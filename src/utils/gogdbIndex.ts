@@ -95,10 +95,11 @@ function needsUpdate(): boolean {
  */
 async function openDatabase(): Promise<Database> {
   if (!SQL) {
-    // Provide the WASM file location
+    // Initialize sql.js - it will use the bundled WASM file
     SQL = await initSqlJs({
       locateFile: (file: string) => {
-        return `https://sql.js.org/dist/${file}`;
+        // In Node.js, resolve to node_modules path
+        return path.join(process.cwd(), 'node_modules', 'sql.js', 'dist', file);
       }
     });
   }
