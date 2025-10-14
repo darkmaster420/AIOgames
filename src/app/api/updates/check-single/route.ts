@@ -48,6 +48,7 @@ interface VersionInfo {
   fullVersionString: string;
   confidence: number;
   needsUserConfirmation: boolean;
+  isDateVersion?: boolean;
 }
 
 interface TrackedGameDocument {
@@ -66,7 +67,7 @@ interface TrackedGameDocument {
 }
 
 // Helper function to check if we can auto-approve based on version/build numbers
-async function canAutoApprove(game: TrackedGameDocument, newVersionInfo: VersionInfo): Promise<{canApprove: boolean; reason: string}> {
+async function canAutoApprove(game: TrackedGameDocument, newVersionInfo: VersionInfo, versionComparison?: { isNewer: boolean; changeType: string; significance: number; suspiciousVersion?: { isSuspicious: boolean; reason?: string } }): Promise<{canApprove: boolean; reason: string}> {
   let currentInfo: VersionInfo = {
     version: '',
     build: '',
@@ -80,12 +81,29 @@ async function canAutoApprove(game: TrackedGameDocument, newVersionInfo: Version
   
   logger.debug('Checking auto-approval conditions');
   
+  // Check if version is suspicious - if so, require user confirmation
+  if (versionComparison?.suspiciousVersion?.isSuspicious) {
+    return {
+      canApprove: false,
+      reason: `Suspicious version pattern detected: ${versionComparison.suspiciousVersion.reason}. Please verify before approving.`
+    };
+  }
+  
   // First try verified version number
   if (game.versionNumberVerified && game.currentVersionNumber) {
     currentInfo = extractVersionInfo(game.currentVersionNumber);
   logger.debug(`Checking verified version number: ${game.currentVersionNumber}`);
     
     const comparison = compareVersions(currentInfo, newVersionInfo);
+    
+    // Block suspicious versions even if version is verified
+    if (comparison.suspiciousVersion?.isSuspicious) {
+      return {
+        canApprove: false,
+        reason: `Suspicious version pattern detected: ${comparison.suspiciousVersion.reason}. Please verify before approving.`
+      };
+    }
+    
     if (comparison.isNewer && comparison.significance >= 2) {
       return {
         canApprove: true,
@@ -136,6 +154,14 @@ async function canAutoApprove(game: TrackedGameDocument, newVersionInfo: Version
     // Only proceed if we found a version or build number in both current and new
     if ((currentInfo.version && newVersionInfo.version) || (currentInfo.build && newVersionInfo.build)) {
       const comparison = compareVersions(currentInfo, newVersionInfo);
+      
+      // Block suspicious versions
+      if (comparison.suspiciousVersion?.isSuspicious) {
+        return {
+          canApprove: false,
+          reason: `Suspicious version pattern detected: ${comparison.suspiciousVersion.reason}. Please verify before approving.`
+        };
+      }
       
       // Auto-approve if:
       // 1. It's clearly a newer version with high significance
@@ -210,6 +236,8 @@ function extractVersionInfo(title: string): VersionInfo {
     /v(\d+\.\d+\.\d+\.\d+)/i,
     // Date-based versions like v20250922, v2025.09.22
     /v(\d{4}[-.]?\d{2}[-.]?\d{2})/i,
+    // Date-based versions - DD.MM.YY format like v30.09.25 (check for day <= 31, month <= 12)
+    /v(\d{2}\.\d{2}\.\d{2})\b/i,
     // Date-based versions - 8 digits like v20250922
     /v(\d{8})/i,
     // v1.2.3a, v1.2.3.a, v1.2.3c, v1.2.3b, v1.2.3-beta, v1.2.3-alpha, etc. (version with suffix)
@@ -292,6 +320,21 @@ function extractVersionInfo(title: string): VersionInfo {
     }
   }
   
+  // Detect if this is a date-based version (DD.MM.YY format)
+  let isDateVersion = false;
+  if (version) {
+    const dateMatch = version.match(/^(\d{2})\.(\d{2})\.(\d{2})$/);
+    if (dateMatch) {
+      const day = parseInt(dateMatch[1], 10);
+      const month = parseInt(dateMatch[2], 10);
+      // Valid date check: day 1-31, month 1-12
+      if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+        isDateVersion = true;
+        logger.debug(`✅ Detected date-based version: ${version} (DD.MM.YY format)`);
+      }
+    }
+  }
+  
   return {
     version,
     build,
@@ -300,11 +343,74 @@ function extractVersionInfo(title: string): VersionInfo {
     baseTitle: cleanTitle,
     fullVersionString: `${version}${build ? ` Build ${build}` : ''}${releaseType ? ` ${releaseType}` : ''}`,
     confidence,
-    needsUserConfirmation: confidence < 0.7
+    needsUserConfirmation: confidence < 0.7,
+    isDateVersion
   };
 }
 
-function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { isNewer: boolean; changeType: string; significance: number } {
+/**
+ * Detect suspicious version patterns that might indicate invalid versioning
+ * Examples: v6.6.0.0 when expecting v6.06, or excessive version jumps
+ */
+function detectSuspiciousVersion(oldVersion: string, newVersion: string): { isSuspicious: boolean; reason?: string } {
+  // Check for excessive parts (e.g., v6.6.0.0 has 4 parts when v6.06 has 2)
+  const oldParts = oldVersion.split('.').filter(p => p.length > 0);
+  const newParts = newVersion.split('.').filter(p => p.length > 0);
+  
+  // Suspicious if new version has significantly more parts than old version
+  if (newParts.length > oldParts.length + 1) {
+    return {
+      isSuspicious: true,
+      reason: `Version structure changed significantly (${oldParts.length} parts → ${newParts.length} parts)`
+    };
+  }
+  
+  // Check for invalid patterns like v6.6.0.0 vs v6.06
+  // If old version uses zero-padding (like 06) but new version doesn't (like 6)
+  const hasZeroPadding = (str: string) => str.split('.').some(p => p.startsWith('0') && p.length > 1);
+  const oldHasPadding = hasZeroPadding(oldVersion);
+  const newHasPadding = hasZeroPadding(newVersion);
+  
+  if (oldHasPadding !== newHasPadding) {
+    return {
+      isSuspicious: true,
+      reason: `Version format inconsistency (padding changed: ${oldVersion} → ${newVersion})`
+    };
+  }
+  
+  // Check for excessive version jumps (e.g., v1.2 to v1.5 might be suspicious depending on game)
+  const oldFirstTwo = oldParts.slice(0, 2).map(Number);
+  const newFirstTwo = newParts.slice(0, 2).map(Number);
+  
+  // Major version jump (e.g., v1.x to v3.x or higher)
+  if (!isNaN(oldFirstTwo[0]) && !isNaN(newFirstTwo[0])) {
+    const majorJump = newFirstTwo[0] - oldFirstTwo[0];
+    if (majorJump > 2) {
+      return {
+        isSuspicious: true,
+        reason: `Large major version jump (${oldFirstTwo[0]} → ${newFirstTwo[0]})`
+      };
+    }
+  }
+  
+  // Minor version jump within same major version (e.g., v6.06 to v6.60)
+  if (!isNaN(oldFirstTwo[0]) && !isNaN(newFirstTwo[0]) && 
+      !isNaN(oldFirstTwo[1]) && !isNaN(newFirstTwo[1]) &&
+      oldFirstTwo[0] === newFirstTwo[0]) {
+    const minorJump = newFirstTwo[1] - oldFirstTwo[1];
+    // Suspicious if minor version jumps by more than 20 (e.g., 6.06 to 6.60 is suspicious)
+    if (minorJump > 20) {
+      return {
+        isSuspicious: true,
+        reason: `Large minor version jump (${oldVersion} → ${newVersion})`
+      };
+    }
+  }
+  
+  return { isSuspicious: false };
+}
+
+function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { isNewer: boolean; changeType: string; significance: number; suspiciousVersion?: { isSuspicious: boolean; reason?: string } } {
   let isNewer = false;
   let changeType = 'unknown';
   let significance = 0;
@@ -392,7 +498,16 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
     }
   }
 
-  return { isNewer, changeType, significance };
+  // Check for suspicious version patterns
+  let suspiciousVersion = undefined;
+  if (isNewer && oldVersion.version && newVersion.version) {
+    suspiciousVersion = detectSuspiciousVersion(oldVersion.version, newVersion.version);
+    if (suspiciousVersion.isSuspicious) {
+      logger.warn(`⚠️ Suspicious version pattern detected: ${suspiciousVersion.reason}`);
+    }
+  }
+
+  return { isNewer, changeType, significance, suspiciousVersion };
 }
 
 // POST: Check for updates for a specific game using the search API
@@ -692,25 +807,30 @@ export async function POST(request: Request) {
           
           if (!existingPending) {
             // Check if we can auto-approve based on verified version/build numbers
-            const autoApproveResult = await canAutoApprove(game, newVersionInfo);
+            const autoApproveResult = await canAutoApprove(game, newVersionInfo, comparison);
             logger.debug(`\n🤖 Auto-approval decision:`, autoApproveResult);
             
               // Create base update data (enhanced with AI information)
             const updateData = {
-              version: decodedTitle,
+              version: decodedTitle, // Full title with version (e.g., "TEKKEN 8 v2.06.01-P2P")
+              detectedVersion: newVersionInfo.fullVersionString || newVersionInfo.version || newVersionInfo.build, // Clean version number
+              newTitle: cleanedDecodedTitle, // Cleaned game title without version
+              newLink: result.link,
+              gameLink: result.link,
               build: newVersionInfo.build,
               releaseType: newVersionInfo.releaseType,
               updateType: newVersionInfo.updateType,
               changeType: comparison.changeType,
               significance: comparison.significance,
               dateFound: new Date().toISOString(),
-              gameLink: result.link,
               previousVersion: game.lastKnownVersion || game.title,
               downloadLinks: result.downloadLinks || [],
               steamEnhanced: false,
               steamAppId: game.steamAppId,
               needsUserConfirmation: !autoApproveResult.canApprove && (newVersionInfo.needsUserConfirmation || comparison.significance < 2),
               autoApprovalReason: autoApproveResult.reason,
+              confidence: newVersionInfo.confidence || (aiConfidence > 0 ? aiConfidence : similarity),
+              reason: autoApproveResult.reason || (aiConfidence > 0 ? aiReason : 'Version number detected'),
               // AI enhancement data
               ...(aiConfidence > 0 && {
                 aiDetectionConfidence: aiConfidence,

@@ -2,6 +2,24 @@
 
 All notable changes to AIOgames will be documented in this file.
 
+## [1.2.8] - 2025-10-13
+
+### Enhanced
+- **Pending Updates Tab**: Completely redesigned with much more detailed information
+  - Now shows full version title (e.g., "TEKKEN 8 v2.06.01-P2P") instead of just cleaned title
+  - Displays current game version and original title for context
+  - Shows comprehensive version info: version number, build, release type, update type, change type
+  - Displays previous version for comparison
+  - Shows AI detection confidence and reasoning when available
+  - Lists download links with service names (first 5 visible)
+  - Improved visual hierarchy with badges for Steam enhanced/validated, significance levels
+  - Better organized layout with sections for version info, AI detection, and download links
+  
+### Changed
+- Pending updates API now includes `originalTitle`, `lastKnownVersion`, `currentVersionNumber`, and `currentBuildNumber`
+- Updated `PendingUpdate` and `GameWithPending` interfaces with all available fields
+- Improved responsive design for mobile and desktop views
+
 ## [1.2.7] - 2025-10-13
 
 ### Fixed

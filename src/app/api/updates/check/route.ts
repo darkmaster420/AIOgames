@@ -76,6 +76,7 @@ function extractVersionInfo(title: string): VersionInfo {
   const versionPatterns = [
     /v(\d+\.\d+\.\d+\.\d+(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,   // v1.2.3.4a, v1.2.3.4c, v1.2.3.4.a, v1.2.3.4-alpha
     /v(\d{4}[-.]?\d{2}[-.]?\d{2}(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // v2024-01-15a, v20240115c, v20240115-beta
+    /v(\d{2}\.\d{2}\.\d{2}\b(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i, // v30.09.25 (DD.MM.YY format)
     /v(\d{8}(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,                // v20240115a, v20240115c, v20240115.a
     /v(\d+(?:\.\d+)+(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,        // v1.2.3a, v1.2.3c, v1.2.3.a, v1.2.3-beta
     /version\s*(\d+(?:\.\d+)+(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i, // version 1.2.3a, version 1.2.3c, version 1.2.3.a
@@ -221,7 +222,7 @@ function extractVersionInfo(title: string): VersionInfo {
   let hasRegularVersion = false;
   
   if (isDateVersion && version) {
-    // Extract date from version string
+    // Extract date from version string (YYYY-MM-DD or YYYYMMDD format)
     const dateMatch = version.match(/(\d{4})[-.]?(\d{2})[-.]?(\d{2})/);
     if (dateMatch) {
       const year = parseInt(dateMatch[1], 10);
@@ -229,8 +230,26 @@ function extractVersionInfo(title: string): VersionInfo {
       const day = parseInt(dateMatch[3], 10);
       versionDate = new Date(year, month, day);
     }
-  } else if (version && /^\d+\.\d+/.test(version)) {
-    hasRegularVersion = true;
+  } else if (version) {
+    // Check for DD.MM.YY date format (like v30.09.25)
+    const ddmmyyMatch = version.match(/^(\d{2})\.(\d{2})\.(\d{2})$/);
+    if (ddmmyyMatch) {
+      const day = parseInt(ddmmyyMatch[1], 10);
+      const month = parseInt(ddmmyyMatch[2], 10);
+      // Valid date check: day 1-31, month 1-12
+      if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+        let year = parseInt(ddmmyyMatch[3], 10);
+        year += year < 50 ? 2000 : 1900; // assume 2000+ for 00-49, 1900+ for 50-99
+        versionDate = new Date(year, month - 1, day); // JavaScript months are 0-indexed
+        // Mark as date version even though it doesn't match the other patterns
+        hasRegularVersion = false;
+      } else {
+        // Not a valid date, treat as regular version
+        hasRegularVersion = true;
+      }
+    } else if (/^\d+\.\d+/.test(version)) {
+      hasRegularVersion = true;
+    }
   }
   
   return {
@@ -242,13 +261,75 @@ function extractVersionInfo(title: string): VersionInfo {
     fullVersionString: `${version}${build ? ` Build ${build}` : ''}${releaseType ? ` ${releaseType}` : ''}`,
     confidence: Math.min(confidence, 1.0), // Cap at 1.0
     needsUserConfirmation: confidence < 0.7,
-    isDateVersion,
+    isDateVersion: isDateVersion || !!versionDate,
     versionDate,
     hasRegularVersion
   };
 }
 
-function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { isNewer: boolean; changeType: string; significance: number; shouldWaitForRegular?: boolean } {
+/**
+ * Detect suspicious version patterns that might indicate invalid versioning
+ * Examples: v6.6.0.0 when expecting v6.06, or excessive version jumps
+ */
+function detectSuspiciousVersion(oldVersion: string, newVersion: string): { isSuspicious: boolean; reason?: string } {
+  // Check for excessive parts (e.g., v6.6.0.0 has 4 parts when v6.06 has 2)
+  const oldParts = oldVersion.split('.').filter(p => p.length > 0);
+  const newParts = newVersion.split('.').filter(p => p.length > 0);
+  
+  // Suspicious if new version has significantly more parts than old version
+  if (newParts.length > oldParts.length + 1) {
+    return {
+      isSuspicious: true,
+      reason: `Version structure changed significantly (${oldParts.length} parts → ${newParts.length} parts)`
+    };
+  }
+  
+  // Check for invalid patterns like v6.6.0.0 vs v6.06
+  // If old version uses zero-padding (like 06) but new version doesn't (like 6)
+  const hasZeroPadding = (str: string) => str.split('.').some(p => p.startsWith('0') && p.length > 1);
+  const oldHasPadding = hasZeroPadding(oldVersion);
+  const newHasPadding = hasZeroPadding(newVersion);
+  
+  if (oldHasPadding !== newHasPadding) {
+    return {
+      isSuspicious: true,
+      reason: `Version format inconsistency (padding changed: ${oldVersion} → ${newVersion})`
+    };
+  }
+  
+  // Check for excessive version jumps (e.g., v1.2 to v1.5 might be suspicious depending on game)
+  const oldFirstTwo = oldParts.slice(0, 2).map(Number);
+  const newFirstTwo = newParts.slice(0, 2).map(Number);
+  
+  // Major version jump (e.g., v1.x to v3.x or higher)
+  if (!isNaN(oldFirstTwo[0]) && !isNaN(newFirstTwo[0])) {
+    const majorJump = newFirstTwo[0] - oldFirstTwo[0];
+    if (majorJump > 2) {
+      return {
+        isSuspicious: true,
+        reason: `Large major version jump (${oldFirstTwo[0]} → ${newFirstTwo[0]})`
+      };
+    }
+  }
+  
+  // Minor version jump within same major version (e.g., v6.06 to v6.60)
+  if (!isNaN(oldFirstTwo[0]) && !isNaN(newFirstTwo[0]) && 
+      !isNaN(oldFirstTwo[1]) && !isNaN(newFirstTwo[1]) &&
+      oldFirstTwo[0] === newFirstTwo[0]) {
+    const minorJump = newFirstTwo[1] - oldFirstTwo[1];
+    // Suspicious if minor version jumps by more than 20 (e.g., 6.06 to 6.60 is suspicious)
+    if (minorJump > 20) {
+      return {
+        isSuspicious: true,
+        reason: `Large minor version jump (${oldVersion} → ${newVersion})`
+      };
+    }
+  }
+  
+  return { isSuspicious: false };
+}
+
+function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { isNewer: boolean; changeType: string; significance: number; shouldWaitForRegular?: boolean; suspiciousVersion?: { isSuspicious: boolean; reason?: string } } {
   let isNewer = false;
   let changeType = 'unknown';
   let significance = 0;
@@ -350,7 +431,13 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
     }
   }
 
-  return { isNewer, changeType, significance, shouldWaitForRegular };
+  // Check for suspicious version patterns (only for regular versions, not date versions)
+  let suspiciousVersion = undefined;
+  if (isNewer && oldVersion.version && newVersion.version && !oldVersion.isDateVersion && !newVersion.isDateVersion) {
+    suspiciousVersion = detectSuspiciousVersion(oldVersion.version, newVersion.version);
+  }
+
+  return { isNewer, changeType, significance, shouldWaitForRegular, suspiciousVersion };
 }
 
 // Main update check using recent feed approach
@@ -964,6 +1051,7 @@ export async function POST(request: Request) {
           // Enhanced comparison that respects verification preferences
           let isActuallyNewer = false;
           let comparisonReason = '';
+          let comparison: { isNewer: boolean; changeType: string; significance: number; shouldWaitForRegular?: boolean; suspiciousVersion?: { isSuspicious: boolean; reason?: string } } | undefined;
           
           // More flexible update detection - don't require version if we have other indicators
           const hasVersionInfo = newVersionInfo.version || newVersionInfo.build;
@@ -1017,7 +1105,7 @@ export async function POST(request: Request) {
           } else {
             // Enhanced comparison with date-version awareness
             if (hasVersionInfo) {
-              const comparison = compareVersions(currentVersionInfo, newVersionInfo);
+              comparison = compareVersions(currentVersionInfo, newVersionInfo);
               
               // Handle date-version preference logic
               if (comparison.shouldWaitForRegular) {
@@ -1140,11 +1228,15 @@ export async function POST(request: Request) {
                 detectionMethod: 'ai_enhanced'
               } : {};
 
+              // Check for suspicious version patterns - block auto-approval if suspicious
+              const hasSuspiciousVersion = comparison?.suspiciousVersion?.isSuspicious || false;
+
               // Auto-approve if:
               // - We have verified info and it's clearly higher, or
               // - Similarity is 100% and significance >= 2 (robust match), or
               // - AI has high confidence (>= user threshold) for the update
-              const shouldAutoApprove = (
+              // - AND version is NOT suspicious
+              const shouldAutoApprove = !hasSuspiciousVersion && (
                 ((hasVerifiedVersion || hasVerifiedBuild) && isActuallyNewer && bestSimilarity >= 0.85) ||
                 (bestSimilarity === 1.0 && isActuallyNewer) ||
                 (selectedMatch?.aiConfidence && selectedMatch.aiConfidence >= aiPreferences.autoApprovalThreshold)
@@ -1212,23 +1304,39 @@ export async function POST(request: Request) {
                 }
                 
                 // Add to pending updates with AI data
-                const aiData = selectedMatch?.aiConfidence ? {
-                  aiDetectionConfidence: selectedMatch.aiConfidence,
-                  aiDetectionReason: selectedMatch.aiReason,
+                const aiConfidence = selectedMatch?.aiConfidence || 0;
+                const aiReason = selectedMatch?.aiReason || '';
+                
+                const aiData = aiConfidence > 0 ? {
+                  aiDetectionConfidence: aiConfidence,
+                  aiDetectionReason: aiReason,
                   detectionMethod: 'ai_enhanced'
                 } : {};
 
+                const cleanedDecodedTitle = cleanGameTitle(decodedTitle);
+
+                // Check for suspicious version and add to reason if found
+                let suspiciousReason = '';
+                if (comparison?.suspiciousVersion?.isSuspicious) {
+                  suspiciousReason = ` ⚠️ SUSPICIOUS: ${comparison.suspiciousVersion.reason}`;
+                }
+
                 const pendingUpdate = {
-                  detectedVersion: newVersionInfo.version || '',
+                  version: decodedTitle, // Full title with version for display
+                  detectedVersion: newVersionInfo.fullVersionString || newVersionInfo.version || newVersionInfo.build || '', // Clean version number
+                  newTitle: cleanedDecodedTitle, // Cleaned game title for database
+                  newLink: bestMatch.link,
+                  gameLink: bestMatch.link, // Also save as gameLink for compatibility
+                  newImage: bestMatch.image || '',
                   build: newVersionInfo.build || '',
                   releaseType: newVersionInfo.releaseType || '',
                   updateType: newVersionInfo.updateType || '',
-                  newTitle: decodedTitle,
-                  newLink: bestMatch.link,
-                  newImage: bestMatch.image || '',
+                  changeType: comparison?.changeType || '',
+                  significance: comparison?.significance || 0,
+                  previousVersion: game.currentVersionNumber || game.lastKnownVersion || '',
                   dateFound: new Date(),
-                  confidence: bestSimilarity,
-                  reason: `${comparisonReason} | Similarity: ${Math.round(bestSimilarity * 100)}%${selectedMatch?.aiConfidence ? ` | AI: ${Math.round(selectedMatch.aiConfidence * 100)}%` : ''}`,
+                  confidence: newVersionInfo.confidence || (aiConfidence > 0 ? aiConfidence : bestSimilarity),
+                  reason: `${comparisonReason} | Similarity: ${Math.round(bestSimilarity * 100)}%${aiConfidence > 0 ? ` | AI: ${Math.round(aiConfidence * 100)}%` : ''}${suspiciousReason}`,
                   downloadLinks: bestMatch.downloadLinks || [],
                   ...aiData  // Include AI detection data if available
                 };

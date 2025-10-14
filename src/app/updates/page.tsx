@@ -41,23 +41,40 @@ interface GameWithUpdates {
 
 interface PendingUpdate {
   _id: string;
-  detectedVersion: string;
+  version: string; // Full title with version (e.g., "TEKKEN 8 v2.06.01-P2P")
+  detectedVersion: string; // Clean version number
   build: string;
   releaseType: string;
   updateType: string;
+  changeType: string;
+  significance: number;
   newTitle: string;
   newLink: string;
+  gameLink: string;
+  previousVersion: string;
   newImage?: string;
   dateFound: string;
   confidence: number;
   reason: string;
+  aiDetectionConfidence?: number;
+  aiDetectionReason?: string;
+  detectionMethod?: string;
   steamEnhanced?: boolean;
   steamValidated?: boolean;
+  downloadLinks?: Array<{
+    service: string;
+    url: string;
+    type: string;
+  }>;
 }
 
 interface GameWithPending {
   _id: string;
   title: string;
+  originalTitle: string;
+  lastKnownVersion: string;
+  currentVersionNumber: string;
+  currentBuildNumber: string;
   image?: string;
   pendingUpdates: PendingUpdate[];
 }
@@ -361,84 +378,172 @@ export default function UpdatesPage() {
                 ) : (
                   pendingUpdates.map((game) => (
                     <div key={game._id} className="game-card animate-fade-in">
-                      <div className="flex flex-col sm:flex-row sm:items-start space-y-4 sm:space-y-0 sm:space-x-4 p-6">
+                      <div className="flex flex-col sm:flex-row sm:items-start space-y-4 sm:space-y-0 sm:space-x-4 p-6 border-b border-gray-200 dark:border-gray-700">
                         {game.image && (
                           <Image 
                             src={game.image} 
                             alt={game.title}
-                            width={64}
-                            height={64}
-                            className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
+                            width={80}
+                            height={80}
+                            className="w-20 h-20 rounded-lg object-cover flex-shrink-0"
                           />
                         )}
-                        <div className="flex-1">
-                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{game.title}</h3>
-                          <p className="text-sm text-warning-600 dark:text-warning-400 mb-4 flex items-center gap-2">
-                            ⚠️ <span>The following updates need your confirmation:</span>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">{game.title}</h3>
+                          <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-2">
+                            {game.originalTitle && (
+                              <>
+                                <span className="font-medium">Current:</span>
+                                <span className="text-gray-900 dark:text-white">{game.originalTitle}</span>
+                              </>
+                            )}
+                            {game.lastKnownVersion && (
+                              <>
+                                <span>•</span>
+                                <span>Version: {game.lastKnownVersion}</span>
+                              </>
+                            )}
+                          </div>
+                          <p className="text-sm text-warning-600 dark:text-warning-400 flex items-center gap-2">
+                            ⚠️ <span>{game.pendingUpdates.length} update{game.pendingUpdates.length > 1 ? 's' : ''} awaiting confirmation</span>
                           </p>
                         </div>
                       </div>
 
-                      <div className="space-y-3">
+                      <div className="space-y-3 p-6">
                         {game.pendingUpdates.map((update, idx) => (
                           <div key={idx} className="card-gradient backdrop-blur-sm border border-warning-300/30 dark:border-warning-600/30 rounded-xl p-4">
-                            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
-                              <div>
-                                <div className="flex items-center space-x-2 mb-1">
-                                  <span className="font-medium text-gray-900 dark:text-white">{update.newTitle}</span>
-                                  {update.steamEnhanced && (
-                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                                      Steam Enhanced
+                            <div className="flex flex-col space-y-3">
+                              {/* Title and Badges */}
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center flex-wrap gap-2 mb-2">
+                                    <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                                      {update.version || update.newTitle}
                                     </span>
+                                    {update.steamEnhanced && (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                                        🎮 Steam Enhanced
+                                      </span>
+                                    )}
+                                    {update.steamValidated && (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                        ✓ Steam Validated
+                                      </span>
+                                    )}
+                                    {getSignificanceBadge(update.significance || 0)}
+                                  </div>
+                                  
+                                  {/* Version Information */}
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm mb-2">
+                                    {update.detectedVersion && (
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-gray-500 dark:text-gray-400">Version:</span>
+                                        <span className="font-medium text-gray-900 dark:text-white">{update.detectedVersion}</span>
+                                      </div>
+                                    )}
+                                    {update.build && (
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-gray-500 dark:text-gray-400">Build:</span>
+                                        <span className="font-medium text-gray-900 dark:text-white">{update.build}</span>
+                                      </div>
+                                    )}
+                                    {update.updateType && (
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-gray-500 dark:text-gray-400">Type:</span>
+                                        <span className="font-medium text-gray-900 dark:text-white">{update.updateType}</span>
+                                      </div>
+                                    )}
+                                    {update.releaseType && (
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-gray-500 dark:text-gray-400">Release:</span>
+                                        <span className="font-medium text-gray-900 dark:text-white">{update.releaseType}</span>
+                                      </div>
+                                    )}
+                                    {update.changeType && (
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-gray-500 dark:text-gray-400">Change:</span>
+                                        <span className="font-medium text-gray-900 dark:text-white">{update.changeType}</span>
+                                      </div>
+                                    )}
+                                    {update.previousVersion && (
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-gray-500 dark:text-gray-400">Previous:</span>
+                                        <span className="font-medium text-gray-700 dark:text-gray-300">{update.previousVersion}</span>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* AI Detection Info */}
+                                  {update.aiDetectionConfidence && update.aiDetectionConfidence > 0 && (
+                                    <div className="flex items-center gap-2 text-xs mb-2">
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                                        🤖 AI: {Math.round(update.aiDetectionConfidence * 100)}%
+                                      </span>
+                                      {update.aiDetectionReason && (
+                                        <span className="text-gray-600 dark:text-gray-400">{update.aiDetectionReason}</span>
+                                      )}
+                                    </div>
                                   )}
-                                  {update.steamValidated && (
-                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                                      Steam Validated
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
-                                  {update.detectedVersion && (
-                                    <span>Version: {update.detectedVersion}</span>
-                                  )}
-                                  {update.build && (
-                                    <span>Build: {update.build}</span>
-                                  )}
-                                  {update.updateType && (
-                                    <span>Type: {update.updateType}</span>
-                                  )}
-                                </div>
-                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                  Confidence: {Math.round(update.confidence * 100)}% • {update.reason}
+
+                                  {/* Detection Info */}
+                                  <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                                    <span>Confidence: {Math.round(update.confidence * 100)}%</span>
+                                    <span>•</span>
+                                    <span>{update.reason}</span>
+                                    <span>•</span>
+                                    <span>{new Date(update.dateFound).toLocaleDateString()}</span>
+                                  </div>
                                 </div>
                               </div>
-                              <span className="text-sm text-gray-500 dark:text-gray-400">
-                                {formatDate(update.dateFound)}
-                              </span>
-                            </div>
-                            
-                            <div className="flex items-center justify-between">
-                              <a 
-                                href={update.newLink}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400"
-                              >
-                                View Update →
-                              </a>
-                              <div className="flex items-center space-x-2">
-                                <button
-                                  onClick={() => rejectUpdate(game._id, idx)}
-                                  className="px-3 py-1 text-sm font-medium bg-gradient-to-r from-red-500/20 to-pink-500/20 text-red-700 dark:text-red-300 hover:from-red-500/30 hover:to-pink-500/30 rounded-lg transition-all duration-200 backdrop-blur-sm border border-red-300/30"
-                                >
-                                  Reject
-                                </button>
+
+                              {/* Download Links */}
+                              {update.downloadLinks && update.downloadLinks.length > 0 && (
+                                <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
+                                  <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Download Links:</p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {update.downloadLinks.slice(0, 5).map((link, linkIdx) => (
+                                      <a
+                                        key={linkIdx}
+                                        href={link.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center px-2 py-1 text-xs font-medium rounded bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50"
+                                      >
+                                        {link.service}
+                                      </a>
+                                    ))}
+                                    {update.downloadLinks.length > 5 && (
+                                      <span className="inline-flex items-center px-2 py-1 text-xs text-gray-600 dark:text-gray-400">
+                                        +{update.downloadLinks.length - 5} more
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Action Buttons */}
+                              <div className="flex items-center gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
                                 <button
                                   onClick={() => approveUpdate(game._id, idx)}
-                                  className="px-3 py-1 text-sm font-medium bg-gradient-to-r from-success-500/20 to-accent-500/20 text-success-700 dark:text-success-300 hover:from-success-500/30 hover:to-accent-500/30 rounded-lg transition-all duration-200 backdrop-blur-sm border border-success-300/30"
+                                  className="flex-1 inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors"
                                 >
-                                  Approve
+                                  ✓ Approve
                                 </button>
+                                <button
+                                  onClick={() => rejectUpdate(game._id, idx)}
+                                  className="flex-1 inline-flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 text-sm font-medium rounded-lg text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors"
+                                >
+                                  ✗ Reject
+                                </button>
+                                <a
+                                  href={update.gameLink || update.newLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center px-4 py-2 border border-blue-300 dark:border-blue-600 text-sm font-medium rounded-lg text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+                                >
+                                  🔗 View
+                                </a>
                               </div>
                             </div>
                           </div>

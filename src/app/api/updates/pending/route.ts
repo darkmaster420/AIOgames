@@ -20,7 +20,7 @@ export async function GET() {
       userId: user.id,
       'pendingUpdates.0': { $exists: true },
       isActive: true
-    }).select('title image pendingUpdates');
+    }).select('title originalTitle image pendingUpdates lastKnownVersion currentVersionNumber currentBuildNumber');
 
     return NextResponse.json({
       success: true,

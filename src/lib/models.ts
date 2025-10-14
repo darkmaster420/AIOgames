@@ -368,6 +368,10 @@ const trackedGameSchema = new mongoose.Schema({
     }]
   },
   pendingUpdates: [{
+    version: {
+      type: String,
+      default: ''
+    },
     detectedVersion: {
       type: String,
       default: ''
@@ -384,6 +388,14 @@ const trackedGameSchema = new mongoose.Schema({
       type: String,
       default: ''
     },
+    changeType: {
+      type: String,
+      default: ''
+    },
+    significance: {
+      type: Number,
+      default: 0
+    },
     sceneGroup: {
       type: String,
       default: ''
@@ -395,6 +407,14 @@ const trackedGameSchema = new mongoose.Schema({
     newLink: {
       type: String,
       required: true
+    },
+    gameLink: {
+      type: String,
+      default: ''
+    },
+    previousVersion: {
+      type: String,
+      default: ''
     },
     newImage: {
       type: String,
