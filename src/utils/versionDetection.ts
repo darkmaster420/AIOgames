@@ -35,14 +35,14 @@ export function detectVersionNumber(title: string): { found: boolean; version?: 
   ];
 
   const regularVersionPatterns = [
-    // Special patterns like v1.0a, v2.1b, v1.5-beta, v1.0alpha (check these BEFORE simple patterns)
-    /\bv(\d+(?:\.\d+)*(?:[a-z]|(?:\-?(?:alpha|beta|rc|final|release|hotfix|patch))))\b/i,
+    // Special patterns like v1.0a, v2.1b, v1.5-beta, v1.0alpha, v1.33.a, v1.2.3c (check these BEFORE simple patterns)
+    /\bv(\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:\-?(?:alpha|beta|rc|final|release|hotfix|patch))?)\b/i,
     // v1.2.3, v1.2, v1.0.0 (simple numeric patterns) - exclude long numbers that look like dates
     /\bv(\d{1,2}(?:\.\d+){1,3})\b/i, // Require at least one dot and limit first number to 1-2 digits
     /\bv(\d{1,3})\b/i, // Single number versions (1-3 digits only)
     // Enhanced version patterns for scene releases
-    /\bversion[\s\-\.]?(\d+(?:\.\d+){0,3}(?:[a-z]|(?:\-?(?:alpha|beta|rc|final|release|hotfix|patch)))?)\b/i,
-    /\bver[\s\-\.]?(\d+(?:\.\d+){0,3}(?:[a-z]|(?:\-?(?:alpha|beta|rc|final|release|hotfix|patch)))?)\b/i,
+    /\bversion[\s\-\.]?(\d+(?:\.\d+){0,3}(?:\.[a-z]|[a-z])?(?:\-?(?:alpha|beta|rc|final|release|hotfix|patch))?)\b/i,
+    /\bver[\s\-\.]?(\d+(?:\.\d+){0,3}(?:\.[a-z]|[a-z])?(?:\-?(?:alpha|beta|rc|final|release|hotfix|patch))?)\b/i,
     /\bupdate[\s\-\.]?(\d+(?:\.\d+){0,3})\b/i,  // Update 1.5, Update 2.0.1
     /\bpatch[\s\-\.]?(\d+(?:\.\d+){0,3})\b/i,   // Patch 1.2, Patch 3.0.1
     /\bhotfix[\s\-\.]?(\d+(?:\.\d+){0,3})\b/i,  // Hotfix 1.1, Hotfix 2.0.5

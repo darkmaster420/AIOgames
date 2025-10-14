@@ -212,12 +212,12 @@ function extractVersionInfo(title: string): VersionInfo {
     /v(\d{4}[-.]?\d{2}[-.]?\d{2})/i,
     // Date-based versions - 8 digits like v20250922
     /v(\d{8})/i,
-    // v1.2.3a, v1.2.3b, v1.2.3-beta, v1.2.3-alpha, etc. (version with suffix)
-    /v(\d+(?:\.\d+)+(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,
-    // Version 1.2.3a, Version 1.2.3-beta, etc.
-    /version\s*(\d+(?:\.\d+)+(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,
-    // Standalone version numbers with suffixes (at least two parts like 1.2a)
-    /(\d+\.\d+(?:\.\d+)*(?:[a-z]|[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/,
+    // v1.2.3a, v1.2.3.a, v1.2.3c, v1.2.3b, v1.2.3-beta, v1.2.3-alpha, etc. (version with suffix)
+    /v(\d+(?:\.\d+)+(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,
+    // Version 1.2.3a, Version 1.2.3.a, Version 1.2.3c, Version 1.2.3-beta, etc.
+    /version\s*(\d+(?:\.\d+)+(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,
+    // Standalone version numbers with suffixes (at least two parts like 1.2a, 1.2.a, 1.2.3c)
+    /(\d+\.\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/,
   ];
   
   // Extract build patterns (from original title)

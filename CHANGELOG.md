@@ -2,6 +2,34 @@
 
 All notable changes to AIOgames will be documented in this file.
 
+## [1.2.7] - 2025-10-13
+
+### Fixed
+- **Version Detection Enhanced**: Extended letter suffix support to handle both formats
+  - Now handles letter directly after digits: `v1.2.3c` → version extracted as `1.2.3c` ✅
+  - Still handles letter after dot: `v1.33.a` → version extracted as `1.33.a` ✅
+  - Examples: `"Dying Light The Beast v1.2.3c-0xdeadcode"` → clean title `"dying light the beast"`, version `"1.2.3c"`
+  
+### Changed
+- Updated regex patterns from `(?:\.[a-z])?` to `(?:\.[a-z]|[a-z])?` to support both formats:
+  - Single letter after last digit (e.g., `v1.2.3c`, `v2.0.1b`)
+  - Letter after dot separator (e.g., `v1.33.a`, `v1.5.a`)
+
+## [1.2.6] - 2025-10-13
+
+### Fixed
+- **Version Detection with Letter Suffixes**: Fixed bug where versions with dot-separated letter suffixes (e.g., `v1.33.a`) were not properly detected or cleaned
+  - Version patterns now properly match `v1.33.a`, `v2.0.1.b`, etc.
+  - Title cleaning now correctly removes versions with letter suffixes (e.g., "PEAK v1.33.a-0xdeadcode" → "peak")
+  - Version extraction now captures full version string including letter suffixes (e.g., "v1.33.a" → "1.33.a")
+  
+### Changed
+- Updated version regex patterns across all detection functions:
+  - `cleanGameTitle()` in steamApi.ts
+  - `detectVersionNumber()` in versionDetection.ts
+  - `extractVersionInfo()` in both check-single and check routes
+- Changed from `(?:[a-z]|...)` to `(?:\.[a-z])?(?:...)` to match optional dot before letter suffix
+
 ## [1.2.5] - 2025-10-13
 
 ### Fixed

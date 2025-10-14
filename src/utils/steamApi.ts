@@ -450,9 +450,9 @@ export function cleanGameTitle(title: string): string {
     
     // Remove complex version patterns FIRST - more aggressive cleaning
     .replace(/v\d+(\.\d+){3,}(-[A-Z0-9]+)?/gi, '') // v2013.012.003.008.007-P2P or v1.218.0.0
-    .replace(/v\d+(\.\d+){1,}(-[A-Z0-9]+)?/gi, '') // v1.2-PLAZA, v1.2.3-CODEX  
-    .replace(/\bversion\s*\d+(\.\d+)*/gi, '') // version 1.2.3
-    .replace(/\bver\.?\s*\d+(\.\d+)*/gi, '') // ver 1.2 or ver. 1.2
+    .replace(/v\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:-[A-Z0-9]+)?/gi, '') // v1.2.3, v1.2.3.a, v1.2.3c, v1.33.a-CODEX
+    .replace(/\bversion\s*\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?/gi, '') // version 1.2.3, version 1.2.a, version 1.2.3c
+    .replace(/\bver\.?\s*\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?/gi, '') // ver 1.2, ver. 1.2.a, ver 1.2.3c
     .replace(/\bbuild\s*#?\d+/gi, '') // build 20035145, build #123
     .replace(/\bb\d{4,}/gi, '') // b20035145 (build numbers)
     .replace(/\bupdate\s*\d+(\.\d+)*/gi, '') // update 1.5

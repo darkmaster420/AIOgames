@@ -1,5 +1,32 @@
 # Single Check Update Detection - Bug Fix Summary
 
+## Latest Update (v1.2.7)
+
+### Enhanced Version Suffix Support
+Extended letter suffix handling to support both common formats found in game releases:
+
+**Formats Supported:**
+- Letter directly after digits: `v1.2.3c`, `v2.0.1b` → extracts `1.2.3c`, `2.0.1b`
+- Letter after dot: `v1.33.a`, `v1.5.a` → extracts `1.33.a`, `1.5.a`
+
+**Example:**
+```
+Input: "Dying Light The Beast v1.2.3c-0xdeadcode"
+Clean Title: "dying light the beast" ✅
+Version: "1.2.3c" ✅
+```
+
+**Regex Change:**
+```typescript
+// Before (only handled .a format)
+(?:\.[a-z])?
+
+// After (handles both .a and c formats)
+(?:\.[a-z]|[a-z])?
+```
+
+---
+
 ## Issue
 The single game update check feature was completely non-functional. Despite the bulk check working correctly, the single check route would find search results, pass all pattern and similarity checks, but fail to detect any updates.
 
