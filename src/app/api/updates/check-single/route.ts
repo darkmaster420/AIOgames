@@ -493,6 +493,8 @@ export async function POST(request: Request) {
       const cleanedDecodedTitle = cleanGameTitle(decodedTitle);
       const similarity = calculateGameSimilarity(cleanTitle, cleanedDecodedTitle);
 
+      logger.debug(`Processing: "${decodedTitle}" (similarity: ${similarity.toFixed(2)})`);
+
       // Skip if this is the same post we're already tracking
       if (result.link === game.gameLink) {
         logger.debug(`⏩ Skipping current tracked post: "${decodedTitle}"`);
@@ -501,18 +503,19 @@ export async function POST(request: Request) {
 
       // --- Require a valid version/build pattern in the detected title (but be more lenient) ---
       // Use ESM import for detectVersionNumber
+      // IMPORTANT: Check the ORIGINAL decoded title, not the cleaned one (which strips versions)
       const { detectVersionNumber } = await import('../../../../utils/versionDetection');
-      const { found: hasVersion } = detectVersionNumber(cleanedDecodedTitle);
-      const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(cleanedDecodedTitle);
-      const hasDatePattern = /\b\d{4}[-\.]\d{2}[-\.]\d{2}\b/.test(cleanedDecodedTitle);
-      const hasUpdateKeywords = /\b(update|patch|v\d|rev|repack|hotfix|fixed|latest|final|complete|enhanced|improved)\b/i.test(cleanedDecodedTitle);
+      const { found: hasVersion } = detectVersionNumber(decodedTitle);
+      const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(decodedTitle);
+      const hasDatePattern = /\b\d{4}[-\.]\d{2}[-\.]\d{2}\b/.test(decodedTitle);
+      const hasUpdateKeywords = /\b(update|patch|v\d|rev|repack|hotfix|fixed|latest|final|complete|enhanced|improved)\b/i.test(decodedTitle);
+      
+      logger.debug(`🔍 Pattern check - hasVersion: ${hasVersion}, hasBuild: ${hasBuild}, hasDate: ${hasDatePattern}, hasKeywords: ${hasUpdateKeywords}`);
       
       if (!hasVersion && !hasBuild && !hasDatePattern && !hasUpdateKeywords) {
         logger.debug(`⏩ Skipping "${decodedTitle}" (no version/build/update pattern)`);
         continue;
       }
-
-      logger.debug(`🎯 Comparing "${decodedTitle}" (similarity: ${similarity.toFixed(2)})`);
 
       // Check for potential updates (more lenient similarity threshold)
       if (similarity >= 0.75) {
@@ -541,7 +544,7 @@ export async function POST(request: Request) {
           currentVersionInfo = extractVersionInfo(titleSources[titleSources.length - 1].title);
         }
 
-        const newVersionInfo = extractVersionInfo(cleanedDecodedTitle);
+        const newVersionInfo = extractVersionInfo(decodedTitle);
 
         // Enrich version/build via SteamDB Worker if one side is missing and we know the appId
         if (game.steamAppId) {
@@ -565,6 +568,8 @@ export async function POST(request: Request) {
         }
         
         const comparison = compareVersions(currentVersionInfo, newVersionInfo);
+        
+        logger.debug(`📊 Comparison: isNewer=${comparison.isNewer}, current="${currentVersionInfo.version || currentVersionInfo.build}", new="${newVersionInfo.version || newVersionInfo.build}"`);
         
         // AI-First Enhanced Update Detection
         let isUpdateCandidate = false;
@@ -674,9 +679,10 @@ export async function POST(request: Request) {
           logger.debug(`🤖 ${aiReason}, using regex detection: ${isUpdateCandidate}`);
         }
         
+        logger.debug(`🎯 Final decision: isUpdateCandidate=${isUpdateCandidate}, hasVersion=${!!newVersionInfo.version}, hasBuild=${!!newVersionInfo.build}`);
+        
         // Only proceed if it's a candidate and has some version info
         if (isUpdateCandidate && (newVersionInfo.version || newVersionInfo.build)) {
-          logger.debug(`✨ Potential update found: ${decodedTitle}`);
           logger.debug(`🔗 Download links in result:`, result.downloadLinks);
           
           // Check if we already have this update in pending
@@ -727,9 +733,10 @@ export async function POST(request: Request) {
               
               // Update the game with auto-approved update
               const updateFields: Record<string, unknown> = {
-                lastKnownVersion: decodedTitle,
+                lastKnownVersion: newVersionInfo.fullVersionString || newVersionInfo.version || newVersionInfo.build || decodedTitle,
                 lastVersionDate: new Date().toISOString(),
-                title: result.title,
+                title: cleanedDecodedTitle,
+                originalTitle: decodedTitle,
                 gameLink: result.link,
                 ...(result.image && { image: result.image }),
                 $push: {
@@ -818,7 +825,10 @@ export async function POST(request: Request) {
             });
             
             const status = autoApproveResult.canApprove ? '✅ Auto-approved' : '📝 Added pending';
-            logger.debug(`${status} update for ${game.title}: ${decodedTitle}`);
+            logger.info(`${status} update for ${game.title}: ${newVersionInfo.fullVersionString || newVersionInfo.version || decodedTitle}`);
+            
+            // For single check, only process the first (newest) update
+            break;
           }
         }
       }
