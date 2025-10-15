@@ -71,6 +71,25 @@ export async function POST(req: NextRequest) {
 
     const trimmedGameName = gameName.trim();
 
+    // Load user preferences for repack filtering
+    await connectDB();
+    const { User } = await import('../../../../lib/models');
+    const fullUser = await User.findById(authenticatedUser.id);
+    if (!fullUser) {
+      return NextResponse.json(
+        { error: 'User not found' },
+        { status: 404 }
+      );
+    }
+
+    const releaseGroupPreferences = fullUser.preferences?.releaseGroups || {
+      prioritize0xdeadcode: false,
+      prefer0xdeadcodeForOnlineFixes: true,
+      avoidRepacks: false
+    };
+
+    logger.debug(`Custom game add - avoidRepacks: ${releaseGroupPreferences.avoidRepacks}`);
+
     // Search for the game using the existing search API
     try {
       const searchUrl = `https://gameapi.a7a8524.workers.dev/?search=${encodeURIComponent(trimmedGameName)}`;
@@ -87,38 +106,57 @@ export async function POST(req: NextRequest) {
 
       let bestMatch = null;
       let isFromIGDB = false;
-      const { detectVersionNumber } = await import('../../../../utils/versionDetection');
+      const { detectVersionNumber, compareVersions } = await import('../../../../utils/versionDetection');
 
       // First try piracy sites
       if (searchData.success && searchData.results && searchData.results.length > 0) {
+        // Filter out repacks if user preference is enabled
+        let filteredResults = searchData.results;
+        if (releaseGroupPreferences.avoidRepacks) {
+          const originalCount = filteredResults.length;
+          filteredResults = filteredResults.filter((game: { title: string }) => {
+            const title = game.title.toLowerCase();
+            return !title.includes('repack') && !title.includes('-repack');
+          });
+          const filteredCount = originalCount - filteredResults.length;
+          if (filteredCount > 0) {
+            logger.info(`Filtered out ${filteredCount} repack(s) from custom game search for "${trimmedGameName}"`);
+          }
+        }
+
         // Calculate similarity scores for all results
-        const scoredResults = searchData.results.map((game: { title: string; id: string }) => {
+        const scoredResults = filteredResults.map((game: { title: string; id: string }) => {
           const similarity = calculateSimilarity(trimmedGameName, game.title);
-          const { found: hasVersion } = detectVersionNumber(game.title);
+          const versionDetection = detectVersionNumber(game.title);
           const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(game.title);
           
           return {
             ...game,
             similarity,
-            hasVersion: hasVersion || hasBuild
+            hasVersion: versionDetection.found || hasBuild,
+            detectedVersion: versionDetection.version
           };
         });
 
-        // Sort by version status first, then by similarity
-        scoredResults.sort((a: typeof scoredResults[0], b: typeof scoredResults[0]) => {
-          if (a.hasVersion && !b.hasVersion) return -1;
-          if (!a.hasVersion && b.hasVersion) return 1;
-          return b.similarity - a.similarity;
-        });
+        // Filter for versioned games with good similarity
+        const versionedGames = scoredResults.filter((game: typeof scoredResults[0]) => 
+          game.hasVersion && game.similarity > 0.3
+        );
 
-        // For versioned games, accept any similarity > 0.3
-        // For unreleased games, require much higher similarity (> 0.7)
-        for (const game of scoredResults) {
-          if (game.hasVersion && game.similarity > 0.3) {
-            bestMatch = game;
-            logger.info(`Selected versioned game from piracy sites: "${game.title}" (similarity: ${game.similarity.toFixed(2)})`);
-            break;
-          }
+        if (versionedGames.length > 0) {
+          // Sort by version (highest first), then by similarity
+          versionedGames.sort((a: typeof scoredResults[0], b: typeof scoredResults[0]) => {
+            // If both have detected versions, compare them
+            if (a.detectedVersion && b.detectedVersion) {
+              const versionCompare = compareVersions(b.detectedVersion, a.detectedVersion);
+              if (versionCompare !== 0) return versionCompare;
+            }
+            // If version comparison is equal or one doesn't have a version, use similarity
+            return b.similarity - a.similarity;
+          });
+
+          bestMatch = versionedGames[0];
+          logger.info(`Selected highest versioned game from piracy sites: "${bestMatch.title}" (version: ${bestMatch.detectedVersion || 'unknown'}, similarity: ${bestMatch.similarity.toFixed(2)})`);
         }
 
         // If no versioned game found, check for unreleased games with high similarity
@@ -189,8 +227,6 @@ export async function POST(req: NextRequest) {
           { status: 404 }
         );
       }
-
-      await connectDB();
 
       // Check if game is already being tracked
       const existingGame = await TrackedGame.findOne({

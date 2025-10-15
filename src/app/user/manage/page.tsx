@@ -29,7 +29,8 @@ export default function UserManagePage() {
     telegramBotManagementEnabled: false,
     // release group preferences
     prioritize0xdeadcode: false,
-    prefer0xdeadcodeForOnlineFixes: true
+    prefer0xdeadcodeForOnlineFixes: true,
+    avoidRepacks: false
   });
 
   const router = useRouter();
@@ -73,7 +74,8 @@ export default function UserManagePage() {
           setForm((f) => ({
             ...f,
             prioritize0xdeadcode: data.preferences.releaseGroups.prioritize0xdeadcode || false,
-            prefer0xdeadcodeForOnlineFixes: data.preferences.releaseGroups.prefer0xdeadcodeForOnlineFixes !== false
+            prefer0xdeadcodeForOnlineFixes: data.preferences.releaseGroups.prefer0xdeadcodeForOnlineFixes !== false,
+            avoidRepacks: data.preferences.releaseGroups.avoidRepacks || false
           }));
         }
       } catch (err: unknown) {
@@ -174,6 +176,7 @@ export default function UserManagePage() {
         telegramBotManagementEnabled?: boolean;
         prioritize0xdeadcode?: boolean;
         prefer0xdeadcodeForOnlineFixes?: boolean;
+        avoidRepacks?: boolean;
       } = { email: form.email };
 
       if (form.username) {
@@ -197,6 +200,7 @@ export default function UserManagePage() {
       // Release group preferences
       payload.prioritize0xdeadcode = form.prioritize0xdeadcode;
       payload.prefer0xdeadcodeForOnlineFixes = form.prefer0xdeadcodeForOnlineFixes;
+      payload.avoidRepacks = form.avoidRepacks;
 
       const res = await fetch('/api/user/update', {
         method: 'PATCH',
@@ -462,6 +466,24 @@ export default function UserManagePage() {
                   </label>
                   <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
                     Always consider 0xdeadcode releases as valid updates (they provide online fixes)
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-start space-x-3">
+                <input
+                  type="checkbox"
+                  name="avoidRepacks"
+                  checked={form.avoidRepacks}
+                  onChange={handleChange}
+                  className="mt-1 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <div>
+                  <label className="text-sm font-medium text-gray-900 dark:text-white">
+                    Avoid Repacks
+                  </label>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                    Filter out repack releases (titles containing &quot;repack&quot; or &quot;-repack&quot;) from update notifications
                   </p>
                 </div>
               </div>

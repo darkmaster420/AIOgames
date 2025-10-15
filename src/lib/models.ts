@@ -143,6 +143,10 @@ const userSchema = new mongoose.Schema({
       prefer0xdeadcodeForOnlineFixes: {
         type: Boolean,
         default: true
+      },
+      avoidRepacks: {
+        type: Boolean,
+        default: false
       }
     }
   },

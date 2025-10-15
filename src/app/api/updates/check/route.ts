@@ -498,12 +498,13 @@ export async function POST(request: Request) {
     // Get release group preferences
     const releaseGroupPreferences = fullUser.preferences?.releaseGroups || {
       prioritize0xdeadcode: false,
-      prefer0xdeadcodeForOnlineFixes: true
+      prefer0xdeadcodeForOnlineFixes: true,
+      avoidRepacks: false
     };
 
     logger.debug(`AI Detection preferences: enabled=${aiPreferences.enabled}, threshold=${aiPreferences.autoApprovalThreshold}`);
     logger.debug(`Sequel Detection preferences: enabled=${sequelPreferences.enabled}, sensitivity=${sequelPreferences.sensitivity}`);
-    logger.debug(`Release Group preferences: prioritize0xdeadcode=${releaseGroupPreferences.prioritize0xdeadcode}, prefer0xdeadcodeForOnlineFixes=${releaseGroupPreferences.prefer0xdeadcodeForOnlineFixes}`);
+    logger.debug(`Release Group preferences: prioritize0xdeadcode=${releaseGroupPreferences.prioritize0xdeadcode}, prefer0xdeadcodeForOnlineFixes=${releaseGroupPreferences.prefer0xdeadcodeForOnlineFixes}, avoidRepacks=${releaseGroupPreferences.avoidRepacks}`);
 
     // Get all active tracked games for this user
     const trackedGames = await TrackedGame.find({ 
@@ -548,7 +549,21 @@ export async function POST(request: Request) {
       if (recentResponse.ok) {
         const recentData = await recentResponse.json();
         recentGames = recentData.results || [];
-  logger.info(`Retrieved ${recentGames.length} recent games from feed`);
+        
+        // Filter out repacks if user preference is set
+        if (releaseGroupPreferences.avoidRepacks) {
+          const originalCount = recentGames.length;
+          recentGames = recentGames.filter((game: GameSearchResult) => {
+            const title = game.title.toLowerCase();
+            return !title.includes('repack') && !title.includes('-repack');
+          });
+          const filtered = originalCount - recentGames.length;
+          if (filtered > 0) {
+            logger.info(`Filtered out ${filtered} repack(s) based on user preference`);
+          }
+        }
+        
+        logger.info(`Retrieved ${recentGames.length} recent games from feed`);
       } else {
         throw new Error(`Recent API failed: ${recentResponse.status}`);
       }

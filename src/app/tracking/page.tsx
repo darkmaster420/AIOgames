@@ -1157,7 +1157,23 @@ export default function TrackingDashboard() {
                           )}
                         </div>
                         
-                        {/* GOG Verification - Show First (PRIORITY) */}
+                        {/* Smart Priority: Show Steam first if GOG has no version data */}
+                        {(showAdvanced || !game.gogVerified) && !gogLatest[game._id]?.version && (
+                          <div className="mt-2">
+                            <SteamVerification
+                              gameId={game._id}
+                              gameTitle={game.title}
+                              steamName={game.steamName}
+                              steamVerified={game.steamVerified}
+                              steamLatestVersion={steamLatest[game._id]?.version}
+                              steamLatestBuild={steamLatest[game._id]?.build}
+                              steamLatestLink={steamLatest[game._id]?.link}
+                              onVerificationUpdate={handleVerificationUpdate}
+                            />
+                          </div>
+                        )}
+
+                        {/* GOG Verification - Show after Steam if no version, otherwise show first (PRIORITY) */}
                         <div className="mt-2">
                           <GOGVerification
                             gameId={game._id}
@@ -1177,8 +1193,8 @@ export default function TrackingDashboard() {
                           />
                         </div>
 
-                        {/* Steam Verification - Show in Advanced Mode OR when no GOG */}
-                        {(showAdvanced || !game.gogVerified) && (
+                        {/* Steam Verification - Show in Advanced Mode OR when no GOG, after GOG if GOG has version */}
+                        {(showAdvanced || !game.gogVerified) && gogLatest[game._id]?.version && (
                           <div className="mt-2">
                             <SteamVerification
                               gameId={game._id}

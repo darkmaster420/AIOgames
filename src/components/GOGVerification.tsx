@@ -27,8 +27,8 @@ export default function GOGVerification({
   gameTitle,
   currentGogId,
   currentGogName,
-  currentGogVersion,
-  currentGogBuildId,
+  currentGogVersion: _currentGogVersion,
+  currentGogBuildId: _currentGogBuildId,
   isVerified = false,
   gogLatestVersion,
   gogLatestBuildId,
@@ -36,11 +36,11 @@ export default function GOGVerification({
   onVerificationComplete
 }: GOGVerificationProps) {
   const [isSearching, setIsSearching] = useState(false);
-  const [isChecking, setIsChecking] = useState(false);
   const [searchResults, setSearchResults] = useState<GOGDBSearchResult[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showResults, setShowResults] = useState(false);
-  const { showSuccess, showError, showWarning, showInfo } = useNotification();
+  const [isLinking, setIsLinking] = useState(false);
+  const { showSuccess, showError, showWarning } = useNotification();
 
 interface GOGDBSearchResult {
   id: number;
@@ -51,71 +51,13 @@ interface GOGDBSearchResult {
   releaseDate?: string;
 }
 
-  const handleAutoVerify = async () => {
-    setIsSearching(true);
-    try {
-      // Search for the game
-      const response = await fetch(`/api/gogdb?action=search&query=${encodeURIComponent(gameTitle)}`);
-      const data = await response.json();
-
-      if (data.success && data.results && data.results.length > 0) {
-        // Normalize function to handle punctuation and case differences
-        const normalize = (str: string) => 
-          str.toLowerCase().replace(/[^a-z0-9]/g, '');
-        
-        const normalizedGameTitle = normalize(gameTitle);
-        
-        // Find exact match (case-insensitive, punctuation-insensitive)
-        const exactMatch = data.results.find((r: GOGDBSearchResult) => 
-          normalize(r.title) === normalizedGameTitle
-        );
-
-        if (exactMatch) {
-          // Only auto-verify if we have an exact match
-          const versionResponse = await fetch(`/api/gogdb?action=version&productId=${exactMatch.id}`);
-          const versionData = await versionResponse.json();
-
-          const updateResponse = await fetch(`/api/games/gog-verify`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              gameId,
-              gogId: exactMatch.id,
-              gogName: exactMatch.title,
-              gogVersion: versionData.version || undefined,
-              gogBuildId: versionData.buildId || undefined
-            })
-          });
-
-          if (updateResponse.ok) {
-            showSuccess(`✅ GOG verification successful: ${exactMatch.title}`);
-            if (onVerificationComplete) onVerificationComplete();
-          } else {
-            showError('❌ Failed to save GOG verification');
-          }
-        } else {
-          // No exact match - show results for user to choose
-          showInfo(`🔍 Found ${data.results.length} results. Please select the correct game.`);
-          setSearchResults(data.results);
-          setShowResults(true);
-        }
-      } else {
-        showWarning('⚠️ No GOG match found. Try a different search term.');
-      }
-    } catch (error) {
-      console.error('GOG verification error:', error);
-      showError('❌ GOG verification failed');
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  const handleManualSearch = async () => {
-    if (!searchQuery.trim()) return;
+  const handleManualSearch = async (query?: string) => {
+    const searchTerm = query || searchQuery;
+    if (!searchTerm.trim()) return;
     
     setIsSearching(true);
     try {
-      const response = await fetch(`/api/gogdb?action=search&query=${encodeURIComponent(searchQuery.trim())}`);
+      const response = await fetch(`/api/gogdb?action=search&query=${encodeURIComponent(searchTerm.trim())}`);
       const data = await response.json();
 
       if (data.success && data.results.length > 0) {
@@ -132,7 +74,19 @@ interface GOGDBSearchResult {
     }
   };
 
+  const handleToggle = () => {
+    const willBeOpen = !showResults;
+    setShowResults(willBeOpen);
+    // Auto-search when opening
+    if (willBeOpen) {
+      setSearchQuery(gameTitle);
+      // Trigger search after state update
+      setTimeout(() => handleManualSearch(gameTitle), 0);
+    }
+  };
+
   const handleSelectResult = async (result: GOGDBSearchResult) => {
+    setIsLinking(true);
     try {
       // Get version info for selected product
       const versionResponse = await fetch(`/api/gogdb?action=version&productId=${result.id}`);
@@ -163,37 +117,8 @@ interface GOGDBSearchResult {
     } catch (error) {
       console.error('GOG selection error:', error);
       showError('❌ Failed to verify GOG game');
-    }
-  };
-
-  const handleCheckUpdate = async () => {
-    if (!currentGogId) return;
-
-    setIsChecking(true);
-    try {
-      const response = await fetch(
-        `/api/gogdb?action=compare&productId=${currentGogId}` +
-        `${currentGogVersion ? `&currentVersion=${encodeURIComponent(currentGogVersion)}` : ''}` +
-        `${currentGogBuildId ? `&currentBuild=${encodeURIComponent(currentGogBuildId)}` : ''}`
-      );
-      const data = await response.json();
-
-      if (data.success) {
-        if (data.hasUpdate) {
-          showInfo(
-            `🆕 GOG Update Available!\n` +
-            `Current: ${currentGogVersion || currentGogBuildId || 'Unknown'}\n` +
-            `Latest: ${data.latestVersion || data.latestBuild || 'Unknown'}`
-          );
-        } else {
-          showSuccess('✅ GOG version is up to date');
-        }
-      }
-    } catch (error) {
-      console.error('GOG update check error:', error);
-      showError('❌ Failed to check GOG updates');
     } finally {
-      setIsChecking(false);
+      setIsLinking(false);
     }
   };
 
@@ -218,7 +143,7 @@ interface GOGDBSearchResult {
   };
 
   return (
-    <div className="space-y-3">
+    <div className="gog-verification-container space-y-3">
       {/* Current GOG Status */}
       {isVerified && currentGogId ? (
         <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
@@ -237,12 +162,12 @@ interface GOGDBSearchResult {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs font-semibold text-purple-300">Latest Version:</span>
                     {gogLatestVersion && (
-                      <span className="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded text-xs">
+                      <span className="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 rounded text-xs">
                         v{gogLatestVersion}
                       </span>
                     )}
                     {gogLatestBuildId && (
-                      <span className="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded text-xs">
+                      <span className="px-1.5 py-0.5 bg-sky-100 dark:bg-sky-900 text-sky-800 dark:text-sky-200 rounded text-xs">
                         Build {gogLatestBuildId}
                       </span>
                     )}
@@ -260,15 +185,15 @@ interface GOGDBSearchResult {
             </div>
             <div className="flex gap-2">
               <button
-                onClick={handleCheckUpdate}
-                disabled={isChecking}
-                className="px-3 py-1.5 text-xs font-medium bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded transition-colors disabled:opacity-50"
+                onClick={handleToggle}
+                className="px-3 py-1.5 text-xs font-medium bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded transition-colors"
               >
-                {isChecking ? '⏳' : '🔄'} Check
+                ⚙️ Manage
               </button>
               <button
                 onClick={handleRemoveVerification}
-                className="px-3 py-1.5 text-xs font-medium bg-gray-500/20 hover:bg-gray-500/30 text-gray-300 rounded transition-colors"
+                disabled={isLinking}
+                className="px-3 py-1.5 text-xs font-medium bg-gray-500/20 hover:bg-gray-500/30 text-gray-300 rounded transition-colors disabled:opacity-50"
               >
                 ❌
               </button>
@@ -276,22 +201,13 @@ interface GOGDBSearchResult {
           </div>
         </div>
       ) : (
-        /* Verification Buttons */
-        <div className="flex gap-2">
-          <button
-            onClick={handleAutoVerify}
-            disabled={isSearching}
-            className="flex-1 px-3 py-2 text-sm font-medium bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-lg transition-colors disabled:opacity-50"
-          >
-            {isSearching ? '⏳ Searching...' : '🔍 Auto-Verify GOG'}
-          </button>
-          <button
-            onClick={() => setShowResults(true)}
-            className="px-3 py-2 text-sm font-medium bg-gray-600/20 hover:bg-gray-600/30 text-gray-300 rounded-lg transition-colors"
-          >
-            📋 Manual
-          </button>
-        </div>
+        /* Verification Button */
+        <button
+          onClick={handleToggle}
+          className="w-full px-3 py-2 text-sm font-medium bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-lg transition-colors"
+        >
+          🔍 Verify with GOG
+        </button>
       )}
 
       {/* Search Results Modal */}
@@ -328,30 +244,31 @@ interface GOGDBSearchResult {
                         handleManualSearch();
                       }
                     }}
-                    placeholder="Enter game name..."
-                    className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    placeholder={`Try: ${gameTitle}`}
+                    className="flex-1 px-3 py-2 text-sm border border-gray-600 rounded-lg bg-gray-700 text-white placeholder-gray-400 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   />
                   <button
-                    onClick={handleManualSearch}
-                    disabled={isSearching || !searchQuery.trim()}
-                    className="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => handleManualSearch()}
+                    disabled={isSearching}
+                    className="px-4 py-2 text-sm font-medium bg-purple-500 hover:bg-purple-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isSearching ? '⏳' : '🔍'}
                   </button>
                 </div>
               </div>
 
-              {/* Search Results */}
-              {searchResults.length > 0 && (
+              {/* Results */}
+              {searchResults.length > 0 ? (
                 <div className="space-y-2">
-                  <div className="text-xs font-medium text-gray-400">
-                    Found {searchResults.length} result(s):
+                  <div className="text-sm text-gray-400">
+                    {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} found
                   </div>
                   {searchResults.map((result) => (
                     <button
                       key={result.id}
                       onClick={() => handleSelectResult(result)}
-                      className="w-full p-3 bg-gray-700/50 hover:bg-gray-700 border border-gray-600 rounded-lg transition-colors text-left"
+                      disabled={isLinking}
+                      className="w-full p-3 text-left bg-gray-700/50 hover:bg-gray-700 border border-gray-600 hover:border-purple-500/50 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <div className="flex items-start gap-3">
                         {result.image && (
@@ -375,7 +292,11 @@ interface GOGDBSearchResult {
                     </button>
                   ))}
                 </div>
-              )}
+              ) : !isSearching && searchQuery ? (
+                <div className="text-center py-8 text-gray-400">
+                  No results found for &quot;{searchQuery}&quot;
+                </div>
+              ) : null}
             </div>
           </div>
         </div>

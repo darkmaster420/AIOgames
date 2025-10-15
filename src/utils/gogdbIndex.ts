@@ -27,6 +27,8 @@ interface GOGDBBuild {
   generation: number;
   date_published: string;
   os: string;
+  listed?: boolean;
+  public?: boolean;
 }
 
 interface GOGCatalogProduct {
@@ -190,8 +192,8 @@ export async function getGOGDBBuildsFromIndex(
       return [];
     }
     
-    // Filter builds by OS and generation
-    const builds: GOGDBBuild[] = data.builds
+    // Filter builds by OS and generation, prefer listed/public builds
+    const allBuilds: GOGDBBuild[] = data.builds
       .filter((build: GOGDBProductBuild) => build.os === os && build.generation === 2)
       .map((build: GOGDBProductBuild) => ({
         product_id: productId,
@@ -199,13 +201,20 @@ export async function getGOGDBBuildsFromIndex(
         version: build.version || null,
         generation: build.generation,
         date_published: build.date_published,
-        os: build.os
+        os: build.os,
+        listed: build.listed,
+        public: build.public
       }));
     
-    if (builds.length === 0) {
+    if (allBuilds.length === 0) {
       logger.warn(`⚠️ No ${os} builds found for product ${productId}`);
       return [];
     }
+    
+    // Prioritize listed builds, then public builds
+    const listedBuilds = allBuilds.filter((b: GOGDBBuild) => b.listed);
+    const publicBuilds = allBuilds.filter((b: GOGDBBuild) => b.public);
+    const builds = listedBuilds.length > 0 ? listedBuilds : (publicBuilds.length > 0 ? publicBuilds : allBuilds);
     
     // Sort by date (newest first)
     builds.sort((a, b) => new Date(b.date_published).getTime() - new Date(a.date_published).getTime());

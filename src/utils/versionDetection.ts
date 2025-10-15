@@ -491,5 +491,41 @@ export function testVersionDetection() {
   console.log("\n==================================");
 }
 
+/**
+ * Compare two version strings and return:
+ * - Positive number if version1 > version2
+ * - Negative number if version1 < version2
+ * - 0 if versions are equal
+ * 
+ * Handles semantic versions (1.2.3), simple versions (1.2), and single numbers (5)
+ */
+export function compareVersions(version1: string, version2: string): number {
+  // Normalize versions by removing 'v' prefix and converting to lowercase
+  const v1 = version1.toLowerCase().replace(/^v/, '').trim();
+  const v2 = version2.toLowerCase().replace(/^v/, '').trim();
+  
+  // Split versions by dots and convert to numbers
+  const parts1 = v1.split(/[.\-_]/).map(p => {
+    const num = parseInt(p, 10);
+    return isNaN(num) ? 0 : num;
+  });
+  const parts2 = v2.split(/[.\-_]/).map(p => {
+    const num = parseInt(p, 10);
+    return isNaN(num) ? 0 : num;
+  });
+  
+  // Compare each part
+  const maxLength = Math.max(parts1.length, parts2.length);
+  for (let i = 0; i < maxLength; i++) {
+    const part1 = i < parts1.length ? parts1[i] : 0;
+    const part2 = i < parts2.length ? parts2[i] : 0;
+    
+    if (part1 > part2) return 1;
+    if (part1 < part2) return -1;
+  }
+  
+  return 0; // Versions are equal
+}
+
 // Uncomment to run tests in development
 // testVersionDetection();
