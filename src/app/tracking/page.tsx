@@ -520,7 +520,8 @@ export default function TrackingDashboard() {
       for (const g of toFetch) {
         try {
           const res = await fetch(`/api/gogdb?action=version&productId=${g.gogProductId}&os=windows`, {
-            cache: 'force-cache',
+            cache: 'default', // Changed from 'force-cache' to avoid caching 404s
+            next: { revalidate: 3600 } // Cache successful responses for 1 hour
           });
           if (res.ok) {
             const data = await res.json();

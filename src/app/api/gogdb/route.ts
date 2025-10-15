@@ -127,9 +127,21 @@ export async function GET(request: NextRequest) {
 
       const versionInfo = await getLatestGOGVersion(productId, os);
       if (!versionInfo) {
+        // Try to get more details about why it failed
+        logger.warn(`⚠️ No version info found for GOG product ${productId}`);
         return NextResponse.json(
-          { error: 'No version information found' },
-          { status: 404 }
+          { 
+            error: 'No version information found',
+            productId,
+            os,
+            suggestion: 'The product may not have any builds available for the specified OS'
+          },
+          { 
+            status: 404,
+            headers: {
+              'Cache-Control': 'no-store, no-cache, must-revalidate' // Don't cache 404s
+            }
+          }
         );
       }
 
@@ -137,6 +149,10 @@ export async function GET(request: NextRequest) {
         success: true,
         ...versionInfo,
         os
+      }, {
+        headers: {
+          'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=7200'
+        }
       });
     }
 

@@ -172,16 +172,16 @@ export async function getGOGDBBuildsFromIndex(
     // GOGDB has a product.json file with all builds info
     const productUrl = `${GOGDB_API}/products/${productId}/product.json`;
     
-    logger.info(`🔍 Fetching GOGDB product data for ${productId}`);
+    logger.info(`🔍 Fetching GOGDB product data for ${productId} from ${productUrl}`);
     
     const response = await fetch(productUrl, {
       headers: {
-        'User-Agent': 'AIOgames/1.3.1'
+        'User-Agent': 'AIOgames/1.3.4'
       }
     });
     
     if (!response.ok) {
-      logger.warn(`⚠️ GOGDB product data not found for ${productId}`);
+      logger.warn(`⚠️ GOGDB product data not found for ${productId} - Status: ${response.status}`);
       return [];
     }
 
@@ -216,14 +216,20 @@ export async function getGOGDBBuildsFromIndex(
     const publicBuilds = allBuilds.filter((b: GOGDBBuild) => b.public);
     const builds = listedBuilds.length > 0 ? listedBuilds : (publicBuilds.length > 0 ? publicBuilds : allBuilds);
     
+    logger.info(`📊 Product ${productId}: Total builds: ${allBuilds.length}, Listed: ${listedBuilds.length}, Public: ${publicBuilds.length}, Using: ${builds.length}`);
+    
     // Sort by date (newest first)
     builds.sort((a, b) => new Date(b.date_published).getTime() - new Date(a.date_published).getTime());
     
-    logger.info(`✅ Found ${builds.length} ${os} builds for product ${productId}, latest version: ${builds[0].version || 'unknown'}`);
+    logger.info(`✅ Found ${builds.length} ${os} builds for product ${productId}, latest version: ${builds[0].version || 'unknown'} (listed: ${builds[0].listed}, date: ${builds[0].date_published})`);
     
     return builds;
   } catch (error) {
-    logger.error('❌ Failed to fetch builds from GOGDB:', error);
+    logger.error(`❌ Failed to fetch builds from GOGDB for product ${productId}:`, error);
+    if (error instanceof Error) {
+      logger.error(`Error message: ${error.message}`);
+      logger.error(`Error stack: ${error.stack}`);
+    }
     return [];
   }
 }
