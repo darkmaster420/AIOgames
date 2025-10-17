@@ -417,7 +417,7 @@ All of these projects are open source and free to use:
 - [ ] Anonymous user search functions
 - [ ] Email Notifications
 - [ ] Telegram Bot Management
-- [×] Anti-Repack Settings
+- [x] Anti-Repack Settings
 - [ ] Merge GameAPI with AIOGames
 - [ ] Flaresolverrless GameAPI 
 - [ ] Add Custom themes
