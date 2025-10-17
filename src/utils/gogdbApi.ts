@@ -62,7 +62,43 @@ export interface GOGDBSearchResult {
 }
 
 /**
- * Search for games on GOGDB
+ * Calculate similarity score between two game titles for GOG matching
+ * More strict than simple includes() - requires significant word overlap
+ */
+function calculateGOGTitleSimilarity(query: string, title: string): number {
+  const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2); // Ignore short words
+  const titleWords = title.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+  
+  if (queryWords.length === 0 || titleWords.length === 0) return 0;
+  
+  // Exact match
+  if (query.toLowerCase() === title.toLowerCase()) return 1.0;
+  
+  // Check how many query words are in the title
+  const matchingWords = queryWords.filter(qw => 
+    titleWords.some(tw => tw.includes(qw) || qw.includes(tw))
+  );
+  
+  // Require at least 70% of query words to match
+  const matchRatio = matchingWords.length / queryWords.length;
+  
+  // Bonus for complete match of all query words
+  if (matchRatio === 1.0) return 0.95;
+  
+  // Bonus for word order preservation
+  let orderBonus = 0;
+  if (matchingWords.length >= 2) {
+    const querySequence = matchingWords.join(' ');
+    if (title.toLowerCase().includes(querySequence)) {
+      orderBonus = 0.1;
+    }
+  }
+  
+  return matchRatio + orderBonus;
+}
+
+/**
+ * Search for games on GOGDB with stricter matching
  */
 export async function searchGOGDB(query: string): Promise<GOGDBSearchResult[]> {
   try {
@@ -85,25 +121,30 @@ export async function searchGOGDB(query: string): Promise<GOGDBSearchResult[]> {
     
     const products: GOGDBProduct[] = await response.json();
     
-    // Filter products based on query
-    const searchTerm = query.toLowerCase();
-    const results = products
-      .filter(p => 
-        p.title.toLowerCase().includes(searchTerm) ||
-        p.slug.toLowerCase().includes(searchTerm)
-      )
-      .slice(0, 10) // Limit to 10 results
+    // Calculate similarity scores and filter with stricter threshold
+    const MIN_SIMILARITY = 0.7; // Require 70% word match
+    const scoredResults = products
       .map(p => ({
-        id: p.id,
-        title: p.title,
-        slug: p.slug,
-        type: p.type,
-        image: p.image,
-        releaseDate: p.release_date || p.globalReleaseDate
+        product: p,
+        score: Math.max(
+          calculateGOGTitleSimilarity(query, p.title),
+          calculateGOGTitleSimilarity(query, p.slug.replace(/-/g, ' '))
+        )
+      }))
+      .filter(r => r.score >= MIN_SIMILARITY)
+      .sort((a, b) => b.score - a.score) // Sort by score descending
+      .slice(0, 10) // Limit to 10 results
+      .map(r => ({
+        id: r.product.id,
+        title: r.product.title,
+        slug: r.product.slug,
+        type: r.product.type,
+        image: r.product.image,
+        releaseDate: r.product.release_date || r.product.globalReleaseDate
       }));
     
-    logger.info(`✅ Found ${results.length} GOGDB results for "${query}"`);
-    return results;
+    logger.info(`✅ Found ${scoredResults.length} GOGDB results for "${query}" (min similarity: ${MIN_SIMILARITY})`);
+    return scoredResults;
     
   } catch (error) {
     logger.error('❌ GOGDB search failed:', error);

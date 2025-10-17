@@ -307,7 +307,7 @@ export default function UpdatesPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between mb-4">
                             <div>
-                              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">{game.title}</h3>
+                              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">{game.originalTitle || game.title}</h3>
                               <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
                                 <span>Source: {game.source}</span>
                                 <span>•</span>
