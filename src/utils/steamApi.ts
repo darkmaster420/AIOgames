@@ -506,17 +506,6 @@ export function cleanGameTitle(title: string): string {
     .replace(/\beight\b/gi, '8')
     .replace(/\bnine\b/gi, '9')
     
-    // Normalize roman numerals to numbers
-    .replace(/\bii\b/gi, '2')
-    .replace(/\biii\b/gi, '3')
-    .replace(/\biv\b/gi, '4')
-    .replace(/\bv\b(?!\w)/gi, '5') // \b at end to avoid matching "vs"
-    .replace(/\bvi\b/gi, '6')
-    .replace(/\bvii\b/gi, '7')
-    .replace(/\bviii\b/gi, '8')
-    .replace(/\bix\b/gi, '9')
-    .replace(/\bx\b(?!\w)/gi, '10')
-    
     // Normalize common variations
     .replace(/\band\b/gi, '&')
     .replace(/\bvs\.?\b/gi, 'vs')
