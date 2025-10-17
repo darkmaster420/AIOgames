@@ -1051,9 +1051,16 @@ export default function TrackingDashboard() {
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <div className="flex items-center gap-2 flex-1 min-w-0">
-                              <h3 className="font-bold text-base sm:text-lg text-gray-900 dark:text-white leading-tight text-center bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-200/50 dark:border-gray-700/50 shadow-sm flex-1 min-w-0 uppercase">
-                                {(game.steamVerified && game.steamName) ? game.steamName : (game.originalTitle || game.title)}
-                              </h3>
+                              <div className="flex flex-col gap-1 flex-1 min-w-0">
+                                <h3 className="font-bold text-base sm:text-lg text-gray-900 dark:text-white leading-tight text-center bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-200/50 dark:border-gray-700/50 shadow-sm flex-1 min-w-0 uppercase">
+                                  {(game.steamVerified && game.steamName) ? game.steamName : (game.originalTitle || game.title)}
+                                </h3>
+                                {showAdvanced && game.steamVerified && game.steamName && game.originalTitle && game.originalTitle !== game.steamName && (
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 text-center italic px-2">
+                                    Original: {game.originalTitle}
+                                  </div>
+                                )}
+                              </div>
                               <SearchGameButton 
                                 gameTitle={game.title} 
                                 size="sm"
