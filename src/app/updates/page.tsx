@@ -31,6 +31,8 @@ interface GameWithUpdates {
   _id: string;
   title: string;
   originalTitle: string;
+  steamName?: string;
+  steamVerified?: boolean;
   image?: string;
   source: string;
   currentVersion: string;
@@ -72,6 +74,8 @@ interface GameWithPending {
   _id: string;
   title: string;
   originalTitle: string;
+  steamName?: string;
+  steamVerified?: boolean;
   lastKnownVersion: string;
   currentVersionNumber: string;
   currentBuildNumber: string;
@@ -307,7 +311,9 @@ export default function UpdatesPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between mb-4">
                             <div>
-                              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">{game.originalTitle || game.title}</h3>
+                              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+                                {(game.steamVerified && game.steamName) ? game.steamName : (game.originalTitle || game.title)}
+                              </h3>
                               <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
                                 <span>Source: {game.source}</span>
                                 <span>•</span>
@@ -389,9 +395,11 @@ export default function UpdatesPage() {
                           />
                         )}
                         <div className="flex-1 min-w-0">
-                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">{game.title}</h3>
+                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+                            {(game.steamVerified && game.steamName) ? game.steamName : game.title}
+                          </h3>
                           <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-2">
-                            {game.originalTitle && (
+                            {!game.steamVerified && game.originalTitle && (
                               <>
                                 <span className="font-medium">Current:</span>
                                 <span className="text-gray-900 dark:text-white">{game.originalTitle}</span>

@@ -49,6 +49,8 @@ export async function GET() {
         $project: {
           title: 1,
           originalTitle: 1,
+          steamName: 1,
+          steamVerified: 1,
           image: 1,
           source: 1,
           currentVersion: 1,
