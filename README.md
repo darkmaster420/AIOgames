@@ -411,6 +411,19 @@ All of these projects are open source and free to use:
 
 ---
 
-**🎯 Built with ❤️ for the gaming community**
+## ☑️ To-Do
 
-*AIOgames v1.2.2 - Now with advanced Steam integration and real-time update detection*
+- [ ] User configurable flaresolverr/GameAPI
+- [ ] Anonymous user search functions
+- [ ] Email Notifications
+- [ ] Telegram Bot Management
+- [×] Anti-Repack Settings
+- [ ] Merge GameAPI with AIOGames
+- [ ] Flaresolverrless GameAPI 
+- [ ] Add Custom themes
+
+---
+
+** 🎯 Built with ❤️ for the gaming community**
+
+*AIOgames v1.3.x - Now with advanced Steam integration and real-time update detection*
