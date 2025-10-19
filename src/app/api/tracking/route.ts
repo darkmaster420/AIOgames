@@ -9,6 +9,27 @@ import { updateScheduler } from '../../../lib/scheduler';
 import { analyzeGameTitle } from '../../../utils/versionDetection';
 import { searchGOGDBIndex, getLatestGOGVersion, initializeGOGDB } from '../../../utils/gogdbIndex';
 
+/**
+ * Compare two version strings (e.g., "1.2.3" vs "1.3.0")
+ * Returns: 1 if v1 > v2, -1 if v1 < v2, 0 if equal
+ */
+function compareVersionStrings(v1: string, v2: string): number {
+  const parts1 = v1.split('.').map(p => parseInt(p.replace(/[^\d]/g, '')) || 0);
+  const parts2 = v2.split('.').map(p => parseInt(p.replace(/[^\d]/g, '')) || 0);
+  
+  const maxLength = Math.max(parts1.length, parts2.length);
+  
+  for (let i = 0; i < maxLength; i++) {
+    const p1 = parts1[i] || 0;
+    const p2 = parts2[i] || 0;
+    
+    if (p1 > p2) return 1;
+    if (p1 < p2) return -1;
+  }
+  
+  return 0;
+}
+
 // GET - Fetch all tracked games for the current user
 export async function GET() {
   try {
@@ -64,7 +85,7 @@ export async function POST(request: NextRequest) {
 
     await connectDB();
 
-    // Check if game is already tracked by this user (only active games)
+    // Check if game is already tracked by this user (check by gameId OR similar title)
     const existingGame = await TrackedGame.findOne({ 
       userId: user.id,
       gameId,
@@ -72,10 +93,105 @@ export async function POST(request: NextRequest) {
     });
 
     if (existingGame) {
-      return NextResponse.json(
-        { error: 'Game is already being tracked' },
-        { status: 400 }
-      );
+      // Game already tracked - compare versions
+      const newTitleAnalysis = analyzeGameTitle(title);
+      const existingTitleAnalysis = analyzeGameTitle(existingGame.originalTitle || existingGame.title);
+      
+      const newVersion = newTitleAnalysis.detectedVersion || '';
+      const existingVersion = existingTitleAnalysis.detectedVersion || 
+                              existingGame.currentVersionNumber || '';
+      
+      const newBuild = newTitleAnalysis.detectedBuild || '';
+      const existingBuild = existingTitleAnalysis.detectedBuild || 
+                            existingGame.currentBuildNumber || '';
+      
+      logger.info(`Duplicate tracking attempt for "${title}"`);
+      logger.info(`Existing: v${existingVersion} build ${existingBuild}`);
+      logger.info(`New: v${newVersion} build ${newBuild}`);
+      
+      // Compare versions to determine if we should replace
+      let shouldReplace = false;
+      let comparisonReason = '';
+      
+      if (newVersion && existingVersion) {
+        const versionComparison = compareVersionStrings(newVersion, existingVersion);
+        if (versionComparison > 0) {
+          shouldReplace = true;
+          comparisonReason = `Higher version detected: ${newVersion} > ${existingVersion}`;
+        } else if (versionComparison < 0) {
+          return NextResponse.json(
+            { error: `Cannot track older version. Current: v${existingVersion}, Attempted: v${newVersion}` },
+            { status: 400 }
+          );
+        } else if (newBuild && existingBuild) {
+          // Same version, compare builds
+          const newBuildNum = parseInt(newBuild.replace(/[^\d]/g, ''));
+          const existingBuildNum = parseInt(existingBuild.replace(/[^\d]/g, ''));
+          if (!isNaN(newBuildNum) && !isNaN(existingBuildNum)) {
+            if (newBuildNum > existingBuildNum) {
+              shouldReplace = true;
+              comparisonReason = `Higher build number: ${newBuild} > ${existingBuild}`;
+            } else {
+              return NextResponse.json(
+                { error: `Cannot track older or same build. Current: ${existingBuild}, Attempted: ${newBuild}` },
+                { status: 400 }
+              );
+            }
+          }
+        } else {
+          // Same version, no build comparison possible
+          return NextResponse.json(
+            { error: 'Game is already being tracked with the same version' },
+            { status: 400 }
+          );
+        }
+      } else if (newBuild && existingBuild) {
+        // No version numbers, compare builds only
+        const newBuildNum = parseInt(newBuild.replace(/[^\d]/g, ''));
+        const existingBuildNum = parseInt(existingBuild.replace(/[^\d]/g, ''));
+        if (!isNaN(newBuildNum) && !isNaN(existingBuildNum)) {
+          if (newBuildNum > existingBuildNum) {
+            shouldReplace = true;
+            comparisonReason = `Higher build number: ${newBuild} > ${existingBuild}`;
+          } else {
+            return NextResponse.json(
+              { error: `Cannot track older or same build. Current: ${existingBuild}, Attempted: ${newBuild}` },
+              { status: 400 }
+            );
+          }
+        }
+      } else {
+        // No version info to compare, reject duplicate
+        return NextResponse.json(
+          { error: 'Game is already being tracked. Cannot determine if this is a newer version.' },
+          { status: 400 }
+        );
+      }
+      
+      // If we should replace, update the existing game instead of creating new
+      if (shouldReplace) {
+        logger.info(`Replacing existing tracked game with newer version: ${comparisonReason}`);
+        
+        existingGame.title = cleanedTitle || cleanGameTitle(title);
+        existingGame.originalTitle = originalTitle || title;
+        existingGame.cleanedTitle = cleanedTitle || cleanGameTitle(title);
+        existingGame.gameLink = gameLink;
+        existingGame.image = image;
+        existingGame.description = decodeHtmlEntities(description || '');
+        existingGame.currentVersionNumber = newVersion || existingGame.currentVersionNumber;
+        existingGame.currentBuildNumber = newBuild || existingGame.currentBuildNumber;
+        existingGame.lastKnownVersion = newVersion || newBuild ? 
+          [newVersion, newBuild ? `Build ${newBuild}` : ''].filter(Boolean).join(' · ') :
+          existingGame.lastKnownVersion;
+        
+        await existingGame.save();
+        
+        return NextResponse.json({
+          message: `Tracked game updated to newer version: ${comparisonReason}`,
+          game: existingGame,
+          replaced: true
+        }, { status: 200 });
+      }
     }
 
     // Create new tracked game

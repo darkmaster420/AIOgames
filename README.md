@@ -421,6 +421,7 @@ All of these projects are open source and free to use:
 - [ ] Merge GameAPI with AIOGames
 - [ ] Flaresolverrless GameAPI 
 - [ ] Add Custom themes
+- [ ] approve updates via telegram
 
 ---
 

@@ -37,11 +37,12 @@ async function addTelegramDelay(userId: string): Promise<void> {
 export interface UpdateNotificationData {
   gameTitle: string;
   version?: string;
-  updateType: 'update' | 'sequel';
+  updateType: 'update' | 'sequel' | 'pending';
   gameLink?: string;
   imageUrl?: string;
   downloadLinks?: Array<{ service: string; url: string; type?: string }>;
   previousVersion?: string;
+  isPending?: boolean;
 }
 
 /**
@@ -50,11 +51,12 @@ export interface UpdateNotificationData {
 export function createUpdateNotificationData(params: {
   gameTitle: string;
   version?: string;
-  updateType: 'update' | 'sequel';
+  updateType: 'update' | 'sequel' | 'pending';
   gameLink?: string;
   imageUrl?: string;
   downloadLinks?: Array<{ service: string; url: string; type?: string }>;
   previousVersion?: string;
+  isPending?: boolean;
 }): UpdateNotificationData {
   return {
     gameTitle: params.gameTitle,
@@ -62,8 +64,9 @@ export function createUpdateNotificationData(params: {
     updateType: params.updateType,
     gameLink: params.gameLink,
     imageUrl: params.imageUrl,
-    downloadLinks: params.downloadLinks,
+    downloadLinks: params.isPending ? undefined : params.downloadLinks, // Don't include download links for pending updates
     previousVersion: params.previousVersion,
+    isPending: params.isPending,
   };
 }
 
@@ -150,8 +153,8 @@ export async function sendUpdateNotification(
                 previousVersion: updateData.previousVersion,
                 gameLink: updateData.gameLink || '/tracking',
                 source: 'Game Tracker',
-                changeType: 'automatic', // Auto-approved updates
-                downloadLinks: updateData.downloadLinks,
+                changeType: updateData.isPending ? 'pending' : 'automatic', // Use 'pending' for pending updates
+                downloadLinks: updateData.isPending ? undefined : updateData.downloadLinks, // Don't send download links for pending
                 imageUrl: updateData.imageUrl
               });
           

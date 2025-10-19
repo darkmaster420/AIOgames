@@ -22,21 +22,46 @@ export async function GET() {
         $match: {
           userId: user.id,
           isActive: true,
-          'updateHistory.0': { $exists: true } // Has at least one update
+          updateHistory: { $exists: true, $ne: [] } // Has at least one update
         }
       },
       {
         $addFields: {
-          // Get the most recent update date
-          lastUpdateDate: { $max: '$updateHistory.dateFound' },
+          // Get the most recent update date - simplified approach without $isDate
+          lastUpdateDate: { 
+            $max: { 
+              $map: {
+                input: '$updateHistory',
+                as: 'update',
+                in: '$$update.dateFound'
+              }
+            }
+          },
           totalUpdates: { $size: { $ifNull: ['$updateHistory', []] } },
           // Get current version from the most recent update or lastKnownVersion
           currentVersion: {
             $ifNull: [
               '$lastKnownVersion',
-              { $arrayElemAt: ['$updateHistory.version', -1] }
+              { 
+                $let: {
+                  vars: {
+                    sortedUpdates: {
+                      $sortArray: {
+                        input: '$updateHistory',
+                        sortBy: { dateFound: -1 }
+                      }
+                    }
+                  },
+                  in: { $arrayElemAt: ['$$sortedUpdates.version', 0] }
+                }
+              }
             ]
           }
+        }
+      },
+      {
+        $match: {
+          lastUpdateDate: { $exists: true, $ne: null } // Only include games where we successfully got a date
         }
       },
       {
@@ -56,6 +81,7 @@ export async function GET() {
           currentVersion: 1,
           lastVersionDate: 1,
           totalUpdates: 1,
+          lastUpdateDate: 1, // Include for debugging
           updateHistory: {
             $slice: [
               {

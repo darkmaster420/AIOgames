@@ -61,24 +61,56 @@ export async function fetchSteamDBUpdates(appId: string): Promise<SteamDBUpdate[
       await ensureGlobalRateLimit();
 
       const url = `https://steamdb.info/api/PatchnotesRSS/?appid=${appId}`;
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'AIOGames/1.2.1 (Game Update Tracker)'
-        },
-      });
+
+      // Abortable fetch with timeout to avoid hanging dev server
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          headers: {
+            'User-Agent': 'AIOGames/1.2.1 (Game Update Tracker)'
+          },
+          signal: controller.signal
+        });
+      } catch (err) {
+        // Fetch failed (timeout/network)
+        clearTimeout(timeout);
+        if (cached) return cached.updates;
+        throw new Error(`SteamDB fetch failed for ${appId}: ${String(err)}`);
+      } finally {
+        clearTimeout(timeout);
+      }
 
       if (!response.ok) {
         // On failure, return stale cache if available
         if (cached) return cached.updates;
-        throw new Error(`SteamDB API error: ${response.status}`);
+        
+        // 404 means no patch notes available for this app - not an error, just return empty
+        if (response.status === 404) {
+          console.log(`No SteamDB patch notes found for app ${appId} (404 - expected for some games)`);
+          const emptyResult: SteamDBUpdate[] = [];
+          // Cache the empty result so we don't keep hitting SteamDB
+          steamdbCache.set(appId, { timestamp: Date.now(), updates: emptyResult });
+          return emptyResult;
+        }
+        
+        // For other errors, log but return empty instead of throwing
+        console.warn(`SteamDB API error for app ${appId}: ${response.status}`);
+        return [];
       }
 
-      const rssText = await response.text();
+      const rssText = await response.text().catch(() => '');
+      if (!rssText) {
+        if (cached) return cached.updates;
+        return [];
+      }
+
       const updates = parseSteamDBRSS(rssText, appId);
       steamdbCache.set(appId, { timestamp: Date.now(), updates });
       return updates;
-    })()
-    .finally(() => {
+    })().finally(() => {
       pendingFetches.delete(appId);
     });
 
@@ -99,60 +131,102 @@ export async function fetchSteamDBUpdates(appId: string): Promise<SteamDBUpdate[
 function parseSteamDBRSS(rssText: string, appId: string): SteamDBUpdate[] {
   const updates: SteamDBUpdate[] = [];
   
-  // Simple XML parsing for RSS items
-  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-  const items = rssText.match(itemRegex) || [];
+  try {
+    // Validate RSS text is not empty
+    if (!rssText || typeof rssText !== 'string') {
+      console.warn(`Empty or invalid RSS text for appId ${appId}`);
+      return [];
+    }
 
-  for (const item of items) {
-    try {
-      const title = extractXMLContent(item, 'title');
-      const link = extractXMLContent(item, 'link');
-      const pubDate = extractXMLContent(item, 'pubDate');
-      const description = extractXMLContent(item, 'description');
-      const guid = extractXMLContent(item, 'guid');
+    // Simple XML parsing for RSS items
+    const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+    const items = rssText.match(itemRegex) || [];
 
-      if (title && link && pubDate) {
+    if (items.length === 0) {
+      console.warn(`No RSS items found for appId ${appId}`);
+    }
+
+    for (const item of items) {
+      try {
+        const title = extractXMLContent(item, 'title');
+        const link = extractXMLContent(item, 'link');
+        const pubDate = extractXMLContent(item, 'pubDate');
+        const description = extractXMLContent(item, 'description');
+        const guid = extractXMLContent(item, 'guid');
+
+        // Skip items without required fields
+        if (!title || !link || !pubDate) {
+          console.warn(`Skipping RSS item with missing required fields (appId: ${appId})`);
+          continue;
+        }
+
         // Extract game name from title (e.g., "Risk of Rain 2 update for 3 October 2025")
         const gameNameMatch = title.match(/^(.+?)\s+update\s+for/i);
         const gameTitle = gameNameMatch ? gameNameMatch[1] : title;
 
         // Extract build number from guid (e.g., "build#20196450")
-        const buildMatch = guid.match(/build#(\d+)/);
+        const buildMatch = guid ? guid.match(/build#(\d+)/) : null;
         const buildNumber = buildMatch ? buildMatch[1] : undefined;
 
         // Extract version from description if available (e.g., "V1.3.9")
-        const versionMatch = description.match(/V?(\d+\.\d+(?:\.\d+)?)/i);
+        const versionMatch = description ? description.match(/V?(\d+\.\d+(?:\.\d+)?)/i) : null;
         const version = versionMatch ? versionMatch[1] : undefined;
 
-        // Extract date info from title for better display  
-        // const dateMatch = title.match(/update\s+for\s+(.+)$/i);
-        // const updateDateText = dateMatch ? dateMatch[1] : ''; // Currently unused
+        // Safely parse pubDate with fallback
+        let isoDate: Date;
+        try {
+          isoDate = new Date(pubDate);
+          if (isNaN(isoDate.getTime())) {
+            console.warn(`Invalid pubDate "${pubDate}" for appId ${appId}, using current time`);
+            isoDate = new Date();
+          }
+        } catch {
+          console.warn(`Failed to parse pubDate "${pubDate}" for appId ${appId}, using current time`);
+          isoDate = new Date();
+        }
 
         updates.push({
           appId,
           gameTitle,
           version,
           changeNumber: buildNumber,
-          date: new Date(pubDate).toISOString(),
+          date: isoDate.toISOString(),
           description: description || title,
           link,
         });
+      } catch (error) {
+        console.error(`Error parsing RSS item for appId ${appId}:`, error);
+        // Continue processing other items even if one fails
+        continue;
       }
-    } catch (error) {
-      console.error('Error parsing RSS item:', error);
     }
+  } catch (error) {
+    console.error(`Fatal error parsing RSS feed for appId ${appId}:`, error);
+    return [];
   }
 
   return updates.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
 
 /**
- * Extract content from XML tags
+ * Extract content from XML tags with improved error handling
  */
 function extractXMLContent(xml: string, tag: string): string {
-  const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, '');
-  const match = xml.match(regex);
-  return match ? match[1].trim().replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1') : '';
+  try {
+    if (!xml || !tag) return '';
+    
+    const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, '');
+    const match = xml.match(regex);
+    
+    if (!match || !match[1]) return '';
+    
+    // Remove CDATA markers and trim
+    const content = match[1].trim().replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
+    return content;
+  } catch (error) {
+    console.error(`Error extracting XML content for tag "${tag}":`, error);
+    return '';
+  }
 }
 
 /**

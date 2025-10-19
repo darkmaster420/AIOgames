@@ -2,6 +2,60 @@
 
 All notable changes to AIOgames will be documented in this file.
 
+## [1.4.0] - 2025-10-18
+
+### Major Features
+- **Steam API Integration**: Migrated Steam data endpoints from separate Cloudflare Worker into main application
+  - New integrated endpoint: `/api/steam` with appid and search functionality
+  - Aggregates data from SteamSpy, Steam Store, and SteamDB
+  - No external dependencies for Steam data in development
+  - Better performance and caching with Next.js strategies
+  - AI endpoint remains separate as Cloudflare Worker for edge computing
+
+- **Per-Game Notification Toggles**: Replaced frequency-based system with simpler notification control
+  - Uniform hourly update checks for all games
+  - Individual ON/OFF toggle for notifications per game
+  - Cleaner UX with toggle switches instead of frequency dropdowns
+  - Better for users who want to track games without constant notifications
+
+### Enhanced
+- **Duplicate Tracking Prevention**: System now prevents tracking the same game multiple times
+  - Checks both gameId and title similarity
+  - Compares version numbers when duplicates found
+  - Automatically replaces with higher version
+  - Prevents duplicate notifications
+
+- **Observability Improvements**: Enhanced monitoring and debugging capabilities
+  - Steam API health endpoint shows AI binding status
+  - Analysis responses include metadata (mode, timestamp)
+  - Improved logging with timing information
+  - Better error handling and fallback strategies
+
+### Changed
+- Removed `checkFrequency` from TrackedGame schema
+- Removed `updateFrequency` from User preferences
+- Simplified scheduler to uniform hourly checks
+- Updated steamApi.ts to use local `/api/steam` endpoint
+- Reorganized auth configuration to `lib/auth-options.ts`
+
+### Technical
+- Fixed all TypeScript linting errors
+- Proper type safety with interfaces for Steam data
+- Fixed NextAuth configuration for Next.js App Router
+- Build now completes successfully with 71 routes
+- Improved error handling with proper type guards
+
+### Documentation
+- Added `STEAM_API_INTEGRATION.md` - Integration architecture
+- Added `STEAM_API_MIGRATION_SUMMARY.md` - Migration details
+- Added `NOTIFICATION_TOGGLE_REFACTOR.md` - Notification changes
+- Added `DUPLICATE_TRACKING_PREVENTION.md` - Duplicate handling
+- Updated `.env.example` with new configuration options
+
+### Dependencies
+- SteamAPI Worker updated to v2.1.0 (AI-only)
+- GameAPI updated to v2.1.5 (improved Cloudflare detection)
+
 ## [1.2.8] - 2025-10-13
 
 ### Enhanced

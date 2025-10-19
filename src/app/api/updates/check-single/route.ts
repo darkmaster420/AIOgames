@@ -855,6 +855,7 @@ export async function POST(request: Request) {
               const updateFields: Record<string, unknown> = {
                 lastKnownVersion: newVersionInfo.fullVersionString || newVersionInfo.version || newVersionInfo.build || decodedTitle,
                 lastVersionDate: new Date().toISOString(),
+                dateAdded: new Date(), // Move game to top when single-check auto-approved update is detected
                 title: cleanedDecodedTitle,
                 originalTitle: decodedTitle,
                 gameLink: result.link,
@@ -913,28 +914,32 @@ export async function POST(request: Request) {
               });
             }
 
-            // Send notification for the update
-            try {
-              const notificationData = createUpdateNotificationData({
-                gameTitle: game.title,
-                version: decodedTitle,
-                updateType: 'update', // Always 'update' for version updates
-                gameLink: result.link,
-                imageUrl: result.image,
-                downloadLinks: result.downloadLinks,
-                previousVersion: game.lastKnownVersion || game.title
-              });
-              
-              logger.debug(`📤 Notification data:`, {
-                downloadLinks: notificationData.downloadLinks,
-                hasDownloadLinks: !!(notificationData.downloadLinks && notificationData.downloadLinks.length > 0)
-              });
-              
-              await sendUpdateNotification(game.userId.toString(), notificationData);
-              logger.debug(`📢 ${autoApproveResult.canApprove ? 'Auto-approved' : 'Pending'} update notification sent for ${game.title}`);
-            } catch (notificationError) {
-              logger.error(`Failed to send update notification for ${game.title}:`, notificationError);
-              // Don't fail the whole operation if notification fails
+            // Send notification for the update only if enabled for this game
+            if (game.notificationsEnabled) {
+              try {
+                const notificationData = createUpdateNotificationData({
+                  gameTitle: game.title,
+                  version: decodedTitle,
+                  updateType: 'update', // Always 'update' for version updates
+                  gameLink: result.link,
+                  imageUrl: result.image,
+                  downloadLinks: result.downloadLinks,
+                  previousVersion: game.lastKnownVersion || game.title
+                });
+                
+                logger.debug(`📤 Notification data:`, {
+                  downloadLinks: notificationData.downloadLinks,
+                  hasDownloadLinks: !!(notificationData.downloadLinks && notificationData.downloadLinks.length > 0)
+                });
+                
+                await sendUpdateNotification(game.userId.toString(), notificationData);
+                logger.debug(`📢 ${autoApproveResult.canApprove ? 'Auto-approved' : 'Pending'} update notification sent for ${game.title}`);
+              } catch (notificationError) {
+                logger.error(`Failed to send update notification for ${game.title}:`, notificationError);
+                // Don't fail the whole operation if notification fails
+              }
+            } else {
+              logger.info(`Update found for ${game.title} but notifications are disabled`);
             }
 
             updatesFound++;

@@ -146,7 +146,9 @@ export default function UserManagePage() {
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target as HTMLInputElement | HTMLSelectElement;
+    const target = e.target as HTMLInputElement | HTMLSelectElement;
+    const { name, type } = target;
+    const value = type === 'checkbox' ? (target as HTMLInputElement).checked : target.value;
     setForm({ ...form, [name]: value });
   };
 

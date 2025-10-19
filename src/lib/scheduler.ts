@@ -1,6 +1,7 @@
 // Internal Update Scheduler - Automatic Background Update Checking
 // This runs inside the Next.js application and handles automatic update checks
 // without requiring external cron job setup
+// All games are checked uniformly (hourly) - individual notification preferences are handled per-game
 
 import connectDB from '../lib/db';
 import { TrackedGame, User } from '../lib/models';
@@ -8,7 +9,6 @@ import logger from '../utils/logger';
 
 interface ScheduledCheck {
   userId: string;
-  frequency: 'hourly' | 'daily' | 'weekly' | 'monthly';
   lastCheck: Date;
   nextCheck: Date;
 }
@@ -18,6 +18,7 @@ class UpdateScheduler {
   private checkInterval: NodeJS.Timeout | null = null;
   private cacheWarmInterval: NodeJS.Timeout | null = null;
   private scheduledChecks = new Map<string, ScheduledCheck>();
+  private readonly CHECK_FREQUENCY_HOURS = 1; // All games checked hourly
 
   constructor() {
     // Only start the scheduler in runtime, not during build
@@ -98,7 +99,7 @@ class UpdateScheduler {
 
       await connectDB();
 
-      // Get all users with tracked games that have automatic checking enabled
+      // Get all users with tracked games (all active games are checked uniformly)
       const usersWithGames = await User.aggregate([
         {
           $lookup: {
@@ -120,12 +121,7 @@ class UpdateScheduler {
             trackedGames: {
               $filter: {
                 input: '$trackedGames',
-                cond: { 
-                  $and: [
-                    { $eq: ['$$this.isActive', true] },
-                    { $ne: ['$$this.checkFrequency', 'manual'] }
-                  ]
-                }
+                cond: { $eq: ['$$this.isActive', true] }
               }
             }
           }
@@ -137,42 +133,21 @@ class UpdateScheduler {
         }
       ]);
 
-      logger.info(`📊 Found ${usersWithGames.length} users with automatic update checking enabled`);
+      logger.info(`📊 Found ${usersWithGames.length} users with tracked games`);
 
       for (const user of usersWithGames) {
-        // Group games by frequency to determine the most frequent schedule needed
-        const frequencies: { [key: string]: number } = {};
-        
-        for (const game of user.trackedGames) {
-          const freq = game.checkFrequency || 'hourly';
-          frequencies[freq] = (frequencies[freq] || 0) + 1;
-        }
-
-        // Use the most frequent schedule (prioritize: hourly > daily > weekly > monthly)
-        let userFrequency: 'hourly' | 'daily' | 'weekly' | 'monthly' = 'monthly';
-        if (frequencies.hourly > 0) {
-          userFrequency = 'hourly';
-        } else if (frequencies.daily > 0) {
-          userFrequency = 'daily';
-        } else if (frequencies.weekly > 0) {
-          userFrequency = 'weekly';
-        } else if (frequencies.monthly > 0) {
-          userFrequency = 'monthly';
-        }
-
-        // Calculate next check time
+        // All users get the same check frequency (hourly)
         const lastCheck = new Date();
-        const nextCheck = this.calculateNextCheck(lastCheck, userFrequency);
+        const nextCheck = this.calculateNextCheck(lastCheck);
 
         this.scheduledChecks.set(user._id.toString(), {
           userId: user._id.toString(),
-          frequency: userFrequency,
           lastCheck,
           nextCheck
         });
       }
 
-      logger.info(`✅ Loaded ${this.scheduledChecks.size} scheduled checks`);
+      logger.info(`✅ Loaded ${this.scheduledChecks.size} scheduled checks (all hourly)`);
     } catch (error) {
       logger.error('❌ Error loading scheduled checks:', error);
     }
@@ -207,7 +182,7 @@ class UpdateScheduler {
         const schedule = this.scheduledChecks.get(userId);
         if (schedule) {
           const newLastCheck = new Date();
-          const newNextCheck = this.calculateNextCheck(newLastCheck, schedule.frequency);
+          const newNextCheck = this.calculateNextCheck(newLastCheck);
           
           this.scheduledChecks.set(userId, {
             ...schedule,
@@ -292,26 +267,11 @@ class UpdateScheduler {
   }
 
   /**
-   * Calculate the next check time based on frequency
+   * Calculate the next check time (always 1 hour from now)
    */
-  private calculateNextCheck(lastCheck: Date, frequency: 'hourly' | 'daily' | 'weekly' | 'monthly'): Date {
+  private calculateNextCheck(lastCheck: Date): Date {
     const next = new Date(lastCheck);
-
-    switch (frequency) {
-      case 'hourly':
-        next.setHours(next.getHours() + 1);
-        break;
-      case 'daily':
-        next.setDate(next.getDate() + 1);
-        break;
-      case 'weekly':
-        next.setDate(next.getDate() + 7);
-        break;
-      case 'monthly':
-        next.setMonth(next.getMonth() + 1);
-        break;
-    }
-
+    next.setHours(next.getHours() + this.CHECK_FREQUENCY_HOURS);
     return next;
   }
 
@@ -322,45 +282,30 @@ class UpdateScheduler {
     try {
       await connectDB();
 
-      // Get user's tracked games to determine frequency
+      // Get user's tracked games
       const trackedGames = await TrackedGame.find({ 
         userId, 
-        isActive: true,
-        checkFrequency: { $ne: 'manual' }
+        isActive: true
       });
 
       if (trackedGames.length === 0) {
-        // Remove from schedule if no automatic games
+        // Remove from schedule if no games
         this.scheduledChecks.delete(userId);
-        logger.info(`📅 Removed user ${userId} from automatic schedule (no auto games)`);
+        logger.info(`📅 Removed user ${userId} from schedule (no tracked games)`);
         return;
       }
 
-      // Determine the most frequent schedule needed
-      const frequencies = trackedGames.map(game => game.checkFrequency || 'hourly');
-      let userFrequency: 'hourly' | 'daily' | 'weekly' | 'monthly' = 'monthly';
-      
-      if (frequencies.includes('hourly')) {
-        userFrequency = 'hourly';
-      } else if (frequencies.includes('daily')) {
-        userFrequency = 'daily';
-      } else if (frequencies.includes('weekly')) {
-        userFrequency = 'weekly';
-      } else if (frequencies.includes('monthly')) {
-        userFrequency = 'monthly';
-      }
-
+      // All users get hourly checks
       const now = new Date();
-      const nextCheck = this.calculateNextCheck(now, userFrequency);
+      const nextCheck = this.calculateNextCheck(now);
 
       this.scheduledChecks.set(userId, {
         userId,
-        frequency: userFrequency,
         lastCheck: now,
         nextCheck
       });
 
-      logger.info(`📅 Updated schedule for user ${userId}: ${userFrequency} checks, next at ${nextCheck.toISOString()}`);
+      logger.info(`📅 Updated schedule for user ${userId}: hourly checks, next at ${nextCheck.toISOString()}`);
     } catch (error) {
       logger.error(`❌ Error updating user schedule for ${userId}:`, error);
     }
@@ -372,12 +317,11 @@ class UpdateScheduler {
   public getStatus(): {
     isRunning: boolean;
     scheduledUsers: number;
-    nextChecks: Array<{ userId: string; frequency: string; nextCheck: Date }>;
+    nextChecks: Array<{ userId: string; nextCheck: Date }>;
   } {
     const nextChecks = Array.from(this.scheduledChecks.values())
       .map(schedule => ({
         userId: schedule.userId,
-        frequency: schedule.frequency,
         nextCheck: schedule.nextCheck
       }))
       .sort((a, b) => a.nextCheck.getTime() - b.nextCheck.getTime());

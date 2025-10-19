@@ -12,6 +12,7 @@ export async function middleware(request: NextRequest) {
     '/api/cache/warm', // Cache warming endpoint should be public for automated systems
     '/api/tracking/check-updates', // Update checking endpoint should be public for automated systems
     '/api/updates/check', // Main update check endpoint used by scheduler
+    '/api/steam', // Steam API endpoints (appid, search)
     '/icon.svg',
   ];
 

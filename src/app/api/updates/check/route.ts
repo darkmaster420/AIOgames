@@ -692,6 +692,7 @@ export async function POST(request: Request) {
                         lastKnownVersion: versionString,
                         lastVersionDate: recentGame.date || new Date().toISOString(),
                         lastChecked: new Date(),
+                        dateAdded: new Date(), // Move game to top when sequel update is detected
                         gameLink: recentGame.link,
                         hasNewUpdate: true,
                         newUpdateSeen: false,
@@ -1226,7 +1227,46 @@ export async function POST(request: Request) {
               pending.newLink === bestMatch.link
             );
             
-            if (!existingUpdate && !existingPending) {
+            // Check if this is the SAME version/build (duplicate detection)
+            const isSameVersion = (
+              (newVersionInfo.version && currentVersionInfo.version && 
+               newVersionInfo.version === currentVersionInfo.version) ||
+              (newVersionInfo.build && currentVersionInfo.build && 
+               newVersionInfo.build === currentVersionInfo.build)
+            );
+            
+            // Check if this is a LOWER version/build (should never auto-approve lower versions)
+            const isLowerVersion = (() => {
+              if (newVersionInfo.version && currentVersionInfo.version) {
+                const newParts = newVersionInfo.version.split('.').map(Number);
+                const currentParts = currentVersionInfo.version.split('.').map(Number);
+                const maxLength = Math.max(newParts.length, currentParts.length);
+                
+                for (let i = 0; i < maxLength; i++) {
+                  const newPart = newParts[i] || 0;
+                  const currentPart = currentParts[i] || 0;
+                  if (newPart < currentPart) return true;
+                  if (newPart > currentPart) return false;
+                }
+              }
+              
+              if (newVersionInfo.build && currentVersionInfo.build) {
+                const newBuild = parseInt(newVersionInfo.build);
+                const currentBuild = parseInt(currentVersionInfo.build);
+                if (!isNaN(newBuild) && !isNaN(currentBuild) && newBuild < currentBuild) {
+                  return true;
+                }
+              }
+              
+              return false;
+            })();
+            
+            // Skip if it's the same version or a lower version
+            if (isSameVersion) {
+              logger.info(`Skipping duplicate version: ${newVersionInfo.version || newVersionInfo.build} (same as current: ${currentVersionInfo.version || currentVersionInfo.build})`);
+            } else if (isLowerVersion) {
+              logger.info(`Skipping lower version: ${newVersionInfo.version || newVersionInfo.build} (current: ${currentVersionInfo.version || currentVersionInfo.build})`);
+            } else if (!existingUpdate && !existingPending) {
               // Create version string
               let versionString = decodedTitle;
               if (newVersionInfo.version) {
@@ -1280,6 +1320,7 @@ export async function POST(request: Request) {
                   lastKnownVersion: versionString,
                   lastVersionDate: bestMatch.date || new Date().toISOString(),
                   lastChecked: new Date(),
+                  dateAdded: new Date(), // Move game to top when auto-approved update is detected
                   gameLink: bestMatch.link,
                   title: cleanGameTitle(decodedTitle), // Clean the title before saving
                   originalTitle: bestMatch.title, // Update original title to the new post title
@@ -1365,20 +1406,26 @@ export async function POST(request: Request) {
                 updatesFound++;
               }
               
-              // Send notification
-              try {
-                const notificationData = createUpdateNotificationData({
-                  gameTitle: game.title,
-                  version: versionString,
-                  gameLink: bestMatch.link,
-                  imageUrl: bestMatch.image,
-                  updateType: 'update'
-                });
-                
-                await sendUpdateNotification(game.userId.toString(), notificationData);
-                logger.info(`Update notification sent for ${game.title}`);
-              } catch (notificationError) {
-                logger.error('Failed to send update notification:', notificationError);
+              // Send notification only if enabled for this game
+              if (game.notificationsEnabled) {
+                try {
+                  const notificationData = createUpdateNotificationData({
+                    gameTitle: game.title,
+                    version: versionString,
+                    gameLink: bestMatch.link,
+                    imageUrl: bestMatch.image,
+                    updateType: shouldAutoApprove ? 'update' : 'pending',
+                    downloadLinks: shouldAutoApprove ? bestMatch.downloadLinks : undefined,
+                    isPending: !shouldAutoApprove
+                  });
+                  
+                  await sendUpdateNotification(game.userId.toString(), notificationData);
+                  logger.info(`${shouldAutoApprove ? 'Update' : 'Pending update'} notification sent for ${game.title}`);
+                } catch (notificationError) {
+                  logger.error('Failed to send update notification:', notificationError);
+                }
+              } else {
+                logger.info(`Update found for ${game.title} but notifications are disabled`);
               }
             }
           }

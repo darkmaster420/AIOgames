@@ -10,11 +10,10 @@ import GOGVerification from '../../components/GOGVerification';
 
 import { SequelNotifications } from '../../components/SequelNotifications';
 import { AddCustomGame } from '../../components/AddCustomGame';
-import { FrequencySelector } from '../../components/FrequencySelector';
+import { NotificationToggle } from '../../components/NotificationToggle';
 import { SearchGameButton } from '../../components/SearchGameButton';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { ImageWithFallback } from '../../utils/imageProxy';
-import { extractReleaseGroup } from '../../utils/steamApi';
 
 import { useNotification } from '../../contexts/NotificationContext';
 import { ExternalLinkIcon } from '../../components/ExternalLinkIcon';
@@ -135,6 +134,24 @@ export default function TrackingDashboard() {
   
   // Advanced view for showing original titles
   const [showAdvanced, setShowAdvanced] = useState(false);
+  
+  // Layout mode: 'grid' (responsive), 'list' (1 column), 'horizontal' (1 row)
+  const [layoutMode, setLayoutMode] = useState<'grid' | 'list' | 'horizontal'>('grid');
+  
+  // Layout customization state
+  const [customCols, setCustomCols] = useState<number | 'auto'>('auto');
+  const [customRows, setCustomRows] = useState<number | 'auto'>('auto');
+
+  // Dropdown state for mobile layout settings
+  const [showLayoutDropdown, setShowLayoutDropdown] = useState(false);
+
+  // Compute grid style for custom layout
+  const customGridStyle = layoutMode === 'grid' ? {
+    display: 'grid',
+    gridTemplateColumns: customCols === 'auto' ? undefined : `repeat(${customCols}, minmax(0, 1fr))`,
+    gridTemplateRows: customRows === 'auto' ? undefined : `repeat(${customRows}, minmax(0, 1fr))`,
+    gap: '1rem',
+  } : undefined;
   
   // Title migration state
   const [migrationStatus, setMigrationStatus] = useState<{
@@ -515,7 +532,7 @@ export default function TrackingDashboard() {
   // Fetch latest GOG info for GOG-verified games
   useEffect(() => {
     const fetchGOGLatestForGames = async () => {
-      const toFetch = trackedGames.filter(g => g.gogVerified && g.gogProductId && !gogLatest[g._id]);
+      const toFetch = trackedGames.filter(g => g.gogVerified && g.gogProductId && g.gogProductId !== -1 && !gogLatest[g._id]);
       // Fetch sequentially with a small delay
       for (const g of toFetch) {
         try {
@@ -616,6 +633,36 @@ export default function TrackingDashboard() {
       loadTrackedGames();
     }
   }, [status, loadTrackedGames]);
+
+  // Load layout and custom grid preferences from localStorage (client-only)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedLayout = localStorage.getItem('trackingLayoutMode');
+      if (savedLayout && (savedLayout === 'grid' || savedLayout === 'list' || savedLayout === 'horizontal')) {
+        setLayoutMode(savedLayout);
+      }
+      const savedCols = localStorage.getItem('trackingCustomCols');
+      if (savedCols !== null) setCustomCols(Number(savedCols) || 'auto');
+      const savedRows = localStorage.getItem('trackingCustomRows');
+      if (savedRows !== null) setCustomRows(Number(savedRows) || 'auto');
+    }
+  }, []);
+
+  // Save layout and custom grid preferences to localStorage (client-only)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('trackingLayoutMode', layoutMode);
+    }
+  }, [layoutMode]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (customCols !== 'auto') localStorage.setItem('trackingCustomCols', String(customCols));
+      else localStorage.removeItem('trackingCustomCols');
+      if (customRows !== 'auto') localStorage.setItem('trackingCustomRows', String(customRows));
+      else localStorage.removeItem('trackingCustomRows');
+    }
+  }, [customCols, customRows]);
 
   const handleUntrack = async (gameId: string) => {
     try {
@@ -803,8 +850,9 @@ export default function TrackingDashboard() {
             <div className="mb-6">
               <div className="flex flex-col gap-4">
                 {/* Search Bar */}
-                <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
-                  <div className="relative max-w-md w-full sm:w-auto">
+                <div className="flex flex-col gap-4">
+                  {/* Mobile search - shown above stats, centered */}
+                  <div className="relative max-w-md w-full sm:hidden mx-auto">
                     <input
                       type="text"
                       placeholder="Search tracked games..."
@@ -825,14 +873,58 @@ export default function TrackingDashboard() {
                     )}
                   </div>
 
-                  {/* Tracking Stats and Advanced Toggle - grouped together */}
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 px-6 py-3 rounded-xl shadow-lg">
-                      <span className="text-sm font-medium text-slate-500 dark:text-slate-400">📊 Tracking: </span>
-                      <span className="text-lg font-bold text-gradient">{trackedGames.length} games</span>
+                  {/* Desktop: Stats and Controls Row */}
+                  <div className="hidden sm:flex items-center justify-between gap-3">
+                    {/* Left: Stats and Controls */}
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      {/* Tracking Stats */}
+                      <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 px-6 py-3 rounded-xl shadow-lg">
+                        <span className="text-sm font-medium text-slate-500 dark:text-slate-400">📊 Tracking: </span>
+                        <span className="text-lg font-bold text-gradient">{trackedGames.length} games</span>
+                      </div>
+
+                      {/* Layout Controls */}
+                      <div className="flex items-center gap-2 card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 px-3 py-2 rounded-xl shadow-lg">
+                        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Layout:</span>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => setLayoutMode('grid')}
+                            className={`p-2 rounded-lg transition-all duration-200 text-lg ${
+                              layoutMode === 'grid'
+                                ? 'bg-primary-500 text-white shadow-md transform scale-105'
+                                : 'hover:bg-white/50 dark:hover:bg-gray-700/50 text-slate-600 dark:text-slate-400'
+                            }`}
+                            title="Grid View"
+                          >
+                            🔲
+                          </button>
+                          <button
+                            onClick={() => setLayoutMode('list')}
+                            className={`p-2 rounded-lg transition-all duration-200 text-lg ${
+                              layoutMode === 'list'
+                                ? 'bg-primary-500 text-white shadow-md transform scale-105'
+                                : 'hover:bg-white/50 dark:hover:bg-gray-700/50 text-slate-600 dark:text-slate-400'
+                            }`}
+                            title="List View"
+                          >
+                            📋
+                          </button>
+                          <button
+                            onClick={() => setLayoutMode('horizontal')}
+                            className={`p-2 rounded-lg transition-all duration-200 text-lg ${
+                              layoutMode === 'horizontal'
+                                ? 'bg-primary-500 text-white shadow-md transform scale-105'
+                                : 'hover:bg-white/50 dark:hover:bg-gray-700/50 text-slate-600 dark:text-slate-400'
+                            }`}
+                            title="Horizontal Scroll"
+                          >
+                            ⬅️➡️
+                          </button>
+                        </div>
+                      </div>
                     </div>
 
-                    {/* Advanced View Toggle - next to tracking stats */}
+                    {/* Right: Advanced Toggle */}
                     <button
                       onClick={() => setShowAdvanced(!showAdvanced)}
                       className={`
@@ -846,9 +938,34 @@ export default function TrackingDashboard() {
                     >
                       <span className="flex items-center gap-2">
                         <span>🔧</span>
-                        <span className="hidden sm:inline">
-                          {showAdvanced ? 'Hide Advanced' : 'Advanced'}
-                        </span>
+                        <span>{showAdvanced ? 'Hide Advanced' : 'Advanced'}</span>
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Mobile: Tracking Stats + Advanced Button Centered */}
+                  <div className="sm:hidden flex flex-col gap-3 items-center">
+                    {/* Tracking Stats */}
+                    <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 px-6 py-3 rounded-xl shadow-lg">
+                      <span className="text-sm font-medium text-slate-500 dark:text-slate-400">📊 Tracking: </span>
+                      <span className="text-lg font-bold text-gradient">{trackedGames.length} games</span>
+                    </div>
+
+                    {/* Advanced Toggle - Centered */}
+                    <button
+                      onClick={() => setShowAdvanced(!showAdvanced)}
+                      className={`
+                        px-4 py-3 rounded-xl font-medium text-sm transition-all duration-200 shadow-lg
+                        ${showAdvanced 
+                          ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white transform scale-105' 
+                          : 'card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                        }
+                      `}
+                      title={showAdvanced ? 'Hide original post titles' : 'Show original post titles'}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span>🔧</span>
+                        <span>{showAdvanced ? 'Hide Advanced' : 'Advanced'}</span>
                       </span>
                     </button>
                   </div>
@@ -878,7 +995,7 @@ export default function TrackingDashboard() {
                 <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 px-4 py-3 rounded-xl shadow-lg">
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                     <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Sort by:</span>
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 flex-1">
                       {[
                         { key: 'title', label: 'Title', icon: '📝' },
                         { key: 'dateAdded', label: 'Added', icon: '📅' },
@@ -907,9 +1024,185 @@ export default function TrackingDashboard() {
                         </button>
                       ))}
                     </div>
+                    {/* Desktop: Search input inside same flex container - right side */}
+                    <div className="hidden sm:flex items-center max-w-xs">
+                      <input
+                        type="text"
+                        placeholder="Search tracked games..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full px-4 py-2 card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-xl text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                      />
+                    </div>
+                  </div>
+                  {/* Mobile: Layout settings dropdown */}
+                  <div className="sm:hidden ml-auto relative">
+                    <button
+                      className="px-3 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-xs font-medium shadow"
+                      onClick={() => setShowLayoutDropdown(v => !v)}
+                    >
+                      ⚙️ Layout
+                    </button>
                   </div>
                 </div>
               </div>
+
+              {/* Mobile Layout Dropdown - Rendered outside container with backdrop */}
+              {showLayoutDropdown && (
+                <>
+                  {/* Backdrop */}
+                  <div 
+                    className="sm:hidden fixed inset-0 bg-black/50 z-[9998] backdrop-blur-sm"
+                    onClick={() => setShowLayoutDropdown(false)}
+                  />
+                  {/* Dropdown */}
+                  <div className="sm:hidden fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[9999] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl p-4 w-[90vw] max-w-sm max-h-[80vh] overflow-y-auto">
+                    <div className="flex flex-col gap-3">
+                      {/* Close button */}
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Layout Settings</h3>
+                        <button
+                          onClick={() => setShowLayoutDropdown(false)}
+                          className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                        >
+                          <span className="text-lg">✕</span>
+                        </button>
+                      </div>
+                      {/* Layout Mode Buttons */}
+                      <div>
+                        <label className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2 block">Layout Mode:</label>
+                        <div className="flex gap-2">
+                              <button
+                                onClick={() => {
+                                  setLayoutMode('grid');
+                                  setShowLayoutDropdown(false);
+                                }}
+                                className={`flex-1 p-2 rounded-lg text-lg ${
+                                  layoutMode === 'grid'
+                                    ? 'bg-primary-500 text-white shadow-md'
+                                    : 'bg-gray-100 dark:bg-gray-800 text-slate-600 dark:text-slate-400'
+                                }`}
+                                title="Grid View"
+                              >
+                                🔲
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setLayoutMode('list');
+                                  setShowLayoutDropdown(false);
+                                }}
+                                className={`flex-1 p-2 rounded-lg text-lg ${
+                                  layoutMode === 'list'
+                                    ? 'bg-primary-500 text-white shadow-md'
+                                    : 'bg-gray-100 dark:bg-gray-800 text-slate-600 dark:text-slate-400'
+                                }`}
+                                title="List View"
+                              >
+                                📋
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setLayoutMode('horizontal');
+                                  setShowLayoutDropdown(false);
+                                }}
+                                className={`flex-1 p-2 rounded-lg text-lg ${
+                                  layoutMode === 'horizontal'
+                                    ? 'bg-primary-500 text-white shadow-md'
+                                    : 'bg-gray-100 dark:bg-gray-800 text-slate-600 dark:text-slate-400'
+                                }`}
+                                title="Horizontal Scroll"
+                              >
+                                ⬅️➡️
+                              </button>
+                            </div>
+                          </div>
+                          {/* Grid Customization - Always show for mobile when grid mode is active */}
+                          {layoutMode === 'grid' && (
+                            <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+                              <label className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2 block">🎛️ Grid Size:</label>
+                              <div className="flex flex-col gap-2">
+                                <div className="flex items-center gap-2">
+                                  <label className="text-xs text-slate-500 dark:text-slate-400 w-16">Columns:</label>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={12}
+                                    value={customCols === 'auto' ? '' : customCols}
+                                    onChange={e => setCustomCols(e.target.value === '' ? 'auto' : Math.max(1, Math.min(12, Number(e.target.value))))}
+                                    className="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm bg-white dark:bg-gray-900 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                    placeholder="auto"
+                                  />
+                                  <button
+                                    type="button"
+                                    className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${customCols === 'auto' ? 'bg-primary-500 text-white shadow-md' : 'bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-700'}`}
+                                    onClick={() => setCustomCols('auto')}
+                                  >Auto</button>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <label className="text-xs text-slate-500 dark:text-slate-400 w-16">Rows:</label>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={12}
+                                    value={customRows === 'auto' ? '' : customRows}
+                                    onChange={e => setCustomRows(e.target.value === '' ? 'auto' : Math.max(1, Math.min(12, Number(e.target.value))))}
+                                    className="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm bg-white dark:bg-gray-900 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                    placeholder="auto"
+                                  />
+                                  <button
+                                    type="button"
+                                    className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${customRows === 'auto' ? 'bg-primary-500 text-white shadow-md' : 'bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-700'}`}
+                                    onClick={() => setCustomRows('auto')}
+                                  >Auto</button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                  </>
+                )}
+
+              {/* Grid customization - Desktop only, show below when in advanced mode */}
+              {showAdvanced && layoutMode === 'grid' && (
+                <div className="hidden sm:flex items-center justify-center gap-4 card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 px-6 py-4 rounded-xl shadow-lg">
+                  <span className="text-sm font-medium text-slate-500 dark:text-slate-400">🎛️ Grid Size:</span>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-slate-500 dark:text-slate-400">Columns:</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={12}
+                      value={customCols === 'auto' ? '' : customCols}
+                      onChange={e => setCustomCols(e.target.value === '' ? 'auto' : Math.max(1, Math.min(12, Number(e.target.value))))}
+                      className="w-20 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm bg-white dark:bg-gray-900 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      placeholder="auto"
+                    />
+                    <button
+                      type="button"
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${customCols === 'auto' ? 'bg-primary-500 text-white shadow-md' : 'bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-700'}`}
+                      onClick={() => setCustomCols('auto')}
+                    >Auto</button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-slate-500 dark:text-slate-400">Rows:</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={12}
+                      value={customRows === 'auto' ? '' : customRows}
+                      onChange={e => setCustomRows(e.target.value === '' ? 'auto' : Math.max(1, Math.min(12, Number(e.target.value))))}
+                      className="w-20 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm bg-white dark:bg-gray-900 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      placeholder="auto"
+                    />
+                    <button
+                      type="button"
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${customRows === 'auto' ? 'bg-primary-500 text-white shadow-md' : 'bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-700'}`}
+                      onClick={() => setCustomRows('auto')}
+                    >Auto</button>
+                  </div>
+                </div>
+              )}
 
               {searchQuery && (
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-4 text-center sm:text-left">
@@ -971,9 +1264,36 @@ export default function TrackingDashboard() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4 lg:gap-6">
+          <>
+            {/* Horizontal scroll hint */}
+            {layoutMode === 'horizontal' && filteredGames.length > 0 && (
+              <div className="mb-4 text-center">
+                <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg text-sm text-blue-700 dark:text-blue-300">
+                  <span>⬅️</span>
+                  <span>Scroll horizontally to browse games</span>
+                  <span>➡️</span>
+                </div>
+              </div>
+            )}
+            <div 
+              className={`
+                ${layoutMode === 'grid' 
+                  ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4 lg:gap-6'
+                  : layoutMode === 'list'
+                  ? 'flex flex-col gap-4 max-w-4xl mx-auto w-full'
+                  : 'flex flex-row gap-6 overflow-x-auto pb-4 snap-x snap-mandatory'
+                }
+              `}
+              style={layoutMode === 'grid' ? customGridStyle : undefined}
+            >
             {filteredGames.map((game) => (
-              <div key={game._id} className="relative game-card animate-fade-in flex flex-col rounded-lg shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden pb-16 bg-white dark:bg-gray-800">
+              <div 
+                key={game._id} 
+                className={`
+                  relative game-card animate-fade-in flex flex-col rounded-lg shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden pb-16 bg-white dark:bg-gray-800
+                  ${layoutMode === 'horizontal' ? 'min-w-[300px] sm:min-w-[350px] snap-start' : ''}
+                `}
+              >
                 {/* Blended background image */}
                 {game.image && (
                   <div
@@ -1067,14 +1387,6 @@ export default function TrackingDashboard() {
                                 className="flex-shrink-0"
                               />
                             </div>
-                            {showAdvanced && (() => {
-                              const releaseGroup = extractReleaseGroup(game.originalTitle);
-                              return releaseGroup && (
-                                <span className="px-2 py-1 bg-gradient-to-r from-purple-500 to-blue-500 text-white text-xs font-bold rounded-full shadow-sm">
-                                  {releaseGroup}
-                                </span>
-                              );
-                            })()}
                             {game.hasNewUpdate && !game.newUpdateSeen && (
                               <div className="flex items-center gap-2">
                                 <span className="px-2 py-1 bg-gradient-to-r from-red-500 to-pink-500 text-white text-xs font-bold rounded-full animate-pulse shadow-lg">
@@ -1188,12 +1500,10 @@ export default function TrackingDashboard() {
                             gameTitle={game.title}
                             currentGogId={game.gogProductId}
                             currentGogName={game.gogName}
-                            currentGogVersion={game.gogVersion}
-                            currentGogBuildId={game.gogBuildId}
                             isVerified={game.gogVerified}
-                            gogLatestVersion={gogLatest[game._id]?.version}
-                            gogLatestBuildId={gogLatest[game._id]?.buildId}
-                            gogLatestDate={gogLatest[game._id]?.date}
+                            gogLatestVersion={undefined}
+                            gogLatestBuildId={undefined}
+                            gogLatestDate={undefined}
                             onVerificationComplete={() => {
                               // Refresh the game data after verification
                               loadTrackedGames();
@@ -1249,10 +1559,10 @@ export default function TrackingDashboard() {
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <FrequencySelector
+                        <NotificationToggle
                           gameId={game._id}
-                          currentFrequency={game.checkFrequency}
-                          onFrequencyChanged={loadTrackedGames}
+                          currentEnabled={game.notificationsEnabled}
+                          onToggleChanged={loadTrackedGames}
                         />
                       </div>
                     </div>
@@ -1356,6 +1666,7 @@ export default function TrackingDashboard() {
               </div>
             ))}
           </div>
+          </>
         )}
         </div>
       </div>

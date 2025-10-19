@@ -496,7 +496,22 @@ function DashboardInner() {
         {/* Mobile-optimized Games Grid */}
         {(showRecentGames || searchQuery !== '') && (
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
-            {games.length === 0 && !loading ? (
+            {loading ? (
+              <div className="col-span-full flex flex-col items-center justify-center py-12 space-y-4">
+                <div className="relative">
+                  <div className="animate-spin rounded-full h-16 w-16 border-4 border-gray-200 dark:border-gray-700 border-t-blue-500 dark:border-t-blue-400"></div>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-2xl">🔍</span>
+                  </div>
+                </div>
+                <p className="text-gray-600 dark:text-gray-400 font-medium">
+                  {searchQuery ? `Searching for "${searchQuery}"...` : 'Loading games...'}
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-500">
+                  Please wait while we fetch the results
+                </p>
+              </div>
+            ) : games.length === 0 ? (
               <div className="col-span-full text-center py-8 text-gray-500 dark:text-gray-400">
                 {error ? 'Failed to load games' : 'No games found'}
               </div>
@@ -630,7 +645,7 @@ function DashboardInner() {
                 </div>
               );
             })
-          )}
+            )}
           </div>
         )}
         {loading && (

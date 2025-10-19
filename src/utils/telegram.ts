@@ -203,8 +203,10 @@ export function formatGameUpdateMessage(gameData: {
   // Set header based on update status
   if (changeType === 'user_approved' || changeType === 'automatic') {
     text = `✅ <b>Update Approved!</b>\n\n`;
+  } else if (changeType === 'pending') {
+    text = `🔔 <b>New Pending Update!</b>\n\n`;
   } else {
-    text = `🎮 <b>New Pending Update!</b>\n\n`;
+    text = `🎮 <b>New Update Found!</b>\n\n`;
   }
 
   // Game title and version info
@@ -240,19 +242,25 @@ export function formatGameUpdateMessage(gameData: {
     if (changeType === 'automatic') {
       text += `🤖 <b>Note:</b> Auto-approved update\n`;
     }
+  } else if (changeType === 'pending') {
+    text += `⏳ <b>Status:</b> Pending Approval\n`;
+    text += `📝 <b>Action Required:</b> Review and approve in your tracking page\n`;
   } else if (changeType && changeType !== 'unknown') {
     text += `📝 <b>Type:</b> ${changeType === 'update' ? 'Version Update' : changeType.replace('_', ' ')}\n`;
   }
   
   // Customize link text based on update type
   if (changeType === 'user_approved' || changeType === 'automatic') {
-    text += `\n🔗 <b>Download Now</b>`;
+    text += `\n🔗 <a href="${gameLink || '/tracking'}">View Game & Download</a>`;
+  } else if (changeType === 'pending') {
+    text += `\n🔗 <a href="${gameLink || '/tracking'}">Review & Approve Update</a>`;
   } else {
-    text += `\n🔗 <a href="${gameLink || '/tracking'}">View Pending Update</a>`;
+    text += `\n🔗 <a href="${gameLink || '/tracking'}">View Update</a>`;
   }
   
   console.log(`📥 Processing download links in Telegram formatter:`, downloadLinks);
-  if (downloadLinks && downloadLinks.length > 0) {
+  // Only show download links for approved updates
+  if ((changeType === 'user_approved' || changeType === 'automatic') && downloadLinks && downloadLinks.length > 0) {
     text += `\n\n📥 <b>Download Links:</b>\n`;
     downloadLinks.forEach(link => {
       // Make each link clickable with service name

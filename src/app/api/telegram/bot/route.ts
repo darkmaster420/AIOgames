@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
-import { authOptions } from '../../auth/[...nextauth]/route';
+import { authOptions } from '../../../../lib/auth-options';
 import connectDB from '../../../../lib/db';
 import { User } from '../../../../lib/models';
 import { TelegramBotClient } from '../../../../lib/telegramBot';

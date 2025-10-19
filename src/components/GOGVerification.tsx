@@ -13,8 +13,6 @@ interface GOGVerificationProps {
   gameTitle: string;
   currentGogId?: number;
   currentGogName?: string;
-  currentGogVersion?: string;
-  currentGogBuildId?: string;
   isVerified?: boolean;
   gogLatestVersion?: string;
   gogLatestBuildId?: string;
@@ -27,9 +25,7 @@ export default function GOGVerification({
   gameTitle,
   currentGogId,
   currentGogName,
-  currentGogVersion: _currentGogVersion,
-  currentGogBuildId: _currentGogBuildId,
-  isVerified = false,
+  isVerified,
   gogLatestVersion,
   gogLatestBuildId,
   gogLatestDate,
@@ -142,45 +138,89 @@ interface GOGDBSearchResult {
     }
   };
 
+  const handleMarkAsNonGOG = async () => {
+    setIsLinking(true);
+    try {
+      // Mark as verified but with -1 GOG ID (indicating it's not on GOG)
+      const response = await fetch(`/api/games/gog-verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gameId,
+          gogId: -1, // Special value to indicate "not on GOG"
+          gogName: 'Not on GOG',
+          gogVersion: undefined,
+          gogBuildId: undefined
+        })
+      });
+
+      if (response.ok) {
+        showSuccess('✅ Marked as Non-GOG game');
+        setShowResults(false);
+        setSearchResults([]);
+        setSearchQuery('');
+        if (onVerificationComplete) onVerificationComplete();
+      } else {
+        showError('❌ Failed to mark as Non-GOG');
+      }
+    } catch (error) {
+      console.error('Mark as Non-GOG error:', error);
+      showError('❌ Failed to mark as Non-GOG');
+    } finally {
+      setIsLinking(false);
+    }
+  };
+
   return (
     <div className="gog-verification-container space-y-3">
       {/* Current GOG Status */}
       {isVerified && currentGogId ? (
-        <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+        <div className={`p-3 border rounded-lg ${
+          currentGogId === -1 
+            ? 'bg-gray-500/10 border-gray-500/30' 
+            : 'bg-purple-500/10 border-purple-500/30'
+        }`}>
           <div className="flex items-start justify-between">
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-sm font-medium text-purple-400">GOG Verified</span>
-                <span className="px-2 py-0.5 text-xs bg-purple-500/20 text-purple-300 rounded">
-                  ID: {currentGogId}
+                <span className={`text-sm font-medium ${
+                  currentGogId === -1 ? 'text-gray-400' : 'text-purple-400'
+                }`}>
+                  {currentGogId === -1 ? 'Not on GOG' : 'GOG Verified'}
                 </span>
+                {currentGogId !== -1 && (
+                  <span className="px-2 py-0.5 text-xs bg-purple-500/20 text-purple-300 rounded">
+                    ID: {currentGogId}
+                  </span>
+                )}
               </div>
-              <div className="text-sm text-gray-300 mb-1">{currentGogName}</div>
-              {/* Latest Version Info */}
-              {(gogLatestVersion || gogLatestBuildId) && (
-                <div className="mt-2 pt-2 border-t border-purple-500/20">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-semibold text-purple-300">Latest Version:</span>
-                    {gogLatestVersion && (
-                      <span className="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 rounded text-xs">
-                        v{gogLatestVersion}
-                      </span>
-                    )}
-                    {gogLatestBuildId && (
-                      <span className="px-1.5 py-0.5 bg-sky-100 dark:bg-sky-900 text-sky-800 dark:text-sky-200 rounded text-xs">
-                        Build {gogLatestBuildId}
-                      </span>
-                    )}
-                    {gogLatestDate && (
-                      <span className="text-xs text-gray-400">
-                        {new Date(gogLatestDate).toLocaleDateString()}
-                      </span>
-                    )}
-                    <span className="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded text-[10px] font-bold">
-                      PRIORITY
-                    </span>
-                  </div>
-                </div>
+              {currentGogId !== -1 && (
+                <>
+                  <div className="text-sm text-gray-300 mb-1">{currentGogName}</div>
+                  {/* Latest Version Info */}
+                  {(gogLatestVersion || gogLatestBuildId) && (
+                    <div className="mt-2 pt-2 border-t border-purple-500/20">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-semibold text-purple-300">Latest Version:</span>
+                        {gogLatestVersion && (
+                          <span className="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 rounded text-xs">
+                            v{gogLatestVersion}
+                          </span>
+                        )}
+                        {gogLatestBuildId && (
+                          <span className="px-1.5 py-0.5 bg-sky-100 dark:bg-sky-900 text-sky-800 dark:text-sky-200 rounded text-xs">
+                            Build {gogLatestBuildId}
+                          </span>
+                        )}
+                        {gogLatestDate && (
+                          <span className="text-xs text-gray-400">
+                            {new Date(gogLatestDate).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
             <div className="flex gap-2">
@@ -297,6 +337,17 @@ interface GOGDBSearchResult {
                   No results found for &quot;{searchQuery}&quot;
                 </div>
               ) : null}
+
+              {/* Action Buttons */}
+              <div className="flex gap-2 pt-3 border-t border-gray-600">
+                <button
+                  onClick={handleMarkAsNonGOG}
+                  disabled={isLinking}
+                  className="px-3 py-2 text-sm font-medium bg-gray-600/50 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {isLinking ? '⏳' : 'Mark as Non-GOG'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

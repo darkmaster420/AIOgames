@@ -93,11 +93,6 @@ const userSchema = new mongoose.Schema({
       notifyImmediately: {
         type: Boolean,
         default: true
-      },
-      updateFrequency: {
-        type: String,
-        enum: ['immediate', 'daily', 'weekly'],
-        default: 'daily'
       }
     },
     sequelDetection: {
@@ -216,11 +211,6 @@ const trackedGameSchema = new mongoose.Schema({
   notificationsEnabled: {
     type: Boolean,
     default: true
-  },
-  checkFrequency: {
-    type: String,
-    enum: ['hourly', 'daily', 'weekly', 'monthly', 'manual'],
-    default: 'hourly'
   },
   steamVerified: {
     type: Boolean,
@@ -595,6 +585,47 @@ trackedGameSchema.index({ source: 1, isActive: 1 });
 trackedGameSchema.index({ lastChecked: 1 });
 trackedGameSchema.index({ title: 'text', originalTitle: 'text' });
 
+// GOG Version Cache Schema - for caching GOG version data to avoid repeated API calls
+const gogVersionCacheSchema = new mongoose.Schema({
+  productId: {
+    type: Number,
+    required: true
+  },
+  os: {
+    type: String,
+    enum: ['windows', 'mac', 'linux'],
+    required: true,
+    default: 'windows'
+  },
+  version: {
+    type: String
+  },
+  buildId: {
+    type: String
+  },
+  date: {
+    type: String
+  },
+  cachedAt: {
+    type: Date,
+    default: Date.now,
+    required: true
+  },
+  expiresAt: {
+    type: Date,
+    required: true
+    // index removed - using schema.index() below instead to avoid duplicate
+  }
+}, {
+  timestamps: false
+});
+
+// Compound index for quick lookups
+gogVersionCacheSchema.index({ productId: 1, os: 1 }, { unique: true });
+// TTL index to automatically remove expired documents
+gogVersionCacheSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+
 // Create and export models
 export const User = mongoose.models.User || mongoose.model('User', userSchema);
 export const TrackedGame = mongoose.models.TrackedGame || mongoose.model('TrackedGame', trackedGameSchema);
+export const GOGVersionCache = mongoose.models.GOGVersionCache || mongoose.model('GOGVersionCache', gogVersionCacheSchema);

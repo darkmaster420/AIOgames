@@ -15,7 +15,10 @@ function SignInInner() {
   const [error, setError] = useState('');
   const [inputValidation, setInputValidation] = useState<{ isValid: boolean; type: 'email' | 'username' | null }>({ isValid: false, type: null });
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get('callbackUrl') || '/';
+  // Get callbackUrl and ensure it's a valid path (not double-encoded)
+  const rawCallbackUrl = searchParams.get('callbackUrl') || '/';
+  // If the callback URL looks like an encoded URL, decode it
+  const callbackUrl = rawCallbackUrl.includes('%') ? decodeURIComponent(rawCallbackUrl) : rawCallbackUrl;
   const message = searchParams.get('message');
   const { status } = useSession();
 

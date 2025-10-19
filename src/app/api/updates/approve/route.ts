@@ -4,7 +4,7 @@ import { TrackedGame, User } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { sendTelegramMessage, sendTelegramPhoto, getTelegramConfig, formatGameUpdateMessage } from '../../../../utils/telegram';
 
-// POST: Approve a pending update
+// POST: Approve a pending update (Admin only)
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
@@ -12,6 +12,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
+      );
+    }
+
+    // Check if user is admin
+    await connectDB();
+    const userDoc = await User.findById(user.id);
+    if (!userDoc || userDoc.role !== 'admin') {
+      return NextResponse.json(
+        { error: 'Forbidden: Admin access required to approve updates' },
+        { status: 403 }
       );
     }
 
@@ -24,7 +34,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await connectDB();
+    // No need to call connectDB again - already called above for admin check
 
     // Find the game and get the pending update
     const game = await TrackedGame.findOne({
@@ -84,6 +94,7 @@ export async function POST(request: NextRequest) {
       versionNumberSource: 'user_approved',
       versionNumberLastUpdated: new Date(),
       lastVersionDate: pendingUpdate.dateFound,
+      dateAdded: new Date(), // Move game to top of list when update is approved
       title: pendingUpdate.newTitle,
       originalTitle: pendingUpdate.newTitle, // Update original title to match new title
       gameLink: pendingUpdate.newLink,

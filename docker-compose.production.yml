@@ -31,5 +31,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-
-# No volumes needed - MongoDB Atlas handles data persistence

@@ -1,5 +1,6 @@
-// Steam API Worker utility functions
-// Uses the Steam API Worker at https://steamapi.a7a8524.workers.dev
+// Steam API utility functions
+// Uses the integrated Steam API at /api/steam
+// The AI endpoint remains as a separate Cloudflare Worker
 
 interface SteamGameResult {
   appid: string;
@@ -65,10 +66,22 @@ interface SteamApiError {
   details?: unknown;
 }
 
-// Prefer env vars to configure the Worker endpoint; default to provided URL
+// Use local integrated Steam API instead of external worker
+// In browser/Next.js context, use relative URL. In Node.js, need absolute URL.
+const getDefaultBase = () => {
+  // If running in browser/Next.js, use relative URL
+  if (typeof window !== 'undefined') {
+    return '/api/steam';
+  }
+  // In Node.js (e.g., tests, scripts), default to localhost
+  return process.env.NEXT_PUBLIC_APP_URL 
+    ? `${process.env.NEXT_PUBLIC_APP_URL}/api/steam`
+    : 'http://localhost:3002/api/steam';
+};
+
 export const STEAM_API_BASE =
   (typeof process !== 'undefined' && (process.env.NEXT_PUBLIC_STEAM_API_BASE || process.env.STEAM_API_BASE)) ||
-  'https://steamapi.a7a8524.workers.dev';
+  getDefaultBase();
 const REQUEST_TIMEOUT = 10000; // 10 seconds
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
 // Shorter TTL for frequently changing builds from SteamDB via Worker
@@ -167,7 +180,7 @@ export interface SteamAppAggregatedDetails {
 
 /**
  * Fetch aggregated details (including SteamDB builds/versions) for a Steam App ID
- * Uses the Worker's /appid endpoint.
+ * Uses the integrated Steam API /api/steam endpoint.
  */
 export async function getSteamAppDetails(appId: string | number): Promise<SteamAppAggregatedDetails> {
   if (!appId) throw new Error('App ID cannot be empty');
@@ -177,7 +190,7 @@ export async function getSteamAppDetails(appId: string | number): Promise<SteamA
   const cached = getCachedResult(cacheKey);
   if (cached) return cached as SteamAppAggregatedDetails;
 
-  const url = `${STEAM_API_BASE}/appid/${encodeURIComponent(normalizedId)}`;
+  const url = `${STEAM_API_BASE}?action=appid&id=${encodeURIComponent(normalizedId)}`;
   const data = await steamApiFetch(url) as SteamAppAggregatedDetails;
 
   // Cache with shorter TTL since builds change more often
@@ -275,7 +288,7 @@ export async function searchSteamGames(query: string, limit: number = 10): Promi
 
   try {
     const encodedQuery = encodeURIComponent(query.trim());
-    const url = `${STEAM_API_BASE}/search?q=${encodedQuery}&limit=${limit}`;
+    const url = `${STEAM_API_BASE}?action=search&q=${encodedQuery}`;
     
     const response = await steamApiFetch(url) as {
       results?: SteamGameResult[];

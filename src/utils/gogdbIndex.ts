@@ -1,10 +1,13 @@
 /**
  * GOG + GOGDB API Manager
  * Uses GOG's official catalog API for searches, GOGDB for product details
- * No local database needed - fast and always up-to-date
+ * Implements MongoDB caching to avoid repeated API calls
  */
 
 import logger from './logger';
+import { calculateGameSimilarity } from './steamApi';
+import connectDB from '../lib/db';
+import { GOGVersionCache } from '../lib/models';
 
 const GOG_CATALOG_API = 'https://catalog.gog.com/v1/catalog';
 const GOGDB_API = 'https://www.gogdb.org/data';
@@ -103,11 +106,26 @@ export async function searchGOGDBIndex(query: string, limit: number = 10): Promi
 
     // Prioritize games, filter out DLCs and packs unless no games found
     const gamesOnly = allResults.filter((r: GOGDBIndexGame) => r.type === 'game');
-    const results = gamesOnly.length > 0 ? gamesOnly : allResults;
+  const results = gamesOnly.length > 0 ? gamesOnly : allResults;
 
-    logger.info(`🎮 Filtered to ${results.length} game(s) from ${allResults.length} total results`);
+    // Apply similarity filtering - require at least 90% match to prevent false positives
+    // like "Ball x Pit" matching "The Bureau: XCOM Declassified"
+    const MIN_SIMILARITY = 0.90;
+    const resultsWithSimilarity = results.map(result => ({
+      ...result,
+      similarity: calculateGameSimilarity(query, result.title)
+    }));
+
+    // Filter by minimum similarity and sort by best match
+    const filteredResults = resultsWithSimilarity
+      .filter(r => r.similarity >= MIN_SIMILARITY)
+      .sort((a, b) => b.similarity - a.similarity);
+
+    logger.info(`🎮 Filtered to ${filteredResults.length} game(s) from ${allResults.length} total results (min similarity: ${MIN_SIMILARITY})`);
     
-    return results;
+    // Return without similarity property in the result
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    return filteredResults.map(({ similarity, ...game }) => game);
   } catch (error) {
     logger.error('❌ Failed to search GOG catalog:', error);
     return [];
@@ -236,6 +254,7 @@ export async function getGOGDBBuildsFromIndex(
 
 /**
  * Get latest version/build info for a GOG product
+ * Uses MongoDB cache with 24-hour TTL to minimize API calls
  */
 export async function getLatestGOGVersion(
   productId: number,
@@ -246,18 +265,62 @@ export async function getLatestGOGVersion(
   date?: string;
 } | null> {
   try {
-    const builds = await getGOGDBBuildsFromIndex(productId, os);
+    // Connect to database
+    await connectDB();
     
-    if (builds.length === 0) {
-      return null;
+    const now = new Date();
+    
+    // Check MongoDB cache first
+    const cachedEntry = await GOGVersionCache.findOne({
+      productId,
+      os,
+      expiresAt: { $gt: now }
+    });
+    
+    if (cachedEntry) {
+      logger.info(`✅ GOG version cache hit for product ${productId} (${os})`);
+      return {
+        version: cachedEntry.version,
+        buildId: cachedEntry.buildId,
+        date: cachedEntry.date
+      };
     }
 
+    logger.info(`🔄 GOG version cache miss for product ${productId} (${os}) - fetching from API`);
+    
+    // Fetch fresh from GOGDB
+    const builds = await getGOGDBBuildsFromIndex(productId, os);
+    if (builds.length === 0) {
+      logger.warn(`⚠️ No builds found for GOG product ${productId} (${os})`);
+      return null;
+    }
+    
     const latestBuild = builds[0];
-    return {
+    const versionData = {
       version: latestBuild.version || undefined,
       buildId: latestBuild.build_id,
       date: latestBuild.date_published
     };
+    
+    // Store in MongoDB cache with 24-hour expiration
+    const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    await GOGVersionCache.findOneAndUpdate(
+      { productId, os },
+      {
+        productId,
+        os,
+        version: versionData.version,
+        buildId: versionData.buildId,
+        date: versionData.date,
+        cachedAt: now,
+        expiresAt
+      },
+      { upsert: true, new: true }
+    );
+    
+    logger.info(`💾 GOG version cache updated for product ${productId} (${os}) - expires at ${expiresAt.toISOString()}`);
+    
+    return versionData;
   } catch (error) {
     logger.error('❌ Failed to get latest GOG version:', error);
     return null;
