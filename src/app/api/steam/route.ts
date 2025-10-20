@@ -30,41 +30,69 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      let results;
+      let results: Array<{
+        appid: string;
+        name: string;
+        type: 'game' | 'dlc' | 'demo' | 'beta' | 'tool';
+        developers?: string[];
+        publishers?: string[];
+        owners?: string;
+        header_image?: string;
+      }> = [];
+      let source = 'steam_web_api';
       
-      // If query is numeric, treat as appid
+      // If query is numeric, treat as appid lookup
       if (/^\d+$/.test(q)) {
-        const data = await fetchSteamSpyAppDetails(q);
-        results = { source: 'steamspy', q, type: 'appid', results: data };
-      } else {
-        // Text search
-        const searchResults = await searchSteamSpyByName(q);
-        
-        // Fallback to Steam Web API if SteamSpy results are poor
-        const shouldTryFallback = 
-          searchResults.length === 1 && searchResults[0].appid === null ||
-          searchResults.length === 0 ||
-          (searchResults.length < 3 && !searchResults.some(r => 
-            r.name && r.name.toLowerCase().includes(q.toLowerCase())
-          ));
-        
-        if (shouldTryFallback) {
-          try {
-            const steamResults = await searchSteamWebAPI(q);
-            if (steamResults.length > 0) {
-              results = { source: 'steam_web_api', q, type: 'search', results: steamResults };
-            } else {
-              results = { source: 'steamspy', q, type: 'search', results: searchResults };
-            }
-          } catch {
-            results = { source: 'steamspy', q, type: 'search', results: searchResults };
+        try {
+          const data = await fetchSteamSpyAppDetails(q);
+          if (data && data.name) {
+            results = [{
+              appid: q,
+              name: data.name,
+              type: 'game' as const,
+              developers: data.developer ? [data.developer] : undefined,
+              publishers: data.publisher ? [data.publisher] : undefined,
+              owners: data.owners,
+            }];
+            source = 'steamspy';
           }
-        } else {
-          results = { source: 'steamspy', q, type: 'search', results: searchResults };
+        } catch (error) {
+          console.error('SteamSpy appid lookup error:', error);
+        }
+      } else {
+        // Text search - try Steam Web API first (more reliable)
+        try {
+          const steamResults = await searchSteamWebAPI(q);
+          if (steamResults && steamResults.length > 0) {
+            results = steamResults;
+            source = 'steam_web_api';
+          }
+        } catch (error) {
+          console.error('Steam Web API search error:', error);
+        }
+        
+        // Fallback to SteamSpy if Steam Web API failed
+        if (results.length === 0) {
+          try {
+            const searchResults = await searchSteamSpyByName(q);
+            if (searchResults && searchResults.length > 0) {
+              results = searchResults;
+              source = 'steamspy';
+            }
+          } catch (error) {
+            console.error('SteamSpy search error:', error);
+          }
         }
       }
       
-      return NextResponse.json(results, { headers: CORS_HEADERS });
+      // Return in the format expected by steamApi.ts
+      return NextResponse.json({
+        query: q,
+        results: results,
+        total: results.length,
+        source: source,
+        cached: false
+      }, { headers: CORS_HEADERS });
     }
     
     // App details endpoint: /api/steam?action=appid&id=12345
@@ -154,45 +182,84 @@ async function fetchSteamDBRss(appid: string) {
 }
 
 async function searchSteamSpyByName(query: string) {
-  const response = await fetch(
-    `https://steamspy.com/api.php?request=search&query=${encodeURIComponent(query)}`,
-    { next: { revalidate: 3600 } }
-  );
-  const data = await response.json();
-  
-  if (!data || typeof data !== 'object') {
-    return [{ appid: null, name: 'No results found' }];
+  try {
+    const response = await fetch(
+      `https://steamspy.com/api.php?request=search&query=${encodeURIComponent(query)}`,
+      { 
+        next: { revalidate: 3600 },
+        signal: AbortSignal.timeout(5000) // 5 second timeout
+      }
+    );
+    
+    if (!response.ok) {
+      throw new Error(`SteamSpy API returned ${response.status}`);
+    }
+    
+    const text = await response.text();
+    if (!text || text.trim() === '') {
+      return [];
+    }
+    
+    const data = JSON.parse(text);
+    
+    if (!data || typeof data !== 'object' || Object.keys(data).length === 0) {
+      return [];
+    }
+    
+    // SteamSpy returns object with appids as keys
+    return Object.entries(data).map(([appid, game]) => {
+      const gameData = game as { 
+        name?: string; 
+        developer?: string; 
+        publisher?: string; 
+        owners?: string; 
+        price?: string;
+      };
+      return {
+        appid: appid,
+        name: gameData.name || 'Unknown',
+        type: 'game' as const,
+        developers: gameData.developer ? [gameData.developer] : undefined,
+        publishers: gameData.publisher ? [gameData.publisher] : undefined,
+        owners: gameData.owners,
+      };
+    });
+  } catch (error) {
+    console.error('SteamSpy search error:', error);
+    return [];
   }
-  
-  return Object.entries(data).map(([appid, game]) => {
-    const gameData = game as { name?: string; developer?: string; publisher?: string; owners?: string; price?: string };
-    return {
-      appid: parseInt(appid),
-      name: gameData.name,
-      developer: gameData.developer,
-      publisher: gameData.publisher,
-      owners: gameData.owners,
-      price: gameData.price,
-    };
-  });
 }
 
 async function searchSteamWebAPI(query: string) {
-  const response = await fetch(
-    `https://steamcommunity.com/actions/SearchApps/${encodeURIComponent(query)}`,
-    { next: { revalidate: 3600 } }
-  );
-  const data = await response.json();
-  
-  if (!Array.isArray(data)) {
+  try {
+    const response = await fetch(
+      `https://steamcommunity.com/actions/SearchApps/${encodeURIComponent(query)}`,
+      { 
+        next: { revalidate: 3600 },
+        signal: AbortSignal.timeout(5000) // 5 second timeout
+      }
+    );
+    
+    if (!response.ok) {
+      throw new Error(`Steam Web API returned ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (!Array.isArray(data)) {
+      return [];
+    }
+    
+    return data.slice(0, 20).map((item: { appid: string | number; name: string; logo: string }) => ({
+      appid: String(item.appid),
+      name: item.name,
+      type: 'game' as const,
+      header_image: item.logo,
+    }));
+  } catch (error) {
+    console.error('Steam Web API search error:', error);
     return [];
   }
-  
-  return data.map((item: { appid: string | number; name: string; logo: string }) => ({
-    appid: parseInt(String(item.appid)),
-    name: item.name,
-    logo: item.logo,
-  }));
 }
 
 interface RssItem {
