@@ -422,6 +422,7 @@ All of these projects are open source and free to use:
 - [ ] Flaresolverrless GameAPI 
 - [ ] Add Custom themes
 - [ ] approve updates via telegram
+- [ ] Game Pages with links
 
 ---
 
