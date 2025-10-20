@@ -73,10 +73,12 @@ const getDefaultBase = () => {
   if (typeof window !== 'undefined') {
     return '/api/steam';
   }
-  // In Node.js (e.g., tests, scripts), default to localhost
-  return process.env.NEXT_PUBLIC_APP_URL 
+  // In Node.js (e.g., tests, scripts), use NEXTAUTH_URL or fallback to localhost:3000
+  return process.env.NEXTAUTH_URL 
+    ? `${process.env.NEXTAUTH_URL}/api/steam`
+    : process.env.NEXT_PUBLIC_APP_URL 
     ? `${process.env.NEXT_PUBLIC_APP_URL}/api/steam`
-    : 'http://localhost:3002/api/steam';
+    : 'http://localhost:3000/api/steam';
 };
 
 export const STEAM_API_BASE =
