@@ -5,6 +5,11 @@ import { cleanGameTitle } from '../../../../utils/steamApi';
 let cachedRecent: { data: unknown; timestamp: number; siteKey: string } | null = null;
 const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours (extended from 1 hour)
 
+// Export function to clear cache (can be called from other routes)
+export function clearRecentGamesCache() {
+  cachedRecent = null;
+}
+
 interface Game {
   siteType: string;
   id: string;
@@ -31,10 +36,20 @@ export async function GET(request: NextRequest) {
       const apiUrl = process.env.GAME_API_URL + '/recent' || 'https://gameapi.a7a8524.workers.dev/recent';
       const response = await fetch(apiUrl, { next: { revalidate: 0 }, cache: 'no-store' });
       if (!response.ok) {
+        // Clear cache on API failure to prevent caching error responses
+        cachedRecent = null;
         throw new Error(`API request failed: ${response.status}`);
       }
       data = await response.json();
-      cachedRecent = { data, timestamp: now, siteKey: cacheKey };
+      
+      // Only cache if the response is valid
+      const validationData = data as { success: boolean; results: unknown[] };
+      if (validationData.success && validationData.results && Array.isArray(validationData.results)) {
+        cachedRecent = { data, timestamp: now, siteKey: cacheKey };
+      } else {
+        // Don't cache invalid responses
+        cachedRecent = null;
+      }
     }
 
     // Extract the results array from the API response structure

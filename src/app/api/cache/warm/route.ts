@@ -1,6 +1,20 @@
 import { NextResponse } from 'next/server';
 import logger from '../../../../utils/logger';
 
+// Import the cache clearing function
+async function clearLocalCache() {
+  try {
+    // Clear the in-memory cache in the recent games endpoint
+    const response = await fetch(process.env.NEXTAUTH_URL + '/api/cache/clear', {
+      method: 'POST'
+    });
+    return response.ok;
+  } catch (error) {
+    logger.warn('⚠️ Could not clear local cache:', error instanceof Error ? error.message : 'Unknown error');
+    return false;
+  }
+}
+
 // GET: Trigger cache warming
 export async function GET() {
   try {
@@ -9,26 +23,37 @@ export async function GET() {
 
     const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
     
-    // Clear cache first
+    // Clear local Next.js cache first
+    await clearLocalCache();
+    
+    // Clear GameAPI cache
     try {
       const clearCacheResponse = await fetch(`${baseUrl}/clearcache`, {
         method: 'POST'
       });
       if (clearCacheResponse.ok) {
-        logger.info('🗑️ Cache cleared successfully');
+        logger.info('🗑️ GameAPI cache cleared successfully');
       } else {
-        logger.warn('⚠️ Cache clear failed, continuing anyway');
+        logger.warn('⚠️ GameAPI cache clear failed, continuing anyway');
       }
     } catch (cacheError) {
-      logger.warn('⚠️ Cache clear error:', cacheError instanceof Error ? cacheError.message : 'Unknown error');
+      logger.warn('⚠️ GameAPI cache clear error:', cacheError instanceof Error ? cacheError.message : 'Unknown error');
     }
 
     // Warm cache by fetching recent games
     try {
-      const recentResponse = await fetch(`${baseUrl}/recent?limit=100`);
+      const recentResponse = await fetch(`${baseUrl}/recent?limit=100`, {
+        cache: 'no-store'
+      });
       if (recentResponse.ok) {
         const recentData = await recentResponse.json();
-        const gameCount = recentData.results?.length || 0;
+        
+        // Validate the response before considering it successful
+        if (!recentData.success || !recentData.results || !Array.isArray(recentData.results)) {
+          throw new Error('Invalid response structure from GameAPI');
+        }
+        
+        const gameCount = recentData.results.length;
         
         const endTime = Date.now();
         const duration = endTime - startTime;

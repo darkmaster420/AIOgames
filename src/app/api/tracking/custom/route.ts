@@ -18,11 +18,26 @@ function calculateSimilarity(str1: string, str2: string): number {
   // Exact match
   if (s1 === s2) return 1.0;
   
-  // Check if one is contained in the other (but with length consideration)
+  // Calculate length difference ratio (penalize significant length differences)
+  const lengthRatio = Math.min(s1.length, s2.length) / Math.max(s1.length, s2.length);
+  
+  // For short queries (< 15 chars), require very high precision
+  const isShortQuery = Math.min(s1.length, s2.length) < 15;
+  
+  // Check if one is contained in the other
   if (s1.includes(s2) || s2.includes(s1)) {
     const longer = s1.length > s2.length ? s1 : s2;
     const shorter = s1.length <= s2.length ? s1 : s2;
-    return shorter.length / longer.length;
+    const containmentScore = shorter.length / longer.length;
+    
+    // For short queries, require the shorter string to be at least 70% of the longer
+    // to avoid matching "invincible vs" with "the invincible"
+    if (isShortQuery && containmentScore < 0.7) {
+      return containmentScore * 0.5; // Heavily penalize
+    }
+    
+    // Apply length ratio penalty
+    return containmentScore * (0.7 + 0.3 * lengthRatio);
   }
   
   // Word-based similarity
@@ -34,7 +49,15 @@ function calculateSimilarity(str1: string, str2: string): number {
   const intersection = words1.filter(word => words2.includes(word));
   const union = Array.from(new Set([...words1, ...words2]));
   
-  return intersection.length / union.length;
+  const jaccardScore = intersection.length / union.length;
+  
+  // For short queries, require higher word overlap
+  if (isShortQuery && intersection.length < Math.min(words1.length, words2.length)) {
+    return jaccardScore * 0.6; // Penalize if not all words match
+  }
+  
+  // Apply length ratio to word-based similarity too
+  return jaccardScore * (0.7 + 0.3 * lengthRatio);
 }
 
 // POST: Add a custom game by name to tracking
@@ -125,7 +148,22 @@ export async function POST(req: NextRequest) {
         }
 
         // Calculate similarity scores for all results
-        const scoredResults = filteredResults.map((game: { title: string; id: string }) => {
+        interface ScoredGame {
+          title: string;
+          id: string;
+          similarity: number;
+          hasVersion: boolean;
+          detectedVersion: string | null;
+          source?: string;
+          siteType?: string;
+          description?: string;
+          excerpt?: string;
+          image?: string;
+          link?: string;
+          [key: string]: unknown; // Allow additional properties from ...game
+        }
+        
+        const scoredResults: ScoredGame[] = filteredResults.map((game: { title: string; id: string }) => {
           const similarity = calculateSimilarity(trimmedGameName, game.title);
           const versionDetection = detectVersionNumber(game.title);
           const hasBuild = /\b(build|b|#)\s*\d{3,}\b/i.test(game.title);
@@ -139,13 +177,13 @@ export async function POST(req: NextRequest) {
         });
 
         // Filter for versioned games with good similarity
-        const versionedGames = scoredResults.filter((game: typeof scoredResults[0]) => 
+        const versionedGames = scoredResults.filter((game: ScoredGame) => 
           game.hasVersion && game.similarity > 0.3
         );
 
         if (versionedGames.length > 0) {
           // Sort by version (highest first), then by similarity
-          versionedGames.sort((a: typeof scoredResults[0], b: typeof scoredResults[0]) => {
+          versionedGames.sort((a: ScoredGame, b: ScoredGame) => {
             // If both have detected versions, compare them
             if (a.detectedVersion && b.detectedVersion) {
               const versionCompare = compareVersions(b.detectedVersion, a.detectedVersion);
@@ -163,11 +201,25 @@ export async function POST(req: NextRequest) {
         if (!bestMatch) {
           logger.info(`No versioned games found for "${trimmedGameName}", checking for unreleased games on piracy sites`);
           
-          const unreleasedCandidates = scoredResults.filter((game: typeof scoredResults[0]) => !game.hasVersion && game.similarity > 0.7);
+          // For short game names (< 15 chars), require much higher similarity (0.85)
+          // For longer names, use standard threshold (0.75)
+          const isShortName = trimmedGameName.length < 15;
+          const similarityThreshold = isShortName ? 0.85 : 0.75;
+          
+          logger.debug(`Using similarity threshold ${similarityThreshold} (short name: ${isShortName})`);
+          
+          const unreleasedCandidates = scoredResults.filter((game: ScoredGame) => 
+            !game.hasVersion && game.similarity > similarityThreshold
+          );
           
           if (unreleasedCandidates.length > 0) {
+            // Sort by similarity (highest first)
+            unreleasedCandidates.sort((a: ScoredGame, b: ScoredGame) => b.similarity - a.similarity);
+            
             bestMatch = unreleasedCandidates[0];
             logger.info(`Selected unreleased game from piracy sites: "${bestMatch.title}" (similarity: ${bestMatch.similarity.toFixed(2)})`);
+          } else {
+            logger.info(`No unreleased candidates found with similarity > ${similarityThreshold}`);
           }
         }
       }
@@ -189,11 +241,20 @@ export async function POST(req: NextRequest) {
               };
             });
 
-            // Sort by similarity and pick the best match (require > 0.5 similarity for IGDB)
+            // Sort by similarity and pick the best match
             igdbScoredResults.sort((a, b) => b.similarity - a.similarity);
             
-            if (igdbScoredResults[0].similarity > 0.5) {
+            // For short game names, require higher similarity (0.7)
+            // For longer names, use standard threshold (0.6)
+            const isShortName = trimmedGameName.length < 15;
+            const igdbSimilarityThreshold = isShortName ? 0.7 : 0.6;
+            
+            logger.debug(`IGDB similarity threshold: ${igdbSimilarityThreshold} (short name: ${isShortName})`);
+            
+            if (igdbScoredResults[0].similarity > igdbSimilarityThreshold) {
               const igdbMatch = igdbScoredResults[0];
+              logger.info(`Found IGDB match: "${igdbMatch.title}" (similarity: ${igdbMatch.similarity.toFixed(2)})`);
+              
               bestMatch = {
                 id: igdbMatch.id,
                 title: igdbMatch.title,
@@ -206,6 +267,8 @@ export async function POST(req: NextRequest) {
               };
               isFromIGDB = true;
               logger.info(`Selected game from IGDB: "${bestMatch.title}" (similarity: ${bestMatch.similarity.toFixed(2)})`);
+            } else {
+              logger.info(`Best IGDB match "${igdbScoredResults[0].title}" rejected: similarity ${igdbScoredResults[0].similarity.toFixed(2)} < ${igdbSimilarityThreshold}`);
             }
           }
         } catch (igdbError) {
