@@ -419,6 +419,7 @@ All of these projects are open source and free to use:
 - [ ] Telegram Bot Management
 - [x] Anti-Repack Settings
 - [ ] Merge GameAPI with AIOGames
+- [x] Merge SteamAPI with AIOGames
 - [ ] Flaresolverrless GameAPI 
 - [ ] Add Custom themes
 - [ ] approve updates via telegram
