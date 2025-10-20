@@ -212,26 +212,50 @@ export function formatGameUpdateMessage(gameData: {
   // Game title and version info
   text += `📍 <b>${title}</b>\n`;
   if (version) {
-    if (previousVersion && previousVersion !== version) {
-      // Format version for better display
-      let formattedVersion = version;
-      
-      // Try to format as "Build XXXXX STANDARD (FULL)" if it's a build-based update
-      if (version.includes('Build')) {
-        const buildMatch = version.match(/Build\s*(\d+)/i);
-        const typeMatch = version.match(/(STANDARD|DELUXE|PREMIUM|GOTY|COMPLETE|REPACK|PROPER)/i);
-        const fullMatch = version.match(/(FULL|COMPLETE)/i);
+    // Extract clean version/build information from the full post title
+    let cleanVersion = version;
+    
+    // Try to extract build number (e.g., "Build 20440670" or "Build #12345")
+    const buildMatch = version.match(/(?:Build|build)\s*[#:]?\s*(\d+)/i);
+    if (buildMatch) {
+      cleanVersion = `Build #${buildMatch[1]}`;
+    } else {
+      // Try to extract version number (e.g., "v1.2.3" or "1.2.3")
+      const versionMatch = version.match(/v?(\d+\.\d+(?:\.\d+)*(?:[a-z])?)/i);
+      if (versionMatch) {
+        cleanVersion = `v${versionMatch[1]}`;
+      } else {
+        // If no clear build/version found, try to clean up the title
+        // Remove common prefixes and suffixes
+        cleanVersion = version
+          .replace(/^.*?:\s*/i, '') // Remove "Game Name: " prefix
+          .replace(/\s*[\[\(].*?[\]\)]\s*/g, ' ') // Remove bracketed content
+          .replace(/\s*-\s*update/i, '') // Remove " - Update"
+          .replace(/\s+/g, ' ')
+          .trim();
         
-        if (buildMatch) {
-          formattedVersion = `Build ${buildMatch[1]}`;
-          if (typeMatch) formattedVersion += ` ${typeMatch[1]}`;
-          if (fullMatch) formattedVersion += ` (${fullMatch[1]})`;
+        // If result is too long, just take first part
+        if (cleanVersion.length > 50) {
+          cleanVersion = cleanVersion.substring(0, 47) + '...';
         }
       }
-      
-      text += `🆕 <b>Updated To:</b> ${formattedVersion}\n`;
+    }
+    
+    if (previousVersion && previousVersion !== version) {
+      text += `🆕 <b>New Version:</b> ${cleanVersion}\n`;
+      if (previousVersion) {
+        // Also try to clean the previous version
+        const prevBuildMatch = previousVersion.match(/(?:Build|build)\s*[#:]?\s*(\d+)/i);
+        const prevVersionMatch = previousVersion.match(/v?(\d+\.\d+(?:\.\d+)*(?:[a-z])?)/i);
+        const cleanPrevious = prevBuildMatch 
+          ? `Build #${prevBuildMatch[1]}`
+          : prevVersionMatch
+            ? `v${prevVersionMatch[1]}`
+            : previousVersion;
+        text += `🔄 <b>Previous:</b> ${cleanPrevious}\n`;
+      }
     } else {
-      text += `🆕 <b>Version:</b> ${version}\n`;
+      text += `🆕 <b>Version:</b> ${cleanVersion}\n`;
     }
   }
   

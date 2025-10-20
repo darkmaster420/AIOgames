@@ -107,12 +107,70 @@ export async function GET(req: NextRequest) {
     // If no download links found in tracking data, try to fetch from gameapi
     if (downloadLinks.length === 0) {
       try {
-        // Extract postId and siteType from gameId if it follows the pattern
-        const gameIdMatch = game.gameId.match(/^([a-z]+)_(.+)$/);
-        if (gameIdMatch) {
-          const [, siteType, postId] = gameIdMatch;
-          
-          console.log(`Attempting to fetch download links from gameapi: postId=${postId}, siteType=${siteType}`);
+        // Determine which URL to use - prefer latest update's gameLink over original gameId
+        let targetUrl: string | null = null;
+        let targetSource = 'original';
+        
+        // First try to get the latest update's gameLink
+        if (game.updateHistory && game.updateHistory.length > 0) {
+          const latestUpdate = game.updateHistory[game.updateHistory.length - 1];
+          if (latestUpdate.gameLink) {
+            targetUrl = latestUpdate.gameLink;
+            targetSource = 'latest-update';
+          }
+        }
+        
+        // Fallback to the game's current gameLink
+        if (!targetUrl && game.gameLink) {
+          targetUrl = game.gameLink;
+          targetSource = 'current-gameLink';
+        }
+        
+        // Last resort: use original gameId
+        if (!targetUrl) {
+          targetUrl = game.gameId;
+          targetSource = 'gameId';
+        }
+        
+        // If we still don't have a targetUrl, we can't proceed
+        if (!targetUrl) {
+          return NextResponse.json({ 
+            downloadLinks: [], 
+            error: 'No valid game identifier found' 
+          });
+        }
+        
+        // At this point, targetUrl is guaranteed to be a string
+        const gameUrl: string = targetUrl;
+        
+        // Try to extract postId and siteType from the URL
+        let postId: string | null = null;
+        let siteType: string | null = null;
+        
+        // If it's a gameId format (site_postid)
+        if (targetSource === 'gameId') {
+          const gameIdMatch = gameUrl.match(/^([a-z]+)_(.+)$/);
+          if (gameIdMatch) {
+            [, siteType, postId] = gameIdMatch;
+          }
+        } else {
+          // Try to extract from URL
+          const urlMatch = gameUrl.match(/https?:\/\/([^\/]+).*?(\d+)/);
+          if (urlMatch) {
+            const domain = urlMatch[1];
+            postId = urlMatch[2];
+            
+            // Map domain to siteType
+            if (domain.includes('gamedrive')) siteType = 'gamedrive';
+            else if (domain.includes('skidrowreloaded')) siteType = 'skidrowreloaded';
+            else if (domain.includes('gload')) siteType = 'gload';
+            else if (domain.includes('steamrip')) siteType = 'steamrip';
+            // Add more site mappings as needed
+          }
+        }
+        
+        if (postId && siteType) {
+          console.log(`Attempting to fetch download links from gameapi: postId=${postId}, siteType=${siteType}, source=${targetSource}, url=${targetUrl}`);
           
           const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
           const gameapiUrl = `${baseUrl}/post?id=${encodeURIComponent(postId)}&site=${encodeURIComponent(siteType)}`;
@@ -140,12 +198,18 @@ export async function GET(req: NextRequest) {
               context = {
                 gameTitle: game.title,
                 currentVersion: context.currentVersion || 'Latest from gameapi',
-                type: 'gameapi-fallback'
+                type: `gameapi-fallback-${targetSource}`
               };
               
-              console.log(`Successfully fetched ${downloadLinks.length} download links from gameapi`);
+              console.log(`Successfully fetched ${downloadLinks.length} download links from gameapi (source: ${targetSource})`);
+            } else {
+              console.log(`gameapi response: success=${gameapiData.success}, has post=${!!gameapiData.post}, has downloadLinks=${!!gameapiData.post?.downloadLinks}`);
             }
+          } else {
+            console.log(`gameapi response not ok: ${gameapiResponse.status} ${gameapiResponse.statusText}`);
           }
+        } else {
+          console.log(`Could not extract postId and siteType from: ${gameUrl}`);
         }
       } catch (gameapiError) {
         console.error('Failed to fetch from gameapi as fallback:', gameapiError);

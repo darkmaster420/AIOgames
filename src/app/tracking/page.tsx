@@ -14,6 +14,7 @@ import { NotificationToggle } from '../../components/NotificationToggle';
 import { SearchGameButton } from '../../components/SearchGameButton';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { ImageWithFallback } from '../../utils/imageProxy';
+import { cleanGameTitle } from '../../utils/steamApi';
 
 import { useNotification } from '../../contexts/NotificationContext';
 import { ExternalLinkIcon } from '../../components/ExternalLinkIcon';
@@ -169,15 +170,32 @@ export default function TrackingDashboard() {
   });
 
   // Sort games function
-  const sortGames = (games: TrackedGame[], sortField: string, order: string) => {
+  // Helper function to get display title for a game
+  const getDisplayTitle = useCallback((game: TrackedGame): string => {
+    // If Steam verified, use Steam name
+    if (game.steamVerified && game.steamName) {
+      return game.steamName;
+    }
+    
+    // If GOG verified AND not marked as "Not on GOG", use GOG name
+    if (game.gogVerified && game.gogName && game.gogProductId !== -1) {
+      return game.gogName;
+    }
+    
+    // For unverified games or games marked as "Not on GOG", use cleaned title
+    return cleanGameTitle(game.originalTitle || game.title);
+  }, []); // No dependencies - cleanGameTitle is stable
+
+  const sortGames = useCallback((games: TrackedGame[], sortField: string, order: string) => {
     return [...games].sort((a, b) => {
       let aValue: string | number | Date;
       let bValue: string | number | Date;
 
       switch (sortField) {
         case 'title':
-          aValue = a.title.toLowerCase();
-          bValue = b.title.toLowerCase();
+          // Use display title (cleaned or verified name) for sorting
+          aValue = getDisplayTitle(a).toLowerCase();
+          bValue = getDisplayTitle(b).toLowerCase();
           break;
         case 'dateAdded':
           aValue = new Date(a.dateAdded);
@@ -205,7 +223,7 @@ export default function TrackingDashboard() {
       if (aValue > bValue) return order === 'asc' ? 1 : -1;
       return 0;
     });
-  };
+  }, [getDisplayTitle]);
 
   // Handle sort change
   const handleSortChange = (newSortBy: typeof sortBy) => {
@@ -477,6 +495,7 @@ export default function TrackingDashboard() {
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       games = trackedGames.filter(game => 
+        getDisplayTitle(game).toLowerCase().includes(query) ||
         game.title.toLowerCase().includes(query) ||
         game.originalTitle.toLowerCase().includes(query) ||
         game.source.toLowerCase().includes(query) ||
@@ -487,7 +506,7 @@ export default function TrackingDashboard() {
     // Apply sorting
     const sortedGames = sortGames(games, sortBy, sortOrder);
     setFilteredGames(sortedGames);
-  }, [trackedGames, searchQuery, sortBy, sortOrder]);
+  }, [trackedGames, searchQuery, sortBy, sortOrder, sortGames, getDisplayTitle]);
 
   // After loading tracked games, fetch latest Steam info for Steam-verified ones
   useEffect(() => {
@@ -642,9 +661,13 @@ export default function TrackingDashboard() {
         setLayoutMode(savedLayout);
       }
       const savedCols = localStorage.getItem('trackingCustomCols');
-      if (savedCols !== null) setCustomCols(Number(savedCols) || 'auto');
+      if (savedCols !== null) {
+        setCustomCols(savedCols === 'auto' ? 'auto' : (Number(savedCols) || 'auto'));
+      }
       const savedRows = localStorage.getItem('trackingCustomRows');
-      if (savedRows !== null) setCustomRows(Number(savedRows) || 'auto');
+      if (savedRows !== null) {
+        setCustomRows(savedRows === 'auto' ? 'auto' : (Number(savedRows) || 'auto'));
+      }
     }
   }, []);
 
@@ -657,10 +680,17 @@ export default function TrackingDashboard() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      if (customCols !== 'auto') localStorage.setItem('trackingCustomCols', String(customCols));
-      else localStorage.removeItem('trackingCustomCols');
-      if (customRows !== 'auto') localStorage.setItem('trackingCustomRows', String(customRows));
-      else localStorage.removeItem('trackingCustomRows');
+      if (customCols === 'auto') {
+        localStorage.setItem('trackingCustomCols', 'auto');
+      } else {
+        localStorage.setItem('trackingCustomCols', String(customCols));
+      }
+      
+      if (customRows === 'auto') {
+        localStorage.setItem('trackingCustomRows', 'auto');
+      } else {
+        localStorage.setItem('trackingCustomRows', String(customRows));
+      }
     }
   }, [customCols, customRows]);
 
@@ -1373,9 +1403,9 @@ export default function TrackingDashboard() {
                             <div className="flex items-center gap-2 flex-1 min-w-0">
                               <div className="flex flex-col gap-1 flex-1 min-w-0">
                                 <h3 className="font-bold text-base sm:text-lg text-gray-900 dark:text-white leading-tight text-center bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-200/50 dark:border-gray-700/50 shadow-sm flex-1 min-w-0 uppercase">
-                                  {(game.steamVerified && game.steamName) ? game.steamName : (game.originalTitle || game.title)}
+                                  {getDisplayTitle(game)}
                                 </h3>
-                                {showAdvanced && game.steamVerified && game.steamName && game.originalTitle && game.originalTitle !== game.steamName && (
+                                {showAdvanced && (game.steamVerified || (game.gogVerified && game.gogProductId !== -1)) && game.originalTitle && game.originalTitle !== getDisplayTitle(game) && (
                                   <div className="text-xs text-gray-500 dark:text-gray-400 text-center italic px-2">
                                     Original: {game.originalTitle}
                                   </div>
@@ -1478,7 +1508,8 @@ export default function TrackingDashboard() {
                         </div>
                         
                         {/* Smart Priority: Show Steam first if GOG has no version data */}
-                        {(showAdvanced || !game.gogVerified) && !gogLatest[game._id]?.version && (
+                        {/* Steam Verification - Show first if GOG is not verified or marked as "Not on GOG" */}
+                        {(showAdvanced || !game.gogVerified || game.gogProductId === -1) && !gogLatest[game._id]?.version && (
                           <div className="mt-2">
                             <SteamVerification
                               gameId={game._id}
@@ -1493,26 +1524,28 @@ export default function TrackingDashboard() {
                           </div>
                         )}
 
-                        {/* GOG Verification - Show after Steam if no version, otherwise show first (PRIORITY) */}
-                        <div className="mt-2">
-                          <GOGVerification
-                            gameId={game._id}
-                            gameTitle={game.title}
-                            currentGogId={game.gogProductId}
-                            currentGogName={game.gogName}
-                            isVerified={game.gogVerified}
-                            gogLatestVersion={undefined}
-                            gogLatestBuildId={undefined}
-                            gogLatestDate={undefined}
-                            onVerificationComplete={() => {
-                              // Refresh the game data after verification
-                              loadTrackedGames();
-                            }}
-                          />
-                        </div>
+                        {/* GOG Verification - Show if NOT marked as "Not on GOG" OR in advanced mode */}
+                        {(showAdvanced || game.gogProductId !== -1) && (
+                          <div className="mt-2">
+                            <GOGVerification
+                              gameId={game._id}
+                              gameTitle={game.title}
+                              currentGogId={game.gogProductId}
+                              currentGogName={game.gogName}
+                              isVerified={game.gogVerified}
+                              gogLatestVersion={undefined}
+                              gogLatestBuildId={undefined}
+                              gogLatestDate={undefined}
+                              onVerificationComplete={() => {
+                                // Refresh the game data after verification
+                                loadTrackedGames();
+                              }}
+                            />
+                          </div>
+                        )}
 
                         {/* Steam Verification - Show in Advanced Mode OR when no GOG, after GOG if GOG has version */}
-                        {(showAdvanced || !game.gogVerified) && gogLatest[game._id]?.version && (
+                        {(showAdvanced || !game.gogVerified || game.gogProductId === -1) && gogLatest[game._id]?.version && (
                           <div className="mt-2">
                             <SteamVerification
                               gameId={game._id}
@@ -1604,7 +1637,9 @@ export default function TrackingDashboard() {
                                 <div key={updateIndex} className="text-xs sm:text-sm bg-gray-50 dark:bg-gray-900/20 p-2 rounded">
                                   <div className="flex flex-col gap-1">
                                     <div className="flex-1">
-                                      <span className="font-medium">v{update.version}</span>
+                                      <span className="font-medium">
+                                        {update.version.match(/^(v|build|version)/i) ? update.version : `v${update.version}`}
+                                      </span>
                                       <span className="text-gray-500 dark:text-gray-400 ml-2">
                                         found {formatDate(update.dateFound)}
                                       </span>
@@ -1633,7 +1668,7 @@ export default function TrackingDashboard() {
                                   <span className="font-medium">{update.newTitle}</span>
                                   {update.detectedVersion && (
                                     <span className="text-yellow-600 dark:text-yellow-400 ml-2">
-                                      v{update.detectedVersion}
+                                      {update.detectedVersion.match(/^(v|build|version)/i) ? update.detectedVersion : `v${update.detectedVersion}`}
                                     </span>
                                   )}
                                   {update.aiDetectionConfidence && (

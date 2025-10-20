@@ -36,6 +36,8 @@ async function addTelegramDelay(userId: string): Promise<void> {
 
 export interface UpdateNotificationData {
   gameTitle: string;
+  steamName?: string;
+  gogName?: string;
   version?: string;
   updateType: 'update' | 'sequel' | 'pending';
   gameLink?: string;
@@ -43,6 +45,7 @@ export interface UpdateNotificationData {
   downloadLinks?: Array<{ service: string; url: string; type?: string }>;
   previousVersion?: string;
   isPending?: boolean;
+  source?: string;
 }
 
 /**
@@ -50,6 +53,8 @@ export interface UpdateNotificationData {
  */
 export function createUpdateNotificationData(params: {
   gameTitle: string;
+  steamName?: string;
+  gogName?: string;
   version?: string;
   updateType: 'update' | 'sequel' | 'pending';
   gameLink?: string;
@@ -57,9 +62,12 @@ export function createUpdateNotificationData(params: {
   downloadLinks?: Array<{ service: string; url: string; type?: string }>;
   previousVersion?: string;
   isPending?: boolean;
+  source?: string;
 }): UpdateNotificationData {
   return {
     gameTitle: params.gameTitle,
+    steamName: params.steamName,
+    gogName: params.gogName,
     version: params.version,
     updateType: params.updateType,
     gameLink: params.gameLink,
@@ -67,6 +75,7 @@ export function createUpdateNotificationData(params: {
     downloadLinks: params.isPending ? undefined : params.downloadLinks, // Don't include download links for pending updates
     previousVersion: params.previousVersion,
     isPending: params.isPending,
+    source: params.source,
   };
 }
 
@@ -138,21 +147,24 @@ export async function sendUpdateNotification(
           // Add rate limiting delay before sending
           await addTelegramDelay(userId);
           
+          // Determine the best title to display (Steam > GOG > cleaned title)
+          const displayTitle = updateData.steamName || updateData.gogName || updateData.gameTitle;
+          
           const message = updateData.updateType === 'sequel'
             ? formatSequelNotificationMessage({
-                originalTitle: updateData.gameTitle,
+                originalTitle: displayTitle,
                 detectedTitle: updateData.version || 'Unknown Title',
                 sequelType: 'sequel',
                 gameLink: updateData.gameLink || '/tracking',
-                source: 'Game Tracker',
+                source: updateData.source || 'Game Tracker',
                 similarity: 1.0
               })
             : formatGameUpdateMessage({
-                title: updateData.gameTitle,
+                title: displayTitle,
                 version: updateData.version,
                 previousVersion: updateData.previousVersion,
                 gameLink: updateData.gameLink || '/tracking',
-                source: 'Game Tracker',
+                source: updateData.source || 'Game Tracker',
                 changeType: updateData.isPending ? 'pending' : 'automatic', // Use 'pending' for pending updates
                 downloadLinks: updateData.isPending ? undefined : updateData.downloadLinks, // Don't send download links for pending
                 imageUrl: updateData.imageUrl

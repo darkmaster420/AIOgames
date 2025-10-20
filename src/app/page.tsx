@@ -14,7 +14,7 @@ import { decodeHtmlEntities } from '../utils/steamApi';
 
 type Game = {
   id: string;
-  originalId: string | number;
+  originalId?: string | number; // Optional since some APIs might not include it
   title: string;
   originalTitle?: string; // Raw post title for advanced view
   description: string;
@@ -633,7 +633,7 @@ function DashboardInner() {
                   
                   {/* Download Links - Sticky at bottom */}
                   <div className="absolute left-0 right-0 bottom-0 z-10 p-4 pt-0 bg-gradient-to-t from-white/90 dark:from-gray-900/90 to-transparent">
-                    {status === 'authenticated' && (
+                    {status === 'authenticated' && game.originalId && (
                       <GameDownloadLinks
                         postId={game.originalId.toString()}
                         siteType={game.siteType}
