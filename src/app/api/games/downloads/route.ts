@@ -160,10 +160,10 @@ export async function GET(req: NextRequest) {
             const domain = urlMatch[1];
             postId = urlMatch[2];
             
-            // Map domain to siteType
+            // Map domain to siteType (use GameAPI's expected site names)
             if (domain.includes('gamedrive')) siteType = 'gamedrive';
-            else if (domain.includes('skidrowreloaded')) siteType = 'skidrowreloaded';
-            else if (domain.includes('gload')) siteType = 'gload';
+            else if (domain.includes('skidrowreloaded')) siteType = 'skidrow'; // GameAPI uses 'skidrow' not 'skidrowreloaded'
+            else if (domain.includes('freegogpcgames')) siteType = 'freegog';
             else if (domain.includes('steamrip')) siteType = 'steamrip';
             // Add more site mappings as needed
           }
