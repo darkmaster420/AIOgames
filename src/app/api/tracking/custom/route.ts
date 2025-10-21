@@ -361,6 +361,13 @@ export async function POST(req: NextRequest) {
           newTrackedGame.steamVerified = true;
           newTrackedGame.steamAppId = autoVerification.steamAppId;
           newTrackedGame.steamName = autoVerification.steamName;
+          
+          // If no image from IGDB, use Steam header image
+          if (!newTrackedGame.image) {
+            newTrackedGame.image = `https://cdn.cloudflare.steamstatic.com/steam/apps/${autoVerification.steamAppId}/header.jpg`;
+            logger.info(`Using Steam header image for "${bestMatch.title}": appId ${autoVerification.steamAppId}`);
+          }
+          
           await newTrackedGame.save();
           
           logger.info(`Auto Steam verification successful for "${bestMatch.title}": ${autoVerification.steamName} (${autoVerification.steamAppId})`);
