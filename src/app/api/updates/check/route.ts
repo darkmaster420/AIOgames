@@ -47,6 +47,48 @@ interface EnhancedMatch {
   enhancedScore?: number;
 }
 
+// Helper function to fetch full download links from GameAPI
+async function fetchDownloadLinks(game: GameSearchResult): Promise<Array<{ service: string; url: string; type: string }>> {
+  try {
+    const gameApiUrl = process.env.GAME_API_URL || 'https://gameapi.iforgor.cc';
+    
+    // Extract the original ID and site type from the composite ID
+    // Format: "siteType_originalId" (e.g., "skidrow_518912")
+    const [siteType, originalId] = game.id.split('_');
+    
+    if (!siteType || !originalId) {
+      logger.warn(`Invalid game ID format: ${game.id}`);
+      return [];
+    }
+    
+    const postUrl = `${gameApiUrl}/post?id=${originalId}&site=${siteType}`;
+    logger.debug(`Fetching download links from: ${postUrl}`);
+    
+    const response = await fetch(postUrl, {
+      headers: {
+        'User-Agent': 'AIOgames-Tracker/1.0'
+      }
+    });
+    
+    if (!response.ok) {
+      logger.warn(`Failed to fetch post details: ${response.status}`);
+      return [];
+    }
+    
+    const data = await response.json();
+    
+    if (data.success && data.post && data.post.downloadLinks) {
+      logger.info(`Fetched ${data.post.downloadLinks.length} download links for ${game.title}`);
+      return data.post.downloadLinks;
+    }
+    
+    return [];
+  } catch (error) {
+    logger.error(`Error fetching download links for ${game.title}:`, error);
+    return [];
+  }
+}
+
 // Helper functions - enhanced for comprehensive piracy tag handling
 function calculateGameSimilarity(title1: string, title2: string): number {
   const clean1 = cleanGameTitle(title1).toLowerCase();
@@ -711,12 +753,16 @@ export async function POST(request: Request) {
                       // Send notification for the sequel update if immediate notifications are enabled
                       if (sequelPreferences.notifyImmediately) {
                         try {
+                          // Fetch download links for the sequel
+                          const downloadLinks = await fetchDownloadLinks(recentGame);
+                          
                           const notificationData = createUpdateNotificationData({
                             gameTitle: cleanedSequelTitle,
                             version: versionString,
                             gameLink: recentGame.link,
                             imageUrl: recentGame.image,
-                            updateType: 'update'
+                            updateType: 'update',
+                            downloadLinks: downloadLinks
                           });
                           await sendUpdateNotification(game.userId.toString(), notificationData);
                           logger.info(`Sequel update notification sent: ${cleanedSequelTitle} -> ${versionString}`);
@@ -1409,13 +1455,19 @@ export async function POST(request: Request) {
               // Send notification only if enabled for this game
               if (game.notificationsEnabled) {
                 try {
+                  // Fetch full download links for auto-approved updates
+                  let downloadLinks = undefined;
+                  if (shouldAutoApprove) {
+                    downloadLinks = await fetchDownloadLinks(bestMatch);
+                  }
+                  
                   const notificationData = createUpdateNotificationData({
                     gameTitle: game.title,
                     version: versionString,
                     gameLink: bestMatch.link,
                     imageUrl: bestMatch.image,
                     updateType: shouldAutoApprove ? 'update' : 'pending',
-                    downloadLinks: shouldAutoApprove ? bestMatch.downloadLinks : undefined,
+                    downloadLinks: downloadLinks,
                     isPending: !shouldAutoApprove
                   });
                   

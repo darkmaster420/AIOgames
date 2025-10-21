@@ -275,7 +275,7 @@ export function formatGameUpdateMessage(gameData: {
   
   // Customize link text based on update type
   if (changeType === 'user_approved' || changeType === 'automatic') {
-    text += `\n🔗 <a href="${gameLink || '/tracking'}">View Game & Download</a>`;
+    text += `\n🔗 <a href="${gameLink || '/tracking'}">Download Now</a>`;
   } else if (changeType === 'pending') {
     text += `\n🔗 <a href="${gameLink || '/tracking'}">Review & Approve Update</a>`;
   } else {
@@ -287,8 +287,10 @@ export function formatGameUpdateMessage(gameData: {
   if ((changeType === 'user_approved' || changeType === 'automatic') && downloadLinks && downloadLinks.length > 0) {
     text += `\n\n📥 <b>Download Links:</b>\n`;
     downloadLinks.forEach(link => {
+      // Format based on link type
+      const typeLabel = link.type === 'magnet' ? 'torrent' : link.type || 'hosting';
       // Make each link clickable with service name
-      text += `• <a href="${link.url}">${link.service}${link.type ? ` (${link.type})` : ''}</a>\n`;
+      text += `• <a href="${link.url}">${link.service}</a> (${typeLabel})\n`;
     });
   }
   

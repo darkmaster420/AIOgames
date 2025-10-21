@@ -241,9 +241,10 @@ class UpdateScheduler {
     try {
       logger.info('🔥 Warming cache...');
       
+      // Use 127.0.0.1 instead of localhost to force IPv4 and avoid IPv6 connection issues
       const baseUrl = process.env.NODE_ENV === 'production' 
-        ? process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-        : `http://localhost:${process.env.PORT || 3000}`;
+        ? process.env.NEXT_PUBLIC_APP_URL || 'http://127.0.0.1:3000'
+        : `http://127.0.0.1:${process.env.PORT || 3000}`;
       
       const response = await fetch(`${baseUrl}/api/cache/warm`, {
         method: 'GET'
