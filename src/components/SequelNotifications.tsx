@@ -199,7 +199,7 @@ export function SequelNotifications({ className = '' }: SequelNotificationsProps
               </button>
             </div>
             <div className="flex items-center justify-between">
-              <label className="text-xs text-gray-500 dark:text-gray-400">
+              <label className="text-xs text-gray-500 dark:text-gray-400" title="Controls how closely related a game must be to trigger a sequel notification">
                 Sensitivity
               </label>
               <select
@@ -207,12 +207,24 @@ export function SequelNotifications({ className = '' }: SequelNotificationsProps
                 onChange={(e) => updatePreferences({ sensitivity: e.target.value as 'strict' | 'moderate' | 'loose' })}
                 className="text-xs bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded px-2 py-1"
                 disabled={!preferences.enabled}
+                title={
+                  preferences.sensitivity === 'strict' 
+                    ? 'Strict: Only obvious sequels (numbered, direct expansions)' 
+                    : preferences.sensitivity === 'moderate'
+                    ? 'Moderate: Numbered sequels + remasters + major expansions'
+                    : 'Loose: All sequels including minor DLC and spin-offs'
+                }
               >
                 <option value="strict">Strict</option>
                 <option value="moderate">Moderate</option>
                 <option value="loose">Loose</option>
               </select>
             </div>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+              {preferences.sensitivity === 'strict' && '🎯 Only obvious numbered sequels and direct expansions'}
+              {preferences.sensitivity === 'moderate' && '⚖️ Sequels, remasters, and major expansions'}
+              {preferences.sensitivity === 'loose' && '🌊 All related content including DLC and spin-offs'}
+            </p>
           </div>
 
           {/* Content */}

@@ -12,6 +12,7 @@ export default function UserManagePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [botInfo, setBotInfo] = useState<{ username: string; botLink: string } | null>(null);
 
   const [form, setForm] = useState({
     email: '',
@@ -24,7 +25,7 @@ export default function UserManagePage() {
     webpushEnabled: true,
     notifyImmediately: true,
     telegramEnabled: false,
-    telegramBotToken: '',
+    telegramUsername: '',
     telegramChatId: '',
     telegramBotManagementEnabled: false,
     // release group preferences
@@ -53,7 +54,7 @@ export default function UserManagePage() {
             webpushEnabled: typeof data.preferences.notifications.webpushEnabled === 'boolean' ? data.preferences.notifications.webpushEnabled : f.webpushEnabled,
             notifyImmediately: typeof data.preferences.notifications.notifyImmediately === 'boolean' ? data.preferences.notifications.notifyImmediately : true,
             telegramEnabled: data.preferences.notifications.telegramEnabled || false,
-            telegramBotToken: data.preferences.notifications.telegramBotToken || '',
+            telegramUsername: data.preferences.notifications.telegramUsername || '',
             telegramChatId: data.preferences.notifications.telegramChatId || '',
             telegramBotManagementEnabled: data.preferences.notifications.telegramBotManagementEnabled || false
           }));
@@ -87,6 +88,22 @@ export default function UserManagePage() {
     }
     load();
     return () => { mounted = false; };
+  }, []);
+
+  // Fetch Telegram bot info
+  useEffect(() => {
+    async function fetchBotInfo() {
+      try {
+        const res = await fetch('/api/telegram/bot-info');
+        if (res.ok) {
+          const data = await res.json();
+          setBotInfo(data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch bot info:', error);
+      }
+    }
+    fetchBotInfo();
   }, []);
 
   // Register service worker and subscribe if webpush enabled
@@ -173,7 +190,7 @@ export default function UserManagePage() {
         webpushEnabled?: boolean;
         notifyImmediately?: boolean;
         telegramEnabled?: boolean;
-        telegramBotToken?: string;
+        telegramUsername?: string;
         telegramChatId?: string;
         telegramBotManagementEnabled?: boolean;
         prioritize0xdeadcode?: boolean;
@@ -195,7 +212,7 @@ export default function UserManagePage() {
       payload.webpushEnabled = form.webpushEnabled;
       payload.notifyImmediately = form.notifyImmediately;
       payload.telegramEnabled = form.telegramEnabled;
-      payload.telegramBotToken = form.telegramBotToken;
+      payload.telegramUsername = form.telegramUsername;
       payload.telegramChatId = form.telegramChatId;
       payload.telegramBotManagementEnabled = form.telegramBotManagementEnabled;
       
@@ -379,33 +396,87 @@ export default function UserManagePage() {
                   </div>
                   {form.telegramEnabled && (
                     <>
+                      <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-700">
+                        <p className="text-xs text-blue-700 dark:text-blue-300 mb-2">
+                          <strong>📱 Shared Telegram Bot</strong>
+                        </p>
+                        <p className="text-xs text-gray-600 dark:text-gray-400">
+                          This application uses a shared Telegram bot{botInfo && (
+                            <>
+                              {' '}(<a 
+                                href={botInfo.botLink} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                              >
+                                @{botInfo.username}
+                              </a>)
+                            </>
+                          )}. Simply start the bot and provide your username or chat ID below to receive notifications!
+                        </p>
+                      </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                          Bot Token
-                          <span className="text-gray-500 ml-1">(from @BotFather)</span>
+                          Telegram Username
+                          <span className="text-gray-500 ml-1">(optional - use this OR Chat ID)</span>
                         </label>
                         <input
-                          type="password"
-                          name="telegramBotToken"
-                          value={form.telegramBotToken}
+                          type="text"
+                          name="telegramUsername"
+                          value={form.telegramUsername}
                           onChange={handleChange}
-                          placeholder="1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
+                          placeholder="@yourusername"
                           className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                         />
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Your Telegram username (with or without @)
+                        </p>
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                           Chat ID
-                          <span className="text-gray-500 ml-1">(your user ID or group chat ID)</span>
+                          <span className="text-gray-500 ml-1">(optional - use this OR Username)</span>
                         </label>
                         <input
                           type="text"
                           name="telegramChatId"
                           value={form.telegramChatId}
                           onChange={handleChange}
-                          placeholder="123456789 or -100123456789"
+                          placeholder="123456789"
                           className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                         />
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Get your Chat ID by sending /start to the bot
+                        </p>
+                      </div>
+                      <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-800 rounded border">
+                        <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+                          🚀 How to get started:
+                        </p>
+                        {botInfo ? (
+                          <ol className="text-xs text-gray-600 dark:text-gray-400 space-y-1 list-decimal list-inside">
+                            <li>
+                              Start the bot: <a 
+                                href={botInfo.botLink} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                              >
+                                @{botInfo.username}
+                              </a>
+                            </li>
+                            <li>Send <code className="px-1 py-0.5 bg-gray-200 dark:bg-gray-700 rounded">/start</code> to get your Chat ID</li>
+                            <li>Enter your username or the Chat ID above</li>
+                            <li>Save your settings</li>
+                          </ol>
+                        ) : (
+                          <ol className="text-xs text-gray-600 dark:text-gray-400 space-y-1 list-decimal list-inside">
+                            <li>Start the shared AIOgames bot on Telegram</li>
+                            <li>Send <code className="px-1 py-0.5 bg-gray-200 dark:bg-gray-700 rounded">/start</code> to get your Chat ID</li>
+                            <li>Enter your username or the Chat ID above</li>
+                            <li>Save your settings</li>
+                          </ol>
+                        )}
                       </div>
                       <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-800 rounded border">
                         <div className="flex items-center space-x-2">
@@ -527,7 +598,7 @@ export default function UserManagePage() {
               </button>
             )}
             
-            {form.notificationsProvider === 'telegram' && form.telegramEnabled && form.telegramBotToken && form.telegramChatId && (
+            {form.notificationsProvider === 'telegram' && form.telegramEnabled && form.telegramChatId && (
               <button
                 type="button"
                 className="px-4 py-2 bg-purple-600 text-white rounded-md"
@@ -537,7 +608,7 @@ export default function UserManagePage() {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({
-                        botToken: form.telegramBotToken,
+                        username: form.telegramUsername,
                         chatId: form.telegramChatId
                       })
                     });

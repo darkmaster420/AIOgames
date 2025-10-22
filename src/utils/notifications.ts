@@ -193,7 +193,7 @@ export async function sendUpdateNotification(
           console.error('❌ Telegram notification error:', error);
         }
       } else {
-        console.log(`[Notifications] Telegram config missing for user ${userId} - enabled: ${notificationPrefs?.telegramEnabled}, botToken: ${!!notificationPrefs?.telegramBotToken}, chatId: ${!!notificationPrefs?.telegramChatId}`);
+        console.log(`[Notifications] Telegram config missing for user ${userId} - enabled: ${notificationPrefs?.telegramEnabled}, chatId: ${!!notificationPrefs?.telegramChatId}`);
         result.methods.telegram.errors.push('Telegram enabled but not properly configured');
       }
     }

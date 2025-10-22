@@ -33,12 +33,18 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    const botToken = telegramConfig.telegramBotToken;
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = telegramConfig.telegramChatId;
 
-    if (!botToken || !chatId) {
+    if (!botToken) {
       return NextResponse.json({ 
-        error: 'Telegram bot is not configured. Please set up your bot token and chat ID in user settings.' 
+        error: 'Telegram bot is not configured on the server. Please contact the administrator.' 
+      }, { status: 500 });
+    }
+
+    if (!chatId) {
+      return NextResponse.json({ 
+        error: 'Telegram chat ID is not set. Please configure your Telegram settings.' 
       }, { status: 400 });
     }
 

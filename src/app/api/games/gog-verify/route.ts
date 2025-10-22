@@ -8,6 +8,7 @@ import { getCurrentUser } from '@/lib/auth';
 import connectToDatabase from '@/lib/db';
 import { TrackedGame } from '@/lib/models';
 import logger from '@/utils/logger';
+import { getGOGBoxArt } from '@/utils/boxArt';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,6 +53,15 @@ export async function POST(request: Request) {
     game.gogVersion = gogVersion || null;
     game.gogBuildId = gogBuildId || null;
     game.gogLastChecked = new Date();
+
+    // If no image exists, try to fetch GOG box art
+    if (!game.image) {
+      const gogBoxArt = await getGOGBoxArt(gogId);
+      if (gogBoxArt) {
+        game.image = gogBoxArt;
+        logger.info(`🎨 Added GOG box art for ${game.title}: ${gogBoxArt}`);
+      }
+    }
 
     await game.save();
 

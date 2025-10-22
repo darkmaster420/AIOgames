@@ -1638,7 +1638,7 @@ export default function TrackingDashboard() {
                                   <div className="flex flex-col gap-1">
                                     <div className="flex-1">
                                       <span className="font-medium">
-                                        {update.version.match(/^(v|build|version)/i) ? update.version : `v${update.version}`}
+                                        {update.version}
                                       </span>
                                       <span className="text-gray-500 dark:text-gray-400 ml-2">
                                         found {formatDate(update.dateFound)}
@@ -1668,7 +1668,7 @@ export default function TrackingDashboard() {
                                   <span className="font-medium">{update.newTitle}</span>
                                   {update.detectedVersion && (
                                     <span className="text-yellow-600 dark:text-yellow-400 ml-2">
-                                      {update.detectedVersion.match(/^(v|build|version)/i) ? update.detectedVersion : `v${update.detectedVersion}`}
+                                      {update.detectedVersion}
                                     </span>
                                   )}
                                   {update.aiDetectionConfidence && (

@@ -44,8 +44,12 @@ Gamers who sail the high seas don't get automated update notifications like legi
 
 
 
-## ✨ Latest Features (v1.2.2)
+## ✨ Latest Features (v1.3.0)
 
+- 👑 **Owner/Admin System**: Role-based permissions with user management
+- 🤖 **Telegram Admin Approval**: Multi-admin vote-based update approval system
+- 📱 **Shared Telegram Bot**: Simplified notification setup for all users
+- 🔨 **Ban System**: Admin-level user ban/unban with reason tracking
 - 🎮 **SteamDB Integration**: Real-time Steam update detection with RSS feeds
 - ⚠️ **Version Cross-Checking**: Smart comparison between tracked and Steam versions  
 - 🔍 **Steam Verification**: Enhanced game matching with Steam API integration
@@ -53,7 +57,6 @@ Gamers who sail the high seas don't get automated update notifications like legi
 - 📱 **Mobile-Optimized UI**: Responsive design with advanced controls
 - 🔄 **Single Game Updates**: Per-game update checking with SteamDB cross-reference
 - 🏗️ **Build Number Tracking**: Precise version tracking with SteamDB build numbers
-- 📲 **Telegram Notifications**: Get update alerts via Telegram
 
 ---
 
@@ -103,6 +106,8 @@ AIOgames can verify games against Steam's database for enhanced accuracy. It als
 - ⚡ **Lightning Fast**: Sub-second update checks
 - 🎯 **Intelligent Matching**: Version-aware updates with confidence scoring
 - 📱 **Real-time Notifications**: Telegram and web push notifications
+- 👑 **Role-Based Access**: Owner/Admin system with user management
+- 🤖 **Telegram Admin Approval**: Vote-based pending update approval system
 - 🔐 **Secure Authentication**: NextAuth.js with multiple providers
 - 🌙 **Dark Mode**: Beautiful UI with light/dark theme support
 - 🐳 **Container Ready**: Docker deployment with zero external dependencies
@@ -168,6 +173,11 @@ MONGODB_URI=mongodb://localhost:27017/aiogames
 NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=your-secret-key
 
+# Owner Account (Created at startup)
+OWNER_EMAIL=admin@example.com
+OWNER_PASSWORD=secure-password-here
+OWNER_NAME=Admin
+
 # Game API (Required)
 GAME_API_URL=https://your-gameapi-instance.workers.dev
 # Get this from your deployed gameapi repository
@@ -180,8 +190,9 @@ STEAM_API_KEY=your-steam-api-key
 NEXT_PUBLIC_VAPID_PUBLIC_KEY=your-vapid-key
 VAPID_PRIVATE_KEY=your-vapid-private-key
 
-# Telegram Notifications (coming soon)
-# TELEGRAM_WEBHOOK_TOKEN=your-webhook-verification-token
+# Telegram Bot (Optional - for admin approval and notifications)
+TELEGRAM_BOT_TOKEN=your-bot-token-from-botfather
+# Get from @BotFather on Telegram
 
 # SteamDB Integration (Automatic)
 # No configuration needed - uses public RSS feeds
@@ -193,11 +204,201 @@ VAPID_PRIVATE_KEY=your-vapid-private-key
 1. **Game API URL**: Deploy the [gameapi repository](https://github.com/darkmaster420/gameapi) to Cloudflare Workers
 2. **Steam API Key**: Optional, but enables Steam verification features
 3. **VAPID Keys**: Auto-generated on first run for push notifications
+4. **Telegram Bot Token**: Optional, enables admin approval system and user notifications
 
+---
 
-## 📲 Telegram Notifications (coming soon)
+## 👑 Owner & Admin System
 
-Get update alerts via Telegram as soon as new game updates are detected. Setup and management will be available in a future release.
+AIOgames includes a powerful role-based permission system:
+
+### 🔐 Roles & Permissions
+
+#### Owner (Super Admin)
+The owner account is automatically created at startup from environment variables:
+- ✅ **Full System Control**: Complete access to all features
+- ✅ **User Management**: Create, ban, and unban users
+- ✅ **Role Assignment**: Promote users to admin or demote to regular user
+- ✅ **Protected Status**: Cannot be banned or demoted
+- ✅ **Auto-Verified Email**: Email automatically verified at creation
+
+#### Admin
+Admins can be promoted by the owner:
+- ✅ **Game Management**: Full access to game tracking and updates
+- ✅ **Update Approval**: Approve/deny pending updates via Telegram
+- ✅ **Ban Users**: Can ban and unban regular users
+- ⛔ **Cannot**: Affect owner account or promote to admin
+
+#### User (Default)
+Regular users have standard access:
+- ✅ **Track Games**: Add and manage their own tracked games
+- ✅ **View Updates**: See approved game updates
+- ✅ **Notifications**: Configure Telegram and push notifications
+- ⛔ **Cannot**: Access admin features or ban other users
+
+### 🚀 Setting Up the Owner Account
+
+1. **Configure Environment Variables**:
+```env
+OWNER_EMAIL=admin@example.com
+OWNER_PASSWORD=YourSecurePassword123
+OWNER_NAME=Site Administrator
+```
+
+2. **Start the Application**:
+```bash
+docker compose -f docker-compose.production.yml up -d
+# OR for development
+npm run dev
+```
+
+3. **Owner Account Created**:
+   - Account is automatically created/updated at startup
+   - Email is auto-verified
+   - Can immediately log in with the configured credentials
+
+4. **Manage Users**:
+   - Go to `/admin` dashboard (owner/admin only)
+   - View all users
+   - Promote users to admin
+   - Ban/unban users with reason tracking
+
+---
+
+## 📲 Telegram Bot Setup & Admin Approval
+
+AIOgames uses a **shared Telegram bot** for admin notifications and pending update approvals.
+
+### 🤖 Why a Shared Bot?
+
+Instead of users creating their own bots:
+- ✅ **Simpler Setup**: Users just provide their username or Chat ID
+- ✅ **Admin Approval System**: Pending updates sent to all admins automatically
+- ✅ **Centralized Management**: One bot handles all notifications
+- ✅ **Vote-Based Approval**: Requires 50% admin consensus
+
+### 🔧 Setting Up the Telegram Bot
+
+#### Step 1: Create the Bot
+
+1. **Message @BotFather** on Telegram
+2. **Create a new bot**: `/newbot`
+3. **Set bot name**: `AIOgames Notifications` (or your choice)
+4. **Set username**: `YourAIOgamesBot` (must end in 'bot')
+5. **Copy the bot token**: You'll get something like `1234567890:ABCdefGHIjklMNOpqrsTUVwxyz`
+
+#### Step 2: Configure the Bot
+
+Add the bot token to your environment:
+
+```env
+TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+```
+
+#### Step 3: Set Up Webhook (Production)
+
+**⚠️ Note**: The webhook endpoint `/api/telegram/webhook` is **public** (no authentication required) as Telegram servers need to access it. This is standard for Telegram bot webhooks.
+
+For the bot to receive messages, set up a webhook using any of these methods:
+
+**Method 1: Using cURL (Recommended)**
+```bash
+curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://your-domain.com/api/telegram/webhook"}'
+```
+
+**Method 2: Using Browser (Simple)**
+
+Just visit this URL in your browser (replace the placeholders):
+```
+https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://your-domain.com/api/telegram/webhook
+```
+
+**Method 3: Using GET Request**
+```bash
+curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://your-domain.com/api/telegram/webhook"
+```
+
+**Replace:**
+- `<YOUR_BOT_TOKEN>` with your actual bot token
+- `https://your-domain.com` with your production domain
+
+**Verify Webhook is Set:**
+```bash
+curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
+```
+
+**Remove Webhook (if needed):**
+```bash
+curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/deleteWebhook"
+```
+
+#### Step 4: Enable Telegram for Admins
+
+1. **Log in as Owner/Admin**
+2. **Go to** `/user/manage`
+3. **Enable Telegram Notifications**
+4. **Start the bot** on Telegram
+5. **Send `/start`** to get your Chat ID
+6. **Enter your username** (e.g., `@yourusername`) or Chat ID
+7. **Save settings**
+
+### ⚖️ Admin Approval System
+
+When a new game update is detected:
+
+1. **📨 Automatic Notification**: All admins with Telegram enabled receive a message
+2. **🎯 Inline Buttons**: Click "✅ Approve" or "❌ Deny"
+3. **🗳️ Vote Tracking**: System tracks who voted for what
+4. **✔️ Auto-Apply**: Update is applied when 50% of admins approve
+5. **📝 Text Commands**: Also supports `/approve <key>` and `/deny <key>` commands
+
+#### Example Approval Message:
+```
+🎮 New Update Pending Approval
+
+Game: Resident Evil 4
+Version: v20240115-TENOKE
+Source: GameDrive
+
+Approve this update?
+
+[✅ Approve] [❌ Deny]
+
+Approvals: 0/2 (2 admins total)
+```
+
+#### Commands:
+- `/start` - Get your Chat ID and welcome message
+- `/approve <key>` - Approve a pending update
+- `/deny <key>` - Deny a pending update
+- `/help` - Show available commands
+
+### � Webhook Security
+
+The webhook endpoint is **public by design** (Telegram servers need to access it), but includes built-in security:
+
+- ✅ **User Validation**: Only processes messages from users who have configured Telegram in their account
+- ✅ **Role-Based Access**: Admin-only commands (approve/deny) check user role before executing
+- ✅ **Bot Token Verification**: Only responds if `TELEGRAM_BOT_TOKEN` is configured
+- ✅ **Database Integration**: All actions require valid user records in database
+- ⚠️ **Best Practice**: Use a strong, unique bot token from BotFather
+- 💡 **Optional**: You can add rate limiting or IP filtering at your reverse proxy/firewall level
+
+**Note**: This is the standard security model for Telegram webhooks - authentication happens through the bot token and user database validation, not through HTTP authentication.
+
+### �👤 User Telegram Notifications
+
+Regular users can also receive notifications:
+
+1. **Enable Telegram** in `/user/manage`
+2. **Start the shared bot** on Telegram
+3. **Send `/start`** to get Chat ID
+4. **Enter username or Chat ID** in settings
+5. **Receive instant notifications** when tracked games update
+
+---
 
 ## 📖 How It Works
 
@@ -422,11 +623,13 @@ All of these projects are open source and free to use:
 - [x] Merge SteamAPI with AIOGames
 - [ ] Flaresolverrless GameAPI 
 - [ ] Add Custom themes
-- [ ] approve updates via telegram
+- [x] Approve updates via telegram
+- [x] Owner/Admin role system
+- [x] Shared Telegram bot for notifications
 - [ ] Game Pages with links
 
 ---
 
-** 🎯 Built with ❤️ for the gaming community**
+**🎯 Built with ❤️ for the gaming community**
 
-*AIOgames v1.3.x - Now with advanced Steam integration and real-time update detection*
+*AIOgames v1.x.x - Now with Telegram admin approval and role-based permissions*

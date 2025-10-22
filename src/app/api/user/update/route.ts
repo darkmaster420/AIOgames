@@ -22,7 +22,7 @@ export async function PATCH(req: Request) {
     webpushEnabled,
     notifyImmediately,
     telegramEnabled, 
-    telegramBotToken, 
+    telegramUsername, 
     telegramChatId,
     telegramBotManagementEnabled,
     prioritize0xdeadcode,
@@ -110,10 +110,10 @@ export async function PATCH(req: Request) {
       user.preferences.notifications.telegramEnabled = telegramEnabled;
     }
 
-    if (typeof telegramBotToken === 'string') {
+    if (typeof telegramUsername === 'string') {
       user.preferences = user.preferences || {};
       user.preferences.notifications = user.preferences.notifications || {};
-      user.preferences.notifications.telegramBotToken = telegramBotToken;
+      user.preferences.notifications.telegramUsername = telegramUsername;
     }
 
     if (typeof telegramChatId === 'string') {

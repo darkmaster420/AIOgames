@@ -371,11 +371,59 @@ function detectSuspiciousVersion(oldVersion: string, newVersion: string): { isSu
   return { isSuspicious: false };
 }
 
-function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { isNewer: boolean; changeType: string; significance: number; shouldWaitForRegular?: boolean; suspiciousVersion?: { isSuspicious: boolean; reason?: string } } {
+function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { isNewer: boolean; changeType: string; significance: number; shouldWaitForRegular?: boolean; suspiciousVersion?: { isSuspicious: boolean; reason?: string }; skipDueToHierarchy?: boolean } {
   let isNewer = false;
   let changeType = 'unknown';
   let significance = 0;
   let shouldWaitForRegular = false;
+  let skipDueToHierarchy = false;
+  
+  // **RELEASE PRIORITY HIERARCHY**
+  // 1. Versioned releases (v1.0, v1.1) = HIGHEST PRIORITY - always accept
+  // 2. PROPER releases = MEDIUM PRIORITY - only accept if no version
+  // 3. First releases (no version/PROPER) = LOWEST PRIORITY - accept initially, replaced by above
+  
+  const oldIsVersioned = !!(oldVersion.version && !oldVersion.isDateVersion);
+  const newIsVersioned = !!(newVersion.version && !newVersion.isDateVersion);
+  const oldIsProper = oldVersion.releaseType?.toUpperCase().includes('PROPER') || false;
+  const newIsProper = newVersion.releaseType?.toUpperCase().includes('PROPER') || false;
+  
+  // Rule 1: If OLD has versioned release, NEW must also be versioned AND higher
+  if (oldIsVersioned && !newIsVersioned) {
+    // Reject: Can't downgrade from versioned to non-versioned (even PROPER)
+    skipDueToHierarchy = true;
+    changeType = 'rejected_hierarchy';
+    significance = 0;
+    logger.info(`❌ Skipping non-versioned release (current has version: ${oldVersion.version})`);
+    return { isNewer: false, changeType, significance, shouldWaitForRegular, skipDueToHierarchy };
+  }
+  
+  // Rule 2: If OLD is PROPER (but not versioned) and NEW is non-versioned non-PROPER, reject
+  if (oldIsProper && !oldIsVersioned && !newIsVersioned && !newIsProper) {
+    skipDueToHierarchy = true;
+    changeType = 'rejected_hierarchy_proper';
+    significance = 0;
+    logger.info(`❌ Skipping regular release (current is PROPER without version clash)`);
+    return { isNewer: false, changeType, significance, shouldWaitForRegular, skipDueToHierarchy };
+  }
+  
+  // Rule 3: If OLD is first release (no version, no PROPER) and NEW is PROPER or versioned, accept
+  if (!oldIsVersioned && !oldIsProper && (newIsProper || newIsVersioned)) {
+    isNewer = true;
+    changeType = newIsVersioned ? 'upgrade_to_versioned' : 'upgrade_to_proper';
+    significance = newIsVersioned ? 10 : 7; // Versioned = highest priority
+    logger.info(`✅ Upgrading from first release to ${newIsVersioned ? 'versioned' : 'PROPER'} release`);
+    return { isNewer, changeType, significance, shouldWaitForRegular, skipDueToHierarchy };
+  }
+  
+  // Rule 4: If OLD is PROPER and NEW is versioned, always accept (versioned > PROPER)
+  if (oldIsProper && !oldIsVersioned && newIsVersioned) {
+    isNewer = true;
+    changeType = 'proper_to_versioned';
+    significance = 10;
+    logger.info(`✅ Upgrading from PROPER to versioned release`);
+    return { isNewer, changeType, significance, shouldWaitForRegular, skipDueToHierarchy };
+  }
   
   // Smart version preference logic:
   // 1. Regular versions (1.2.3) always preferred over date versions (v20241011)
@@ -397,7 +445,7 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
         changeType = 'date_version_recent';
         significance = 1; // Low significance
         isNewer = false; // Don't treat as newer yet
-        return { isNewer, changeType, significance, shouldWaitForRegular };
+        return { isNewer, changeType, significance, shouldWaitForRegular, skipDueToHierarchy };
       }
     }
   }
@@ -410,7 +458,7 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
       const daysDiff = Math.floor((newVersion.versionDate.getTime() - oldVersion.versionDate.getTime()) / (1000 * 60 * 60 * 24));
       significance = Math.min(5, Math.max(1, daysDiff)); // 1-5 based on days difference
     }
-    return { isNewer, changeType, significance, shouldWaitForRegular };
+    return { isNewer, changeType, significance, shouldWaitForRegular, skipDueToHierarchy };
   }
   
   // Case 3: Old is date-based, new has regular version -> need additional verification
@@ -421,7 +469,7 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
     changeType = 'date_to_regular_needs_verification';
     significance = 8; // High significance IF it's actually newer
     shouldWaitForRegular = false; // Mark that we need date/SteamDB verification
-    return { isNewer, changeType, significance, shouldWaitForRegular };
+    return { isNewer, changeType, significance, shouldWaitForRegular, skipDueToHierarchy };
   }
   
   // Case 4: Regular version comparison (existing logic)
@@ -1113,7 +1161,7 @@ export async function POST(request: Request) {
           // Enhanced comparison that respects verification preferences
           let isActuallyNewer = false;
           let comparisonReason = '';
-          let comparison: { isNewer: boolean; changeType: string; significance: number; shouldWaitForRegular?: boolean; suspiciousVersion?: { isSuspicious: boolean; reason?: string } } | undefined;
+          let comparison: { isNewer: boolean; changeType: string; significance: number; shouldWaitForRegular?: boolean; suspiciousVersion?: { isSuspicious: boolean; reason?: string }; skipDueToHierarchy?: boolean } | undefined;
           
           // More flexible update detection - don't require version if we have other indicators
           const hasVersionInfo = newVersionInfo.version || newVersionInfo.build;
@@ -1165,9 +1213,15 @@ export async function POST(request: Request) {
               comparisonReason = `Build: ${currentBuild} → ${newBuild}`;
             }
           } else {
-            // Enhanced comparison with date-version awareness
+            // Enhanced comparison with date-version awareness and release hierarchy
             if (hasVersionInfo) {
               comparison = compareVersions(currentVersionInfo, newVersionInfo);
+              
+              // Check if update should be skipped due to release hierarchy
+              if (comparison.skipDueToHierarchy) {
+                logger.info(`⏭️ Skipping update due to release hierarchy: ${decodedTitle}`);
+                continue; // Skip this update entirely
+              }
               
               // Handle date-version preference logic
               if (comparison.shouldWaitForRegular) {
@@ -1443,13 +1497,38 @@ export async function POST(request: Request) {
                   ...aiData  // Include AI detection data if available
                 };
 
-                await TrackedGame.findByIdAndUpdate(game._id, {
-                  $push: { pendingUpdates: pendingUpdate },
-                  lastChecked: new Date()
-                });
+                const updatedGame = await TrackedGame.findByIdAndUpdate(
+                  game._id,
+                  {
+                    $push: { pendingUpdates: pendingUpdate },
+                    lastChecked: new Date()
+                  },
+                  { new: true }
+                );
 
                 logger.info(`Added pending update for ${game.title}: ${versionString}`);
                 updatesFound++;
+
+                // Send Telegram approval request to admins
+                // Use 127.0.0.1 instead of localhost to avoid IPv6 issues
+                try {
+                  const updateIndex = updatedGame.pendingUpdates.length - 1;
+                  await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://127.0.0.1:3000'}/api/telegram/approve-pending`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      gameId: game._id.toString(),
+                      updateIndex,
+                      gameTitle: game.title,
+                      newTitle: pendingUpdate.newTitle,
+                      detectedVersion: pendingUpdate.detectedVersion,
+                      reason: pendingUpdate.reason
+                    })
+                  });
+                  logger.info(`Sent Telegram approval request for ${game.title}`);
+                } catch (telegramError) {
+                  logger.error('Failed to send Telegram approval request:', telegramError);
+                }
               }
               
               // Send notification only if enabled for this game

@@ -17,6 +17,7 @@ class UpdateScheduler {
   private isRunning = false;
   private checkInterval: NodeJS.Timeout | null = null;
   private cacheWarmInterval: NodeJS.Timeout | null = null;
+  private titleMigrationInterval: NodeJS.Timeout | null = null;
   private scheduledChecks = new Map<string, ScheduledCheck>();
   private readonly CHECK_FREQUENCY_HOURS = 1; // All games checked hourly
 
@@ -59,11 +60,23 @@ class UpdateScheduler {
       }
     }, 60 * 60 * 1000); // 1 hour (optimized from 30 minutes)
 
+    // Auto-migrate unclean titles every 6 hours
+    this.titleMigrationInterval = setInterval(async () => {
+      try {
+        await this.autoMigrateTitles();
+      } catch (error) {
+        logger.error('❌ Error in auto title migration:', error);
+      }
+    }, 6 * 60 * 60 * 1000); // 6 hours
+
     // Initial load of scheduled checks
     this.loadScheduledChecks();
     
     // Initial cache warming (delayed by 30 seconds to let app start)
     setTimeout(() => this.warmCache(), 30000);
+    
+    // Initial title migration (delayed by 2 minutes to let app start and avoid startup congestion)
+    setTimeout(() => this.autoMigrateTitles(), 120000);
     
     logger.info('✅ Update scheduler started successfully');
   }
@@ -82,6 +95,10 @@ class UpdateScheduler {
     if (this.cacheWarmInterval) {
       clearInterval(this.cacheWarmInterval);
       this.cacheWarmInterval = null;
+    }
+    if (this.titleMigrationInterval) {
+      clearInterval(this.titleMigrationInterval);
+      this.titleMigrationInterval = null;
     }
     logger.info('⏹️ Update scheduler stopped');
   }
@@ -204,9 +221,10 @@ class UpdateScheduler {
       logger.info(`🔍 Performing scheduled update check for user ${userId}...`);
 
       // Call the internal update check API (use environment variable or detect port)
+      // Use 127.0.0.1 instead of localhost to avoid IPv6 issues
       const baseUrl = process.env.NODE_ENV === 'production' 
-        ? process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-        : `http://localhost:${process.env.PORT || 3000}`;
+        ? process.env.NEXT_PUBLIC_APP_URL || 'http://127.0.0.1:3000'
+        : `http://127.0.0.1:${process.env.PORT || 3000}`;
       
       const response = await fetch(`${baseUrl}/api/updates/check`, {
         method: 'POST',
@@ -231,6 +249,83 @@ class UpdateScheduler {
 
     } catch (error) {
       logger.error(`❌ Failed to perform update check for user ${userId}:`, error);
+    }
+  }
+
+  /**
+   * Auto-migrate titles that need cleaning
+   */
+  private async autoMigrateTitles(): Promise<void> {
+    try {
+      await connectDB();
+      
+      const { cleanGameTitle } = await import('../utils/steamApi');
+      
+      // Find games that need migration
+      const gamesToMigrate = await TrackedGame.find({
+        isActive: true,
+        $or: [
+          { originalTitle: { $exists: false } },
+          { originalTitle: null },
+          { originalTitle: "" },
+          { $expr: { $eq: ["$title", "$originalTitle"] } },
+          // Look for titles that likely need cleaning
+          { title: { $regex: /\b(v\d+\.\d+|release|repack|update|hotfix|dlc|goty|edition|build|\[|\]|\(.*\))/i } }
+        ]
+      }).limit(100); // Process up to 100 games per run to avoid overload
+
+      if (gamesToMigrate.length === 0) {
+        logger.info('🧹 No titles need auto-migration');
+        return;
+      }
+
+      logger.info(`🧹 Auto-migrating ${gamesToMigrate.length} titles...`);
+
+      let migratedCount = 0;
+
+      for (const game of gamesToMigrate) {
+        try {
+          const originalTitle = game.title;
+          const cleanedTitle = cleanGameTitle(game.title);
+          
+          // Only update if the cleaned title is actually different
+          if (cleanedTitle !== originalTitle) {
+            await TrackedGame.updateOne(
+              { _id: game._id },
+              {
+                $set: {
+                  title: cleanedTitle,
+                  originalTitle: originalTitle,
+                  cleanedTitle: cleanedTitle
+                }
+              }
+            );
+
+            migratedCount++;
+            logger.info(`🧹 Auto-migrated title for game ${game.gameId}: "${originalTitle}" -> "${cleanedTitle}"`);
+          } else {
+            // Still ensure originalTitle is set even if no cleaning needed
+            if (!game.originalTitle || game.originalTitle === game.title) {
+              await TrackedGame.updateOne(
+                { _id: game._id },
+                {
+                  $set: {
+                    originalTitle: originalTitle,
+                    cleanedTitle: cleanedTitle
+                  }
+                }
+              );
+            }
+          }
+        } catch (error) {
+          logger.error(`❌ Failed to auto-migrate game ${game.gameId}:`, error);
+        }
+      }
+
+      logger.info(`🧹✅ Auto-migration completed: ${migratedCount} titles cleaned`);
+
+    } catch (error) {
+      logger.error('❌ Auto title migration error:', error);
     }
   }
 
@@ -346,6 +441,15 @@ class UpdateScheduler {
     }
     
     logger.info(`✅ Forced update check completed for ${userIds.length} users`);
+  }
+
+  /**
+   * Force immediate title migration (for testing or manual trigger)
+   */
+  public async forceTitleMigration(): Promise<void> {
+    logger.info('🧹 Forcing immediate title migration...');
+    await this.autoMigrateTitles();
+    logger.info('🧹✅ Forced title migration completed');
   }
 }
 

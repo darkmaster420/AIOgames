@@ -37,6 +37,11 @@ export const authOptions: AuthOptions = {
             return null;
           }
 
+          // Check if user is banned
+          if (user.banned) {
+            throw new Error(`Your account has been banned. Reason: ${user.bannedReason || 'No reason provided'}`);
+          }
+
           const isPasswordValid = await bcrypt.compare(
             credentials.password,
             user.password

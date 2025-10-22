@@ -44,8 +44,22 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['user', 'admin'],
+    enum: ['user', 'admin', 'owner'],
     default: 'user'
+  },
+  banned: {
+    type: Boolean,
+    default: false
+  },
+  bannedReason: {
+    type: String,
+    default: ''
+  },
+  bannedAt: {
+    type: Date
+  },
+  bannedBy: {
+    type: String // User ID of admin who banned
   },
   createdAt: {
     type: Date,
@@ -78,11 +92,15 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: false
       },
-      telegramBotToken: {
+      telegramUsername: {
         type: String,
         default: ''
       },
       telegramChatId: {
+        type: String,
+        default: ''
+      },
+      telegramUserId: {
         type: String,
         default: ''
       },

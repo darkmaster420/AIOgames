@@ -320,10 +320,15 @@ export async function POST(req: NextRequest) {
       // Set frequency based on release status - monthly for unreleased games, hourly for released
       const defaultFrequency = isUnreleased || isFromIGDB ? 'monthly' : 'hourly';
 
+      // Ensure IGDB-sourced games are stored with a cleaned/display title to avoid
+      // requiring a manual migration step later. Keep the original IGDB title in originalTitle.
+      const cleanedTitleValue = cleanGameTitle(bestMatch.title);
+      const displayTitle = isFromIGDB ? cleanedTitleValue : bestMatch.title;
+
       const newTrackedGame = new TrackedGame({
         userId: authenticatedUser.id,
         gameId: bestMatch.id,
-        title: bestMatch.title,
+        title: displayTitle,
         source: bestMatch.source || bestMatch.siteType || 'Unknown',
         image: bestMatch.image,
         description: decodeHtmlEntities(bestMatch.description || bestMatch.excerpt || ''),
@@ -335,7 +340,7 @@ export async function POST(req: NextRequest) {
         updateHistory: [],
         isActive: true,
         originalTitle: bestMatch.title,
-        cleanedTitle: cleanGameTitle(bestMatch.title)
+        cleanedTitle: cleanedTitleValue
       });
 
       await newTrackedGame.save();
@@ -362,10 +367,10 @@ export async function POST(req: NextRequest) {
           newTrackedGame.steamAppId = autoVerification.steamAppId;
           newTrackedGame.steamName = autoVerification.steamName;
           
-          // If no image from IGDB, use Steam header image
+          // If no image from IGDB, use Steam box art (library_600x900_2x.jpg)
           if (!newTrackedGame.image) {
-            newTrackedGame.image = `https://cdn.cloudflare.steamstatic.com/steam/apps/${autoVerification.steamAppId}/header.jpg`;
-            logger.info(`Using Steam header image for "${bestMatch.title}": appId ${autoVerification.steamAppId}`);
+            newTrackedGame.image = `https://steamcdn-a.akamaihd.net/steam/apps/${autoVerification.steamAppId}/library_600x900_2x.jpg`;
+            logger.info(`Using Steam box art for "${bestMatch.title}": appId ${autoVerification.steamAppId}`);
           }
           
           await newTrackedGame.save();

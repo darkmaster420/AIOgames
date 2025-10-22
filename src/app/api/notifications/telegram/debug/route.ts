@@ -39,10 +39,11 @@ export async function GET() {
         notifyImmediately: user.preferences?.notifications?.notifyImmediately || false,
         provider: notificationPrefs?.provider || 'none',
         telegramEnabled: notificationPrefs?.telegramEnabled || false,
-        hasBotToken: !!notificationPrefs?.telegramBotToken,
+        hasBotToken: !!process.env.TELEGRAM_BOT_TOKEN,
+        hasSharedBotToken: !!process.env.TELEGRAM_BOT_TOKEN,
         hasChatId: !!notificationPrefs?.telegramChatId,
-        botTokenLength: notificationPrefs?.telegramBotToken?.length || 0,
-        chatIdLength: notificationPrefs?.telegramChatId?.length || 0
+        chatIdLength: notificationPrefs?.telegramChatId?.length || 0,
+        username: notificationPrefs?.telegramUsername || 'not set'
       },
       configValid: !!telegramConfig,
       telegramConfig: telegramConfig ? {
@@ -100,11 +101,11 @@ function getRecommendations(debug: {
   }
 
   if (!debug.preferences.hasBotToken) {
-    recommendations.push('Add your Telegram bot token in notification settings');
+    recommendations.push('Telegram bot token is not configured on the server. Contact the administrator.');
   }
 
   if (!debug.preferences.hasChatId) {
-    recommendations.push('Add your Telegram chat ID in notification settings');
+    recommendations.push('Add your Telegram chat ID in notification settings (send /start to the bot)');
   }
 
   if (debug.configValid && testResult && !testResult.success) {

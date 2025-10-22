@@ -4,6 +4,7 @@ import connectDB from '@/lib/db';
 import { TrackedGame } from '@/lib/models';
 import { searchSteamGames } from '@/utils/steamApi';
 import { analyzeGameTitle } from '@/utils/versionDetection';
+import { getSteamBoxArt } from '@/utils/boxArt';
 
 /**
  * POST /api/games/steam-verify
@@ -73,7 +74,7 @@ export async function PATCH(request: NextRequest) {
     await connectDB();
 
     // Update the tracked game with Steam verification
-    const updateData = {
+    const updateData: Record<string, string | boolean | null> = {
       steamVerified: true,
       steamAppId: steamAppId || null,
       steamName: steamName || null
@@ -87,6 +88,13 @@ export async function PATCH(request: NextRequest) {
 
     if (!updatedGame) {
       return NextResponse.json({ error: 'Game not found' }, { status: 404 });
+    }
+
+    // If no image exists and we have a Steam app ID, add Steam box art
+    if (!updatedGame.image && steamAppId) {
+      updatedGame.image = getSteamBoxArt(steamAppId);
+      console.log(`🎨 Added Steam box art for ${updatedGame.title}: App ID ${steamAppId}`);
+      await updatedGame.save();
     }
 
     // After manual Steam verification, perform semantic version and build detection

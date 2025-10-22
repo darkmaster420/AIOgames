@@ -16,94 +16,63 @@ export async function GET() {
 
     await connectDB();
 
-    // Get games with update history, sorted by most recent updates
-    const gamesWithUpdates = await TrackedGame.aggregate([
-      {
-        $match: {
-          userId: user.id,
-          isActive: true,
-          updateHistory: { $exists: true, $ne: [] } // Has at least one update
-        }
-      },
-      {
-        $addFields: {
-          // Get the most recent update date - simplified approach without $isDate
-          lastUpdateDate: { 
-            $max: { 
-              $map: {
-                input: '$updateHistory',
-                as: 'update',
-                in: '$$update.dateFound'
-              }
-            }
-          },
-          totalUpdates: { $size: { $ifNull: ['$updateHistory', []] } },
-          // Get current version from the most recent update or lastKnownVersion
-          currentVersion: {
-            $ifNull: [
-              '$lastKnownVersion',
-              { 
-                $let: {
-                  vars: {
-                    sortedUpdates: {
-                      $sortArray: {
-                        input: '$updateHistory',
-                        sortBy: { dateFound: -1 }
-                      }
-                    }
-                  },
-                  in: { $arrayElemAt: ['$$sortedUpdates.version', 0] }
-                }
-              }
-            ]
-          }
-        }
-      },
-      {
-        $match: {
-          lastUpdateDate: { $exists: true, $ne: null } // Only include games where we successfully got a date
-        }
-      },
-      {
-        $sort: { lastUpdateDate: -1 }
-      },
-      {
-        $limit: 50 // Limit to 50 most recent
-      },
-      {
-        $project: {
-          title: 1,
-          originalTitle: 1,
-          steamName: 1,
-          steamVerified: 1,
-          image: 1,
-          source: 1,
-          currentVersion: 1,
-          lastVersionDate: 1,
-          totalUpdates: 1,
-          lastUpdateDate: 1, // Include for debugging
-          updateHistory: {
-            $slice: [
-              {
-                $sortArray: {
-                  input: '$updateHistory',
-                  sortBy: { dateFound: -1 }
-                }
-              },
-              5 // Get last 5 updates for each game
-            ]
-          }
-        }
-      }
-    ]);
+    // Calculate the date 7 days ago
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    return NextResponse.json({
-      success: true,
-      games: gamesWithUpdates
+    // Get games with approved updates (latestApprovedUpdate field) from the last 7 days
+    const gamesWithUpdates = await TrackedGame.find({
+      userId: user.id,
+      isActive: true,
+      latestApprovedUpdate: { $exists: true, $ne: null }, // Has an approved update
+      'latestApprovedUpdate.dateFound': { $gte: sevenDaysAgo }, // Updated within the last 7 days
+      updateHistory: { $exists: true, $ne: [] } // Has update history (ensures at least one actual update)
+    })
+      .select('title originalTitle steamName steamVerified image source gameId lastKnownVersion currentVersionNumber currentBuildNumber updateHistory latestApprovedUpdate')
+      .sort({ 'latestApprovedUpdate.dateFound': -1 }) // Sort by most recent approved update
+      .lean();
+
+    // Deduplicate by gameId - keep only the most recent tracking entry for each unique game
+    const seenGameIds = new Set<string>();
+    const uniqueGames = gamesWithUpdates.filter(game => {
+      if (seenGameIds.has(game.gameId)) {
+        return false; // Skip duplicate
+      }
+      seenGameIds.add(game.gameId);
+      return true;
     });
 
+    // Transform the data to match the expected format
+    const formattedGames = uniqueGames
+      .slice(0, 50) // Limit to 50 after deduplication
+      .map(game => {
+        // Get the 5 most recent updates from history
+        const recentHistory = (game.updateHistory || [])
+          .sort((a: { dateFound: Date | string }, b: { dateFound: Date | string }) => 
+            new Date(b.dateFound).getTime() - new Date(a.dateFound).getTime()
+          )
+          .slice(0, 5);
+
+        return {
+          _id: game._id,
+          title: game.title,
+          originalTitle: game.originalTitle,
+          steamName: game.steamName,
+          steamVerified: game.steamVerified,
+          image: game.image,
+          source: game.source,
+          currentVersion: game.latestApprovedUpdate?.version || game.lastKnownVersion,
+          lastVersionDate: game.latestApprovedUpdate?.dateFound,
+          updateHistory: recentHistory,
+          totalUpdates: game.updateHistory?.length || 0
+        };
+      });
+
+    return NextResponse.json({
+      games: formattedGames
+    });
   } catch (error) {
-    console.error('Error fetching recent updates:', error);
+    console.error('Get recent updates error:', error);
     return NextResponse.json(
       { error: 'Failed to fetch recent updates' },
       { status: 500 }

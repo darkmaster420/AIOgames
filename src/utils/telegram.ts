@@ -47,6 +47,70 @@ export interface TelegramPhotoMessage {
   parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2';
 }
 
+export interface TelegramBotInfo {
+  id: number;
+  is_bot: boolean;
+  first_name: string;
+  username: string;
+  can_join_groups?: boolean;
+  can_read_all_group_messages?: boolean;
+  supports_inline_queries?: boolean;
+}
+
+// Cache for bot info to avoid repeated API calls
+let cachedBotInfo: { username: string; timestamp: number } | null = null;
+const BOT_INFO_CACHE_TTL = 3600000; // 1 hour in milliseconds
+
+/**
+ * Get bot information from Telegram API
+ * Results are cached for 1 hour to avoid unnecessary API calls
+ */
+export async function getBotInfo(botToken?: string): Promise<{ username: string; botLink: string } | null> {
+  const token = botToken || process.env.TELEGRAM_BOT_TOKEN;
+  
+  if (!token) {
+    return null;
+  }
+
+  // Return cached info if valid
+  if (cachedBotInfo && Date.now() - cachedBotInfo.timestamp < BOT_INFO_CACHE_TTL) {
+    return {
+      username: cachedBotInfo.username,
+      botLink: `https://t.me/${cachedBotInfo.username}`
+    };
+  }
+
+  try {
+    const url = `https://api.telegram.org/bot${token}/getMe`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      console.error('Failed to fetch bot info:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    
+    if (data.ok && data.result?.username) {
+      // Cache the result
+      cachedBotInfo = {
+        username: data.result.username,
+        timestamp: Date.now()
+      };
+
+      return {
+        username: data.result.username,
+        botLink: `https://t.me/${data.result.username}`
+      };
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error fetching bot info:', error);
+    return null;
+  }
+}
+
 /**
  * Send a photo message via Telegram Bot API
  */
@@ -351,13 +415,14 @@ export function formatSequelNotificationMessage(sequelData: {
 
 /**
  * Get user's Telegram configuration from user data
+ * Uses shared bot token from environment variable
  */
-export function getTelegramConfig(user: { preferences?: { notifications?: { telegramEnabled?: boolean; telegramBotToken?: string; telegramChatId?: string } } }): TelegramConfig | null {
+export function getTelegramConfig(user: { preferences?: { notifications?: { telegramEnabled?: boolean; telegramUsername?: string; telegramChatId?: string } } }): TelegramConfig | null {
   if (!user?.preferences?.notifications?.telegramEnabled) {
     return null;
   }
 
-  const botToken = user.preferences.notifications.telegramBotToken;
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = user.preferences.notifications.telegramChatId;
 
   if (!botToken || !chatId) {
