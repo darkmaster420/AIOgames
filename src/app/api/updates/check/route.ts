@@ -4,7 +4,7 @@ import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel } from '../../../../utils/sequelDetection';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
-import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, extractReleaseGroup, is0xdeadcodeRelease } from '../../../../utils/steamApi';
+import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, extractReleaseGroup, is0xdeadcodeRelease, isOnlineFixRelease } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
 import { detectUpdatesWithAI, isAIDetectionAvailable, prepareCandidatesForAI } from '../../../../utils/aiUpdateDetection';
 
@@ -1397,6 +1397,12 @@ export async function POST(request: Request) {
                 (selectedMatch?.aiConfidence && selectedMatch.aiConfidence >= aiPreferences.autoApprovalThreshold)
               );
 
+              // Detect if this is an Online-Fix release
+              const isOnlineFix = isOnlineFixRelease(decodedTitle);
+              if (isOnlineFix) {
+                logger.info(`🌐 Detected Online-Fix release: ${decodedTitle}`);
+              }
+
               if (shouldAutoApprove) {
                 // Auto-approve high confidence updates
                 const approvedUpdate = {
@@ -1412,6 +1418,7 @@ export async function POST(request: Request) {
                   downloadLinks: bestMatch.downloadLinks || [],
                   autoApproved: true,
                   verificationReason: comparisonReason,
+                  isOnlineFix: isOnlineFix,
                   ...aiData  // Include AI detection data if available
                 };
 
@@ -1449,6 +1456,31 @@ export async function POST(request: Request) {
 
                 logger.info(`Auto-approved update for ${game.title}: ${versionString}`);
                 updatesFound++;
+                
+                // Send notification only if enabled for this game
+                if (game.notificationsEnabled) {
+                  try {
+                    // Fetch full download links for auto-approved updates
+                    const downloadLinks = await fetchDownloadLinks(bestMatch);
+                    
+                    const notificationData = createUpdateNotificationData({
+                      gameTitle: game.title,
+                      version: versionString,
+                      gameLink: bestMatch.link,
+                      imageUrl: bestMatch.image,
+                      updateType: 'update',
+                      downloadLinks: downloadLinks,
+                      isPending: false
+                    });
+                    
+                    await sendUpdateNotification(game.userId.toString(), notificationData);
+                    logger.info(`Update notification sent for ${game.title}`);
+                  } catch (notificationError) {
+                    logger.error('Failed to send update notification:', notificationError);
+                  }
+                } else {
+                  logger.info(`Update found for ${game.title} but notifications are disabled`);
+                }
               } else {
                 // Check if the detected game has version or build information before adding to pending
                 const hasVersionOrBuild = newVersionInfo.version || newVersionInfo.build || 
@@ -1476,7 +1508,6 @@ export async function POST(request: Request) {
                 if (comparison?.suspiciousVersion?.isSuspicious) {
                   suspiciousReason = ` ⚠️ SUSPICIOUS: ${comparison.suspiciousVersion.reason}`;
                 }
-
                 const pendingUpdate = {
                   version: decodedTitle, // Full title with version for display
                   detectedVersion: newVersionInfo.fullVersionString || newVersionInfo.version || newVersionInfo.build || '', // Clean version number
@@ -1494,6 +1525,7 @@ export async function POST(request: Request) {
                   confidence: newVersionInfo.confidence || (aiConfidence > 0 ? aiConfidence : bestSimilarity),
                   reason: `${comparisonReason} | Similarity: ${Math.round(bestSimilarity * 100)}%${aiConfidence > 0 ? ` | AI: ${Math.round(aiConfidence * 100)}%` : ''}${suspiciousReason}`,
                   downloadLinks: bestMatch.downloadLinks || [],
+                  isOnlineFix: isOnlineFix,
                   ...aiData  // Include AI detection data if available
                 };
 
@@ -1529,34 +1561,28 @@ export async function POST(request: Request) {
                 } catch (telegramError) {
                   logger.error('Failed to send Telegram approval request:', telegramError);
                 }
-              }
-              
-              // Send notification only if enabled for this game
-              if (game.notificationsEnabled) {
-                try {
-                  // Fetch full download links for auto-approved updates
-                  let downloadLinks = undefined;
-                  if (shouldAutoApprove) {
-                    downloadLinks = await fetchDownloadLinks(bestMatch);
+                
+                // Send notification only if enabled for this game
+                if (game.notificationsEnabled) {
+                  try {
+                    const notificationData = createUpdateNotificationData({
+                      gameTitle: game.title,
+                      version: versionString,
+                      gameLink: bestMatch.link,
+                      imageUrl: bestMatch.image,
+                      updateType: 'pending',
+                      downloadLinks: undefined,
+                      isPending: true
+                    });
+                    
+                    await sendUpdateNotification(game.userId.toString(), notificationData);
+                    logger.info(`Pending update notification sent for ${game.title}`);
+                  } catch (notificationError) {
+                    logger.error('Failed to send pending update notification:', notificationError);
                   }
-                  
-                  const notificationData = createUpdateNotificationData({
-                    gameTitle: game.title,
-                    version: versionString,
-                    gameLink: bestMatch.link,
-                    imageUrl: bestMatch.image,
-                    updateType: shouldAutoApprove ? 'update' : 'pending',
-                    downloadLinks: downloadLinks,
-                    isPending: !shouldAutoApprove
-                  });
-                  
-                  await sendUpdateNotification(game.userId.toString(), notificationData);
-                  logger.info(`${shouldAutoApprove ? 'Update' : 'Pending update'} notification sent for ${game.title}`);
-                } catch (notificationError) {
-                  logger.error('Failed to send update notification:', notificationError);
+                } else {
+                  logger.info(`Pending update found for ${game.title} but notifications are disabled`);
                 }
-              } else {
-                logger.info(`Update found for ${game.title} but notifications are disabled`);
               }
             }
           }

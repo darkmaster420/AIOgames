@@ -627,6 +627,8 @@ All of these projects are open source and free to use:
 - [x] Owner/Admin role system
 - [x] Shared Telegram bot for notifications
 - [ ] Game Pages with links
+- [ ] Migrate notifs to Apprise
+- [ ] improve game cards by using game pages
 
 ---
 

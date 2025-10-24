@@ -368,6 +368,10 @@ const trackedGameSchema = new mongoose.Schema({
       enum: ['regex_only', 'ai_enhanced', 'ai_primary'],
       default: 'regex_only'
     },
+    isOnlineFix: {
+      type: Boolean,
+      default: false
+    },
     downloadLinks: [{
       service: {
         type: String,
@@ -481,6 +485,10 @@ const trackedGameSchema = new mongoose.Schema({
       type: String,
       enum: ['regex_only', 'ai_enhanced', 'ai_primary'],
       default: 'regex_only'
+    },
+    isOnlineFix: {
+      type: Boolean,
+      default: false
     },
     downloadLinks: [{
       service: {

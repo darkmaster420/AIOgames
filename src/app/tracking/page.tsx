@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useSession } from 'next-auth/react';
 import { GameDownloadLinks } from '../../components/GameDownloadLinks';
 import { SteamVerification } from '../../components/SteamVerification';
@@ -68,6 +69,7 @@ interface TrackedGame {
     dateFound: string;
     gameLink: string;
     isLatest?: boolean;
+    isOnlineFix?: boolean;
     downloadLinks?: Array<{
       service: string;
       url: string;
@@ -78,6 +80,7 @@ interface TrackedGame {
     version: string;
     dateFound: string;
     gameLink: string;
+    isOnlineFix?: boolean;
     downloadLinks?: Array<{
       service: string;
       url: string;
@@ -1533,9 +1536,9 @@ export default function TrackingDashboard() {
                               currentGogId={game.gogProductId}
                               currentGogName={game.gogName}
                               isVerified={game.gogVerified}
-                              gogLatestVersion={undefined}
-                              gogLatestBuildId={undefined}
-                              gogLatestDate={undefined}
+                              gogLatestVersion={gogLatest[game._id]?.version}
+                              gogLatestBuildId={gogLatest[game._id]?.buildId}
+                              gogLatestDate={gogLatest[game._id]?.date}
                               onVerificationComplete={() => {
                                 // Refresh the game data after verification
                                 loadTrackedGames();
@@ -1606,11 +1609,21 @@ export default function TrackingDashboard() {
                         <h4 className="text-xs sm:text-sm font-medium text-green-700 dark:text-green-300 mb-2 flex items-center gap-2">
                           <span>✅</span>
                           Current Version
+                          {game.latestApprovedUpdate.isOnlineFix && (
+                            <Image 
+                              src="https://online-fix.me/favicon-32x32.png" 
+                              alt="Online-Fix" 
+                              width={16}
+                              height={16}
+                              className="inline-block"
+                              title="Online-Fix Release"
+                            />
+                          )}
                         </h4>
                         <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded">
                           <div className="flex flex-col gap-2">
                             <div className="flex-1">
-                              <span className="font-medium text-sm">v{game.latestApprovedUpdate.version}</span>
+                              <span className="font-medium text-sm">{game.latestApprovedUpdate.version.startsWith('v') ? game.latestApprovedUpdate.version : `v${game.latestApprovedUpdate.version}`}</span>
                               <span className="text-gray-500 dark:text-gray-400 text-xs ml-2">
                                 approved {formatDate(game.latestApprovedUpdate.dateFound)}
                               </span>

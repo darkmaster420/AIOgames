@@ -544,6 +544,13 @@ export function is0xdeadcodeRelease(title: string): boolean {
 }
 
 /**
+ * Detect if a release is an Online-Fix
+ */
+export function isOnlineFixRelease(title: string): boolean {
+  return /\b(online[-\s]?fix|onlinefix)\b/i.test(title) || /online-fix\.me/i.test(title);
+}
+
+/**
  * Extract release group from title
  */
 export function extractReleaseGroup(title: string): string | null {

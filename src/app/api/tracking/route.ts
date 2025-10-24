@@ -293,7 +293,7 @@ export async function POST(request: NextRequest) {
         trackedGame.currentVersionNumber = versionAnalysis.detectedVersion;
         trackedGame.versionNumberVerified = true;
         trackedGame.versionNumberSource = 'auto-detected';
-  logger.info(`Auto-detected and verified version for "${title}": v${versionAnalysis.detectedVersion}`);
+  logger.info(`Auto-detected and verified version for "${title}": ${versionAnalysis.detectedVersion.startsWith('v') ? versionAnalysis.detectedVersion : `v${versionAnalysis.detectedVersion}`}`);
       }
       
       if (versionAnalysis.detectedBuild) {
