@@ -53,27 +53,18 @@ function SignInInner() {
       const normalizedInput = normalizeLoginInput(emailOrUsername);
       const result = await signIn('credentials', { email: normalizedInput, password, redirect: false });
 
-      if (result?.error) {
-        setError('Invalid email/username or password');
+      // Check if sign in was successful
+      if (!result?.ok || result?.error) {
+        setError(result?.error || 'Invalid email/username or password');
+        setLoading(false);
         return;
       }
 
-      // Poll for session becoming available (sometimes immediate getSession isn't updated yet in App Router)
-      let attempts = 0;
-      const maxAttempts = 10;
-      const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
-      while (attempts < maxAttempts) {
-        attempts++;
-        if (status === 'authenticated') {
-          break;
-        }
-        await delay(100);
-      }
-      // Use window.location.href for a proper redirect with full page load
+      // Sign in was successful, redirect
       window.location.href = callbackUrl;
-    } catch {
+    } catch (err) {
+      console.error('Sign in exception:', err);
       setError('An error occurred during sign in');
-    } finally {
       setLoading(false);
     }
   };
