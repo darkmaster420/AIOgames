@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
 import { GameDownloadLinks } from '../../components/GameDownloadLinks';
+import { TrackedGamePosterCard } from '../../components/TrackedGamePosterCard';
 import { SteamVerification } from '../../components/SteamVerification';
 import { SmartVersionVerification } from '../../components/SmartVersionVerification';
 import GOGVerification from '../../components/GOGVerification';
@@ -598,47 +599,66 @@ export default function TrackingDashboard() {
       
       let games = data.games || [];
       
-      // Fetch SteamDB updates for Steam-verified games
+      // Fetch SteamDB updates for Steam-verified games individually
       if (games.length > 0) {
-        try {
-          const steamResponse = await fetch('/api/steamdb?action=updates');
-          if (steamResponse.ok) {
-            const steamData = await steamResponse.json();
-            const steamUpdates = steamData.data?.updates || [];
-            
-            // Map SteamDB updates to games
-            games = games.map((game: TrackedGame) => {
-              if (game.steamAppId && game.steamVerified) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const steamUpdate = steamUpdates.find((update: any) => 
-                  update.appId === game.steamAppId?.toString()
-                );
-                
-                if (steamUpdate) {
-                  // Check if version is outdated
-                  const versionCheck = checkIfVersionOutdated(game, steamUpdate);
-                  
+        const steamVerifiedGames = games.filter((game: TrackedGame) => 
+          game.steamAppId && game.steamVerified
+        );
+        
+        if (steamVerifiedGames.length > 0) {
+          // Fetch SteamDB data for each game in parallel
+          const steamUpdatePromises = steamVerifiedGames.map(async (game: TrackedGame) => {
+            try {
+              const steamResponse = await fetch(`/api/steamdb?action=updates&appId=${game.steamAppId}`);
+              if (steamResponse.ok) {
+                const steamData = await steamResponse.json();
+                const updates = steamData.data?.updates || [];
+                if (updates.length > 0) {
+                  const latestUpdate = updates[0]; // Most recent update
                   return {
-                    ...game,
-                    steamdbUpdate: {
-                      title: steamUpdate.description || steamUpdate.gameTitle,
-                      version: steamUpdate.version,
-                      buildNumber: steamUpdate.changeNumber,
-                      date: steamUpdate.date,
-                      link: steamUpdate.link,
-                      isOutdated: versionCheck.isOutdated,
-                      outdatedReason: versionCheck.reason,
-                      suggestion: versionCheck.suggestion,
-                    }
+                    appId: game.steamAppId?.toString(),
+                    update: latestUpdate
                   };
                 }
               }
-              return game;
-            });
-          }
-        } catch (steamError) {
-          console.warn('Failed to fetch SteamDB updates:', steamError);
-          // Continue without SteamDB updates
+            } catch (error) {
+              console.warn(`Failed to fetch SteamDB for app ${game.steamAppId}:`, error);
+            }
+            return null;
+          });
+          
+          const steamUpdates = (await Promise.all(steamUpdatePromises)).filter(Boolean);
+          
+          // Map SteamDB updates to games
+          games = games.map((game: TrackedGame) => {
+            if (game.steamAppId && game.steamVerified) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const steamData = steamUpdates.find((s: any) => 
+                s?.appId === game.steamAppId?.toString()
+              );
+              
+              if (steamData?.update) {
+                const steamUpdate = steamData.update;
+                // Check if version is outdated
+                const versionCheck = checkIfVersionOutdated(game, steamUpdate);
+                
+                return {
+                  ...game,
+                  steamdbUpdate: {
+                    title: steamUpdate.description || steamUpdate.gameTitle,
+                    version: steamUpdate.version,
+                    buildNumber: steamUpdate.changeNumber,
+                    date: steamUpdate.date,
+                    link: steamUpdate.link,
+                    isOutdated: versionCheck.isOutdated,
+                    outdatedReason: versionCheck.reason,
+                    suggestion: versionCheck.suggestion,
+                  }
+                };
+              }
+            }
+            return game;
+          });
         }
       }
       
@@ -1311,7 +1331,7 @@ export default function TrackingDashboard() {
             <div 
               className={`
                 ${layoutMode === 'grid' 
-                  ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4 lg:gap-6'
+                  ? 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 sm:gap-6'
                   : layoutMode === 'list'
                   ? 'flex flex-col gap-4 max-w-4xl mx-auto w-full'
                   : 'flex flex-row gap-6 overflow-x-auto pb-4 snap-x snap-mandatory'
@@ -1320,11 +1340,53 @@ export default function TrackingDashboard() {
               style={layoutMode === 'grid' ? customGridStyle : undefined}
             >
             {filteredGames.map((game) => (
+              layoutMode === 'grid' || layoutMode === 'horizontal' ? (
+                <TrackedGamePosterCard
+                  key={game._id}
+                  gameId={game._id}
+                  appid={game.steamAppId}
+                  gogProductId={game.gogProductId}
+                  title={game.originalTitle || game.title}
+                  originalTitle={game.originalTitle}
+                  description={game.description}
+                  image={game.image || ''}
+                  source={game.source}
+                  hasUpdate={game.hasNewUpdate}
+                  gameLink={game.gameLink}
+                  lastKnownVersion={game.lastKnownVersion}
+                  currentBuildNumber={game.currentBuildNumber}
+                  currentVersionNumber={game.currentVersionNumber}
+                  steamVerified={game.steamVerified}
+                  steamName={game.steamName}
+                  gogVerified={game.gogVerified}
+                  buildNumberVerified={game.buildNumberVerified}
+                  notificationsEnabled={game.notificationsEnabled}
+                  gogName={game.gogName}
+                  gogVersion={game.gogVersion}
+                  gogBuildId={game.gogBuildId}
+                  gogLastChecked={game.gogLastChecked}
+                  steamdbUpdate={game.steamdbUpdate}
+                  updateHistory={game.updateHistory}
+                  pendingUpdates={game.pendingUpdates}
+                  onUntrack={async () => {
+                    const confirmed = await confirm(
+                      'Remove Game from Tracking',
+                      `Are you sure you want to stop tracking "${game.title}"? This action cannot be undone.`,
+                      { confirmText: 'Remove', cancelText: 'Close', type: 'danger' }
+                    );
+                    if (!confirmed) return;
+                    handleUntrack(game.gameId);
+                  }}
+                  onCheckUpdate={() => handleSingleGameUpdate(game._id, game.title)}
+                  onRefresh={loadTrackedGames}
+                  isCheckingUpdate={checkingSingleGame === game._id}
+                  className={layoutMode === 'horizontal' ? 'min-w-[200px] snap-start' : ''}
+                />
+              ) : (
               <div 
                 key={game._id} 
                 className={`
                   relative game-card animate-fade-in flex flex-col rounded-lg shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden pb-16 bg-white dark:bg-gray-800
-                  ${layoutMode === 'horizontal' ? 'min-w-[300px] sm:min-w-[350px] snap-start' : ''}
                 `}
               >
                 {/* Blended background image */}
@@ -1712,7 +1774,8 @@ export default function TrackingDashboard() {
                   <GameDownloadLinks gameId={game._id} className="w-full" />
                 </div>
               </div>
-            ))}
+            )
+          ))}
           </div>
           </>
         )}

@@ -3,7 +3,6 @@ import { TelegramBotClient, TelegramUpdate, parseCommand, handleTelegramCommand,
 import connectDB from '../../../../lib/db';
 import { TrackedGame, User } from '../../../../lib/models';
 import logger from '../../../../utils/logger';
-import { getPendingApprovals } from '../approve-pending/route';
 
 interface TelegramCallback {
   id: string;
@@ -28,78 +27,9 @@ async function handleApprovalCallback(
   approvalKey: string,
   botToken: string
 ): Promise<void> {
-  await connectDB();
-  
-  const pendingApprovals = getPendingApprovals();
-  const approval = pendingApprovals.get(approvalKey);
-  
-  if (!approval) {
-    // Approval expired or doesn't exist
-    await answerCallback(callback.id, '❌ This approval has expired or been completed', botToken);
-    return;
-  }
-
-  // Find the user by Telegram ID
-  const user = await User.findOne({ 'preferences.notifications.telegramUserId': callback.from.id.toString() });
-  if (!user || user.role !== 'admin') {
-    await answerCallback(callback.id, '❌ Only admins can approve/deny updates', botToken);
-    return;
-  }
-
-  const userId = user._id.toString();
-  
-  // Check if user already voted
-  if (approval.approvals.includes(userId) || approval.denials.includes(userId)) {
-    await answerCallback(callback.id, 'ℹ️ You have already voted on this update', botToken);
-    return;
-  }
-
-  // Record the vote
-  if (action === 'approve') {
-    approval.approvals.push(userId);
-  } else {
-    approval.denials.push(userId);
-  }
-
-  // Get all admins count
-  const adminCount = await User.countDocuments({ role: 'admin' });
-  const requiredApprovals = Math.ceil(adminCount / 2);
-
-  // Check if we have enough approvals
-  if (approval.approvals.length >= requiredApprovals) {
-    // Approve the update
-    await approveUpdate(approval.gameId, approval.updateIndex);
-    
-    // Notify all admins
-    await notifyAdmins(
-      `✅ Update approved for game!\n\n${approval.approvals.length}/${adminCount} admins approved.`,
-      approval.messageIds,
-      botToken
-    );
-    
-    // Clean up
-    pendingApprovals.delete(approvalKey);
-    await answerCallback(callback.id, '✅ Update approved and applied!', botToken);
-    
-  } else if (approval.denials.length > adminCount - requiredApprovals) {
-    // Too many denials - cannot reach required approvals
-    await notifyAdmins(
-      `❌ Update denied.\n\n${approval.denials.length}/${adminCount} admins denied.`,
-      approval.messageIds,
-      botToken
-    );
-    
-    pendingApprovals.delete(approvalKey);
-    await answerCallback(callback.id, '❌ Update denied', botToken);
-    
-  } else {
-    // Still pending - update status
-    const status = `Current votes: ${approval.approvals.length} approved, ${approval.denials.length} denied (${requiredApprovals} needed)`;
-    await answerCallback(callback.id, status, botToken);
-    
-    // Update all admin messages with current status
-    await updateAdminMessages(approval.messageIds, status, botToken);
-  }
+  // Note: Approval handling temporarily disabled due to Next.js 15 route export restrictions
+  // Will be re-implemented using a shared state management solution
+  await answerCallback(callback.id, '❌ Approval system temporarily unavailable', botToken);
 }
 
 async function answerCallback(callbackId: string, text: string, botToken: string): Promise<void> {

@@ -242,12 +242,14 @@ interface GOGDBSearchResult {
         </div>
       ) : (
         /* Verification Button */
-        <button
-          onClick={handleToggle}
-          className="w-full px-3 py-2 text-sm font-medium bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-lg transition-colors"
-        >
-          🔍 Verify with GOG
-        </button>
+        <div className="space-y-2">
+          <button
+            onClick={handleToggle}
+            className="w-full px-3 py-2 text-sm font-medium bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-lg transition-colors"
+          >
+            🔍 Verify with GOG
+          </button>
+        </div>
       )}
 
       {/* Search Results Modal */}

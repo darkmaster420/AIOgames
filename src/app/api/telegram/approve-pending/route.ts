@@ -12,7 +12,7 @@ interface PendingApprovalVote {
 }
 
 // In-memory storage for pending approvals (in production, use Redis or DB)
-const pendingApprovals = new Map<string, PendingApprovalVote>();
+const pendingApprovalsVotes = new Map<string, PendingApprovalVote>();
 
 /**
  * Send pending update approval requests to all admins via Telegram
@@ -58,8 +58,8 @@ export async function POST(req: NextRequest) {
     const approvalKey = `${gameId}-${updateIndex}`;
     
     // Initialize pending approval if not exists
-    if (!pendingApprovals.has(approvalKey)) {
-      pendingApprovals.set(approvalKey, {
+    if (!pendingApprovalsVotes.has(approvalKey)) {
+      pendingApprovalsVotes.set(approvalKey, {
         gameId,
         updateIndex,
         approvals: [],
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
 
         const result = await response.json();
         if (result.ok) {
-          const approval = pendingApprovals.get(approvalKey);
+          const approval = pendingApprovalsVotes.get(approvalKey);
           if (approval) {
             approval.messageIds[chatId.toString()] = result.result.message_id;
           }
@@ -142,7 +142,8 @@ export async function POST(req: NextRequest) {
 
 /**
  * Get the pending approvals map (for webhook handler)
+ * Note: This is an internal function, not exported from the route
  */
-export function getPendingApprovals() {
-  return pendingApprovals;
+function getPendingApprovals() {
+  return pendingApprovalsVotes;
 }

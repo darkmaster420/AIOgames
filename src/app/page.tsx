@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { ImageWithFallback } from '../utils/imageProxy';
 import { GameDownloadLinks } from '../components/GameDownloadLinks';
+import { GamePosterCard } from '../components/GamePosterCard';
 import { AddCustomGame } from '../components/AddCustomGame';
 import { TelegramSendButton } from '../components/TelegramSendButton';
 import { ExternalLinkIcon } from '../components/ExternalLinkIcon';
@@ -495,7 +496,7 @@ function DashboardInner() {
 
         {/* Mobile-optimized Games Grid */}
         {(showRecentGames || searchQuery !== '') && (
-          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 sm:gap-6">
             {loading ? (
               <div className="col-span-full flex flex-col items-center justify-center py-12 space-y-4">
                 <div className="relative">
@@ -526,125 +527,22 @@ function DashboardInner() {
                   }
                   return true;
                 })
-                .map((game: Game) => {
-              return (
-                <div key={game.id} className="relative bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-200 dark:border-gray-700 flex flex-col h-full pb-16">
-                  {/* Blended background image */}
-                  {game.image && (
-                    <div
-                      className="absolute inset-0 z-0"
-                      aria-hidden="true"
-                      style={{
-                        backgroundImage: `url('${game.image}')`,
-                        backgroundSize: 'cover',
-                        backgroundPosition: 'center',
-                        filter: 'blur(24px) brightness(0.7) saturate(1.2)',
-                        opacity: 0.15,
-                        transition: 'opacity 0.3s',
-                      }}
-                    />
-                  )}
-                  
-                  {/* Top-left Track Status */}
-                  {trackedGames.has(game.id) && (
-                    <div className="absolute top-2 left-2 z-20">
-                      <div className="flex items-center gap-1 bg-green-500/90 text-white text-xs font-semibold px-2 py-1 rounded-md shadow">
-                        ✅ <span className="hidden sm:inline">Tracked</span>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Game Image - Made Even Bigger and Taller */}
-                  {/* Game Image */}
-                  {game.image && (
-                    <div className="relative z-10 mx-auto mt-4 mb-3 flex justify-center items-center">
-                      <ImageWithFallback
-                        src={game.image}
-                        alt={game.title}
-                        width={240}
-                        height={360}
-                        className="w-auto h-auto max-w-[240px] rounded-lg shadow-lg border border-gray-200 dark:border-gray-600"
-                      />
-                    </div>
-                  )}                  {/* Action Icons (moved under image) */}
-                  <div className="relative z-10 flex justify-center gap-2 mb-3">
-                    <a
-                      href={game.link}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="Open game page"
-                      className="h-9 w-9 flex items-center justify-center rounded-lg bg-white/90 dark:bg-gray-900/80 border border-gray-300 dark:border-gray-600 text-sm hover:bg-green-100 dark:hover:bg-green-800/40 transition shadow"
-                    >
-                      <ExternalLinkIcon className="w-5 h-5" />
-                    </a>
-                    {/* Telegram Send Button */}
-                    <TelegramSendButton 
-                      game={{
-                        id: game.id,
-                        title: game.title,
-                        description: game.description,
-                        link: game.link,
-                        image: game.image,
-                        source: game.source,
-                        siteType: game.siteType
-                      }}
-                      className="h-9 w-9 flex items-center justify-center rounded-lg bg-blue-500/90 hover:bg-blue-600/90 dark:bg-blue-600/80 dark:hover:bg-blue-700/90 text-white transition shadow"
-                    />
-                  </div>
-                  {/* Game Content */}
-                  <div className="relative z-10 px-4 flex flex-col flex-grow">
-                    <h3 className="font-bold text-base sm:text-lg mb-3 text-gray-900 dark:text-white leading-tight text-center bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-200/50 dark:border-gray-700/50 shadow-sm">
-                      {game.originalTitle || game.title}
-                    </h3>
-                    
-                    <div className="text-center mb-3">
-                      <span className="inline-block px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full">
-                        {game.source}
-                      </span>
-                    </div>
-                    
-                    <p className="text-gray-600 dark:text-gray-300 text-xs mb-4 line-clamp-3 leading-relaxed flex-grow text-center">
-                      {decodeHtmlEntities(game.description)}
-                    </p>
-                    
-                    {/* Track/Untrack Button - Main Action */}
-                    <div className="mb-3">
-                      {trackedGames.has(game.id) ? (
-                        <button
-                          onClick={() => handleUntrackGame(game)}
-                          className="w-full px-4 py-2 text-center bg-gradient-to-r from-red-500/20 to-pink-500/20 text-red-700 dark:text-red-300 hover:from-red-500/30 hover:to-pink-500/30 text-sm font-medium rounded-lg transition-all duration-200 min-h-[36px] flex items-center justify-center backdrop-blur-sm border border-red-300/30 hover:scale-105"
-                        >
-                          <span className="flex items-center gap-2">
-                            🔔 <span>Stop Tracking</span>
-                          </span>
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleTrackGame(game)}
-                          className="w-full px-4 py-2 text-center bg-gradient-to-r from-primary-500/20 to-accent-500/20 text-primary-700 dark:text-primary-300 hover:from-primary-500/30 hover:to-accent-500/30 text-sm font-medium rounded-lg transition-all duration-200 min-h-[36px] flex items-center justify-center backdrop-blur-sm border border-primary-300/30 hover:scale-105"
-                        >
-                          <span className="flex items-center gap-2">
-                            ⏰ <span>Track Updates</span>
-                          </span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {/* Download Links - Sticky at bottom */}
-                  <div className="absolute left-0 right-0 bottom-0 z-10 p-4 pt-0 bg-gradient-to-t from-white/90 dark:from-gray-900/90 to-transparent">
-                    {status === 'authenticated' && game.originalId && (
-                      <GameDownloadLinks
-                        postId={game.originalId.toString()}
-                        siteType={game.siteType}
-                        gameTitle={game.title}
-                        className="w-full"
-                      />
-                    )}
-                  </div>
-                </div>
-              );
-            })
+                .map((game: Game) => (
+                  <GamePosterCard
+                    key={game.id}
+                    postId={game.originalId?.toString()}
+                    siteType={game.siteType}
+                    title={game.originalTitle || game.title}
+                    image={game.image}
+                    badge={game.source}
+                    badgeColor={trackedGames.has(game.id) ? 'green' : 'blue'}
+                    hasUpdate={false}
+                    isTracked={trackedGames.has(game.id)}
+                    onTrack={() => handleTrackGame(game)}
+                    onUntrack={() => handleUntrackGame(game)}
+                    className=""
+                  />
+                ))
             )}
           </div>
         )}

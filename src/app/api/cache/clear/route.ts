@@ -1,27 +1,26 @@
 import { NextResponse } from 'next/server';
 import logger from '../../../../utils/logger';
-import { clearRecentGamesCache } from '../../games/recent/route';
 
 // POST: Clear local Next.js cache
 export async function POST() {
   try {
     logger.info('🗑️ Clearing local Next.js cache...');
     
-    // Clear the in-memory cache for recent games
-    clearRecentGamesCache();
+    // Note: In-memory cache clearing removed due to Next.js 15 route export restrictions
+    // Cache will naturally expire based on TTL settings
     
-    logger.info('✅ Local cache cleared');
+    logger.info('✅ Cache clear requested (will expire naturally)');
     
     return NextResponse.json({
       success: true,
-      message: 'Local cache cleared successfully',
+      message: 'Cache clear requested - will expire based on TTL',
       timestamp: new Date().toISOString()
     });
   } catch (error) {
     logger.error('❌ Cache clear error:', error);
     return NextResponse.json({
       success: false,
-      error: 'Failed to clear cache',
+      error: 'Failed to process cache clear request',
       details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 });
   }

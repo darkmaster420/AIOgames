@@ -9,15 +9,19 @@ interface BuildNumberVerificationProps {
   gameTitle: string;
   steamAppId?: number;
   currentBuildNumber?: string;
+  latestBuildNumber?: string;
+  latestVersion?: string;
   buildNumberVerified: boolean;
   onVerified: () => void;
 }
 
 export function BuildNumberVerification({ 
   gameId, 
-  gameTitle, 
+  gameTitle,
   steamAppId,
   currentBuildNumber,
+  latestBuildNumber,
+  latestVersion,
   buildNumberVerified,
   onVerified 
 }: BuildNumberVerificationProps) {
@@ -132,35 +136,91 @@ export function BuildNumberVerification({
 
   if (buildNumberVerified && !isOpen) {
     return (
-      <div className="flex items-center gap-2">
-        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
-          🔢 Build #{currentBuildNumber}
-        </span>
-        <button
-          onClick={() => setIsOpen(true)}
-          className="text-blue-600 dark:text-blue-400 hover:underline text-xs"
-        >
-          Edit
-        </button>
-        <button
-          onClick={handleRemoveVerification}
-          disabled={isLoading}
-          className="text-red-600 dark:text-red-400 hover:underline text-xs disabled:opacity-50"
-        >
-          Remove
-        </button>
+      <div className="p-3 border rounded-lg bg-blue-500/10 border-blue-500/30">
+        <div className="flex items-start justify-between">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-sm font-medium text-blue-400">
+                Steam Verified
+              </span>
+              {steamAppId && (
+                <span className="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-300 rounded">
+                  ID: {steamAppId}
+                </span>
+              )}
+            </div>
+            {currentBuildNumber && (
+              <div className="text-sm text-gray-300 mb-1">Build #{currentBuildNumber}</div>
+            )}
+            {/* Latest Version Info from SteamDB */}
+            {(latestBuildNumber || latestVersion) && (
+              <div className="mt-2 pt-2 border-t border-blue-500/20">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-semibold text-blue-300">Latest from SteamDB:</span>
+                  {latestVersion && (
+                    <span className="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 rounded text-xs">
+                      v{latestVersion}
+                    </span>
+                  )}
+                  {latestBuildNumber && (
+                    <span className="px-1.5 py-0.5 bg-sky-100 dark:bg-sky-900 text-sky-800 dark:text-sky-200 rounded text-xs">
+                      Build #{latestBuildNumber}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+            {steamAppId && (
+              <a
+                href={`https://steamdb.info/app/${steamAppId}/patchnotes/`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 hover:underline mt-2"
+              >
+                🔗 SteamDB
+              </a>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setIsOpen(true)}
+              className="px-3 py-1.5 text-xs font-medium bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 rounded transition-colors"
+            >
+              ⚙️ Manage
+            </button>
+            <button
+              onClick={handleRemoveVerification}
+              disabled={isLoading}
+              className="px-3 py-1.5 text-xs font-medium bg-gray-500/20 hover:bg-gray-500/30 text-gray-300 rounded transition-colors disabled:opacity-50"
+            >
+              ❌
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
 
   if (!isOpen) {
     return (
-      <button
-        onClick={() => setIsOpen(true)}
-        className="inline-flex items-center px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-md text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
-      >
-        🔢 Add Build Number
-      </button>
+      <div className="space-y-2">
+        <button
+          onClick={() => setIsOpen(true)}
+          className="w-full px-3 py-2 text-sm font-medium bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 rounded-lg transition-colors"
+        >
+          🔢 Add Build Number
+        </button>
+        {steamAppId && (
+          <a
+            href={`https://steamdb.info/app/${steamAppId}/patchnotes/`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 hover:underline"
+          >
+            🔗 SteamDB
+          </a>
+        )}
+      </div>
     );
   }
 

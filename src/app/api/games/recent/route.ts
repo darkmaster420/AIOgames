@@ -5,8 +5,8 @@ import { cleanGameTitle } from '../../../../utils/steamApi';
 let cachedRecent: { data: unknown; timestamp: number; siteKey: string } | null = null;
 const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours (extended from 1 hour)
 
-// Export function to clear cache (can be called from other routes)
-export function clearRecentGamesCache() {
+// Internal function to clear cache
+function clearRecentGamesCache() {
   cachedRecent = null;
 }
 
