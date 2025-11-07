@@ -614,7 +614,6 @@ All of these projects are open source and free to use:
 
 ## ☑️ To-Do
 
-- [ ] User configurable flaresolverr/GameAPI
 - [ ] Anonymous user search functions
 - [ ] Email Notifications
 - [ ] Telegram Bot Management
@@ -626,9 +625,15 @@ All of these projects are open source and free to use:
 - [x] Approve updates via telegram
 - [x] Owner/Admin role system
 - [x] Shared Telegram bot for notifications
-- [ ] Game Pages with links
 - [ ] Migrate notifs to Apprise
-- [ ] improve game cards by using game pages
+- [ ] Quick add in background
+- [ ] Fix double notif bug
+- [ ] fix user manage page tg bot form bug
+- [ ] fix steam ui missing features
+- [ ] add search game button to game cards
+- [ ] remove show recent uploads button/make configurable
+- [ ] add non paid/pirated game updates (steamdb like)
+- [ ] improve UX
 
 ---
 
