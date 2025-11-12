@@ -1,5 +1,6 @@
 import { NextResponse, NextRequest } from 'next/server';
 import { cleanGameTitle } from '../../../../utils/steamApi';
+import { getGameApiUrl } from '../../../../utils/gameApiUrl';
 
 // Simple in-memory cache (per server instance). For multi-instance you'd need Redis or KV.
 let cachedRecent: { data: unknown; timestamp: number; siteKey: string } | null = null;
@@ -33,7 +34,8 @@ export async function GET(request: NextRequest) {
       data = cachedRecent.data;
       isFromCache = true;
     } else {
-      const apiUrl = process.env.GAME_API_URL + '/recent' || 'https://gameapi.a7a8524.workers.dev/recent';
+      // Use internal GameAPI by default, fallback to external if configured
+      const apiUrl = `${getGameApiUrl()}/recent`;
       const response = await fetch(apiUrl, { next: { revalidate: 0 }, cache: 'no-store' });
       if (!response.ok) {
         // Clear cache on API failure to prevent caching error responses

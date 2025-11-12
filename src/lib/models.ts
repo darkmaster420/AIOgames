@@ -111,6 +111,10 @@ const userSchema = new mongoose.Schema({
       notifyImmediately: {
         type: Boolean,
         default: true
+      },
+      appriseUrls: {
+        type: [String],
+        default: []
       }
     },
     sequelDetection: {

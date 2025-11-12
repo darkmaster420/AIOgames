@@ -44,8 +44,13 @@ Gamers who sail the high seas don't get automated update notifications like legi
 
 
 
-## ✨ Latest Features (v1.3.0)
+## ✨ Latest Features (v1.6.0)
 
+- 🔔 **Unified Notifications (NEW)**: Apprise-style URL support for 6+ services (Telegram, Discord, Slack, Gotify, Ntfy, Pushover)
+- ✨ **No More Duplicates**: Single notification code path eliminates double notifications
+- 🎯 **Multi-Service Support**: Configure multiple notification services simultaneously
+- 🎮 **Integrated GameAPI (NEW)**: No more separate Cloudflare Worker deployment needed
+- 🚀 **Simplified Setup**: GameAPI now runs directly within AIOgames
 - 👑 **Owner/Admin System**: Role-based permissions with user management
 - 🤖 **Telegram Admin Approval**: Multi-admin vote-based update approval system
 - 📱 **Shared Telegram Bot**: Simplified notification setup for all users
@@ -105,7 +110,7 @@ AIOgames can verify games against Steam's database for enhanced accuracy. It als
 - 🏴‍☠️ **Smart Piracy Tag Handling**: Handles 50+ scene groups and release formats
 - ⚡ **Lightning Fast**: Sub-second update checks
 - 🎯 **Intelligent Matching**: Version-aware updates with confidence scoring
-- 📱 **Real-time Notifications**: Telegram and web push notifications
+- 📱 **Real-time Notifications**: Telegram, Discord, Slack, Gotify, Ntfy, Pushover via Apprise URLs
 - 👑 **Role-Based Access**: Owner/Admin system with user management
 - 🤖 **Telegram Admin Approval**: Vote-based pending update approval system
 - 🔐 **Secure Authentication**: NextAuth.js with multiple providers
@@ -388,15 +393,41 @@ The webhook endpoint is **public by design** (Telegram servers need to access it
 
 **Note**: This is the standard security model for Telegram webhooks - authentication happens through the bot token and user database validation, not through HTTP authentication.
 
-### �👤 User Telegram Notifications
+### 👤 User Notifications
 
-Regular users can also receive notifications:
+**NEW: Unified Notification System (v1.6.0)** 🔔
 
-1. **Enable Telegram** in `/user/manage`
-2. **Start the shared bot** on Telegram
-3. **Send `/start`** to get Chat ID
-4. **Enter username or Chat ID** in settings
-5. **Receive instant notifications** when tracked games update
+AIOgames now supports multiple notification services through Apprise-style URLs:
+
+#### Supported Services:
+- 📱 **Telegram**: `telegram://bot_token/chat_id`
+- 💬 **Discord**: `discord://webhook_id/webhook_token`
+- 💼 **Slack**: `slack://token_a/token_b/token_c`
+- 📢 **Gotify**: `gotify://hostname/token`
+- 🔔 **Ntfy**: `ntfy://topic` or `ntfy://hostname/topic`
+- 📲 **Pushover**: `pushover://user_key@token`
+- 📧 **Email**: `mailto://your_email@domain.com` (requires SMTP setup)
+
+#### Quick Setup:
+1. Go to **User Settings** → Notification Settings
+2. Add your notification URL(s) in the Apprise URLs section
+3. Click **Test** to verify
+4. Click **Save Changes**
+
+**Benefits:**
+- ✅ Configure multiple notification services simultaneously
+- ✅ Test each service independently
+- ✅ Simple URL-based configuration
+- ✅ No duplicate notifications
+
+**Example (Telegram):**
+```
+telegram://1234567890:ABCdefGHIjklMNOpqrsTUVwxyz/123456789
+```
+
+> **Legacy Telegram Setup**: The old Telegram configuration is still supported but deprecated. Migrate to Apprise URLs for better reliability and more features.
+
+For detailed information, see [Apprise Migration Guide](docs/APPRISE_MIGRATION.md).
 
 ---
 
@@ -614,20 +645,22 @@ All of these projects are open source and free to use:
 
 ## ☑️ To-Do
 
-- [ ] Anonymous user search functions
-- [ ] Email Notifications
+- [ ] User configurable flaresolverr/GameAPI
+- [x] Anonymous user search functions
+- [x] Email Notifications (infrastructure ready)
 - [ ] Telegram Bot Management
 - [x] Anti-Repack Settings
-- [ ] Merge GameAPI with AIOGames
+- [x] Merge GameAPI with AIOGames
 - [x] Merge SteamAPI with AIOGames
 - [ ] Flaresolverrless GameAPI 
 - [ ] Add Custom themes
 - [x] Approve updates via telegram
 - [x] Owner/Admin role system
 - [x] Shared Telegram bot for notifications
-- [ ] Migrate notifs to Apprise
+- [x] Migrate notifs to Apprise
+- [ ] Game Pages with links
+- [ ] improve game cards by using game pages
 - [ ] Quick add in background
-- [ ] Fix double notif bug
 - [ ] fix user manage page tg bot form bug
 - [ ] fix steam ui missing features
 - [ ] add search game button to game cards

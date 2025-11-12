@@ -17,8 +17,12 @@ function SignInInner() {
   const searchParams = useSearchParams();
   // Get callbackUrl and ensure it's a valid path (not double-encoded)
   const rawCallbackUrl = searchParams.get('callbackUrl') || '/';
-  // If the callback URL looks like an encoded URL, decode it
-  const callbackUrl = rawCallbackUrl.includes('%') ? decodeURIComponent(rawCallbackUrl) : rawCallbackUrl;
+  // Decode the callback URL if needed, but prevent signin loop
+  let callbackUrl = rawCallbackUrl.includes('%') ? decodeURIComponent(rawCallbackUrl) : rawCallbackUrl;
+  // Prevent redirect loop to signin page
+  if (callbackUrl.includes('/auth/signin')) {
+    callbackUrl = '/';
+  }
   const message = searchParams.get('message');
   const { status } = useSession();
 
@@ -51,7 +55,13 @@ function SignInInner() {
 
     try {
       const normalizedInput = normalizeLoginInput(emailOrUsername);
-      const result = await signIn('credentials', { email: normalizedInput, password, redirect: false });
+      
+      // First try without redirect to check credentials
+      const result = await signIn('credentials', { 
+        email: normalizedInput, 
+        password, 
+        redirect: false
+      });
 
       // Check if sign in was successful
       if (!result?.ok || result?.error) {
@@ -60,7 +70,9 @@ function SignInInner() {
         return;
       }
 
-      // Sign in was successful, redirect
+      // Sign in was successful - give time for cookies to be set
+      // Then use window.location to ensure clean navigation
+      await new Promise(resolve => setTimeout(resolve, 500));
       window.location.href = callbackUrl;
     } catch (err) {
       console.error('Sign in exception:', err);

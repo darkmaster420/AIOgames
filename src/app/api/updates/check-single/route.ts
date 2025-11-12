@@ -8,6 +8,7 @@ import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities, reso
 import logger from '../../../../utils/logger';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
 import { detectUpdatesWithAI, isAIDetectionAvailable, prepareCandidatesForAI } from '../../../../utils/aiUpdateDetection';
+import { getGameApiUrl } from '../../../../utils/gameApiUrl';
 
 interface GameSearchResult {
   id: string;
@@ -559,7 +560,8 @@ export async function POST(request: Request) {
     logger.debug(`🔍 Searching for: "${searchTitle}" (from "${game.title}")`);
 
     // Use the same search API that the main search uses
-    const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
+    // Use internal GameAPI by default, fallback to external if configured
+    const baseUrl = getGameApiUrl();
     const searchResponse = await fetch(`${baseUrl}/?search=${encodeURIComponent(searchTitle)}`);
     
     if (!searchResponse.ok) {

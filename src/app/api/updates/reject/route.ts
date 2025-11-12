@@ -14,10 +14,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if user is admin
+    // Check if user is admin or owner
     await connectDB();
     const userDoc = await User.findById(user.id);
-    if (!userDoc || userDoc.role !== 'admin') {
+    if (!userDoc || (userDoc.role !== 'admin' && userDoc.role !== 'owner')) {
       return NextResponse.json(
         { error: 'Forbidden: Admin access required to reject updates' },
         { status: 403 }

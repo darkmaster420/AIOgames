@@ -84,18 +84,15 @@ export const authOptions: AuthOptions = {
   },
   callbacks: {
     async redirect({ url, baseUrl }) {
-      // Decode any URL-encoded callback URLs to prevent double encoding issues
-      const decodedUrl = decodeURIComponent(url);
-      
-      // If the URL starts with the base URL, use it as-is (already absolute)
-      if (decodedUrl.startsWith(baseUrl)) {
-        return decodedUrl;
+      // Allow relative callback URLs
+      if (url.startsWith('/')) {
+        return `${baseUrl}${url}`;
       }
-      // If it's a relative URL (starts with /), make it absolute
-      if (decodedUrl.startsWith('/')) {
-        return `${baseUrl}${decodedUrl}`;
+      // Allow callback URLs on the same origin
+      if (url.startsWith(baseUrl)) {
+        return url;
       }
-      // Otherwise return the base URL to prevent open redirects
+      // Default to base URL for security
       return baseUrl;
     },
     async jwt({ token, user }) {
@@ -116,4 +113,37 @@ export const authOptions: AuthOptions = {
     },
   },
   secret: process.env.NEXTAUTH_SECRET,
+  cookies: {
+    sessionToken: {
+      name: `next-auth.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        // Don't set domain to allow cookie on current domain (proxy or direct)
+        domain: undefined
+      }
+    },
+    callbackUrl: {
+      name: `next-auth.callback-url`,
+      options: {
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        domain: undefined
+      }
+    },
+    csrfToken: {
+      name: `next-auth.csrf-token`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        domain: undefined
+      }
+    }
+  },
+  debug: process.env.NODE_ENV === 'development',
 };

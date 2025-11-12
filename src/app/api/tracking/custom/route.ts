@@ -325,6 +325,12 @@ export async function POST(req: NextRequest) {
       const cleanedTitleValue = cleanGameTitle(bestMatch.title);
       const displayTitle = isFromIGDB ? cleanedTitleValue : bestMatch.title;
 
+      // Ensure gameLink is always set (fallback to a constructed URL if missing)
+      const gameLink = bestMatch.link || 
+        (bestMatch.id && bestMatch.source ? 
+          `https://${bestMatch.source.toLowerCase()}.com/game/${bestMatch.id}` : 
+          `https://example.com/game/${bestMatch.id || 'unknown'}`);
+
       const newTrackedGame = new TrackedGame({
         userId: authenticatedUser.id,
         gameId: bestMatch.id,
@@ -332,7 +338,7 @@ export async function POST(req: NextRequest) {
         source: bestMatch.source || bestMatch.siteType || 'Unknown',
         image: bestMatch.image,
         description: decodeHtmlEntities(bestMatch.description || bestMatch.excerpt || ''),
-        gameLink: bestMatch.link,
+        gameLink: gameLink,
         dateAdded: new Date(),
         lastChecked: new Date(),
         notificationsEnabled: true,

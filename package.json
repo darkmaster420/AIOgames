@@ -1,12 +1,12 @@
 {
   "name": "aiogames-unified",
-  "version": "1.6.0",
+  "version": "2.0.0-beta",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "next dev --turbopack",
     "prebuild": "node scripts/ensure-vapid.js",
-    "build": "next build --turbopack",
+    "build": "next build",
     "start": "node .next/standalone/server.js",
     "start:next": "next start",
     "lint": "eslint",

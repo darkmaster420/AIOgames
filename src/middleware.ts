@@ -8,6 +8,7 @@ export async function middleware(request: NextRequest) {
   const publicRoutes = [
     '/auth/signup',
     '/api/auth',
+    '/api/gameapi', // Internal GameAPI should be accessible for game search
     '/api/health', // Health check endpoint should be public
     '/api/cache/warm', // Cache warming endpoint should be public for automated systems
     '/api/tracking/check-updates', // Update checking endpoint should be public for automated systems
@@ -22,10 +23,27 @@ export async function middleware(request: NextRequest) {
   }
 
   // Get session token (JWT strategy)
-  const token = await getToken({
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
+  let token;
+  try {
+    token = await getToken({
+      req: request,
+      secret: process.env.NEXTAUTH_SECRET,
+      cookieName: 'next-auth.session-token',
+    });
+    
+    // Debug logging in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[Middleware] Path: ${pathname}, Token: ${token ? 'valid' : 'none'}`);
+      if (!token) {
+        const cookies = request.cookies.getAll();
+        console.log('[Middleware] Available cookies:', cookies.map(c => c.name));
+      }
+    }
+  } catch (error) {
+    console.error('Token validation error:', error);
+    // If token validation fails, treat as unauthenticated
+    token = null;
+  }
 
   // Signed-in users visiting the sign-in page should be redirected away
   if (pathname.startsWith('/auth/signin')) {
@@ -43,8 +61,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(signInUrl);
   }
 
-  // Admin route protection
-  if ((pathname.startsWith('/admin') || pathname.startsWith('/api/admin')) && token.role !== 'admin') {
+  // Admin route protection (allow both admin and owner roles)
+  if ((pathname.startsWith('/admin') || pathname.startsWith('/api/admin')) && 
+      token.role !== 'admin' && token.role !== 'owner') {
     return NextResponse.redirect(new URL('/', request.url));
   }
 

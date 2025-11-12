@@ -7,6 +7,7 @@ import { sendUpdateNotification, createUpdateNotificationData } from '../../../.
 import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, extractReleaseGroup, is0xdeadcodeRelease, isOnlineFixRelease } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
 import { detectUpdatesWithAI, isAIDetectionAvailable, prepareCandidatesForAI } from '../../../../utils/aiUpdateDetection';
+import { getGameApiUrl } from '../../../../utils/gameApiUrl';
 
 interface GameSearchResult {
   id: string;
@@ -50,7 +51,8 @@ interface EnhancedMatch {
 // Helper function to fetch full download links from GameAPI
 async function fetchDownloadLinks(game: GameSearchResult): Promise<Array<{ service: string; url: string; type: string }>> {
   try {
-    const gameApiUrl = process.env.GAME_API_URL || 'https://gameapi.iforgor.cc';
+    // Use internal GameAPI by default, fallback to external if configured
+    const gameApiUrl = getGameApiUrl();
     
     // Extract the original ID and site type from the composite ID
     // Format: "siteType_originalId" (e.g., "skidrow_518912")
@@ -91,22 +93,55 @@ async function fetchDownloadLinks(game: GameSearchResult): Promise<Array<{ servi
 
 // Helper functions - enhanced for comprehensive piracy tag handling
 function calculateGameSimilarity(title1: string, title2: string): number {
-  const clean1 = cleanGameTitle(title1).toLowerCase();
-  const clean2 = cleanGameTitle(title2).toLowerCase();
-  
+  const clean1 = cleanGameTitle(title1).toLowerCase().trim();
+  const clean2 = cleanGameTitle(title2).toLowerCase().trim();
+
   if (clean1 === clean2) return 1.0;
-  
-  // Check for substring matches
-  if (clean1.includes(clean2) || clean2.includes(clean1)) return 0.85;
-  
-  // Split into words and check overlap
-  const words1 = clean1.split(/\s+/);
-  const words2 = clean2.split(/\s+/);
-  
-  const intersection = words1.filter((word: string) => words2.includes(word));
+
+  // Remove common edition/release tokens that shouldn't affect identity
+  const editionTokens = new Set([
+    'repack','proper','complete','goty','deluxe','ultimate','collectors','anniversary',
+    'directors','cut','enhanced','final','portable','standalone','preinstalled','pre','patched',
+    'cracked','drm','drm-free','drmfree','unlocked','activated','all','dlc','edition','pack'
+  ]);
+
+  const normalizeWords = (s: string) => s
+    .replace(/[():,\[\]!"'`–—\/\\]/g, ' ') // remove punctuation
+    .split(/\s+/)
+    .map(w => w.trim())
+    .filter(w => w.length > 0 && !editionTokens.has(w));
+
+  let words1 = normalizeWords(clean1);
+  let words2 = normalizeWords(clean2);
+
+  // If stripping edition tokens left one side empty, fall back to original tokenization
+  if (words1.length === 0) words1 = clean1.split(/\s+/).filter(Boolean);
+  if (words2.length === 0) words2 = clean2.split(/\s+/).filter(Boolean);
+
+  const intersectionCount = words1.filter((word: string) => words2.includes(word)).length;
+
+  // Directional overlap ratios (how much does each title cover the other)
+  const ratio1 = words1.length > 0 ? intersectionCount / words1.length : 0;
+  const ratio2 = words2.length > 0 ? intersectionCount / words2.length : 0;
+
+  // If one of the titles is a single word (short tracked name), require exact match
+  if ((words1.length === 1 || words2.length === 1) && clean1 !== clean2) {
+    return 0; // avoid matching "Peak" to "Golf Peak" etc.
+  }
+
+  // Require a high directional overlap from both sides to consider as same game
+  // This prevents short-name matches to longer unrelated titles
+  if (ratio1 >= 0.8 && ratio2 >= 0.8) {
+    return Math.max(ratio1, ratio2);
+  }
+
+  // Allow a substring-based match only when word counts are very similar (diff <=1)
+  const wordDiff = Math.abs(words1.length - words2.length);
+  if ((clean1.includes(clean2) || clean2.includes(clean1)) && wordDiff <= 1) return 0.85;
+
+  // Fallback: Jaccard-like similarity on filtered tokens
   const union = [...new Set([...words1, ...words2])];
-  
-  return intersection.length / union.length;
+  return union.length === 0 ? 0 : intersectionCount / union.length;
 }
 
 // Enhanced version extraction with comprehensive piracy release support
@@ -115,22 +150,23 @@ function extractVersionInfo(title: string): VersionInfo {
   const cleanTitle = cleanGameTitle(title);
   
   // Extract version patterns - comprehensive coverage for piracy releases with alpha/beta/letter suffix support
+  // Also supports Unity-style versions like v0.4.1f5
   const versionPatterns = [
-    /v(\d+\.\d+\.\d+\.\d+(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,   // v1.2.3.4a, v1.2.3.4c, v1.2.3.4.a, v1.2.3.4-alpha
-    /v(\d{4}[-.]?\d{2}[-.]?\d{2}(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // v2024-01-15a, v20240115c, v20240115-beta
-    /v(\d{2}\.\d{2}\.\d{2}\b(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i, // v30.09.25 (DD.MM.YY format)
-    /v(\d{8}(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,                // v20240115a, v20240115c, v20240115.a
-    /v(\d+(?:\.\d+)+(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,        // v1.2.3a, v1.2.3c, v1.2.3.a, v1.2.3-beta
-    /version\s*(\d+(?:\.\d+)+(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i, // version 1.2.3a, version 1.2.3c, version 1.2.3.a
-    /ver\.?\s*(\d+(?:\.\d+)+(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // ver 1.2a, ver 1.2c, ver. 1.2.a, ver. 1.2-alpha
-    /(\d+\.\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/,     // 1.2.3a, 1.2.3c, 1.2.3.a (standalone)
-    /\[(\d+\.\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)\]/i, // [1.2.3a], [1.2.3c], [1.2.3.a] (bracketed)
-    /\-(\d+\.\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)\-/i, // -1.2.3a-, -1.2.3c-, -1.2.3.a- (dashed)
-    /update\s*(\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // update 1.5a, update 1.5c, update 1.5.a
-    /patch\s*(\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,   // patch 1.2a, patch 1.2c, patch 1.2.a
-    /hotfix\s*(\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // hotfix 1.1a, hotfix 1.1c, hotfix 1.1.a
-    /rev\s*(\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,     // rev 2.1a, rev 2.1c, rev 2.1.a
-    /r(\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i           // r1.5a, r1.5c, r1.5.a
+    /v(\d+\.\d+\.\d+\.\d+(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,   // v1.2.3.4a, v1.2.3.4c, v1.2.3.4f5, v1.2.3.4-alpha
+    /v(\d{4}[-.]?\d{2}[-.]?\d{2}(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // v2024-01-15a, v20240115c, v20240115-beta
+    /v(\d{2}\.\d{2}\.\d{2}\b(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i, // v30.09.25 (DD.MM.YY format)
+    /v(\d{8}(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,                // v20240115a, v20240115c, v20240115.a
+    /v(\d+(?:\.\d+)+(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,        // v1.2.3a, v1.2.3c, v0.4.1f5, v1.2.3-beta
+    /version\s*(\d+(?:\.\d+)+(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i, // version 1.2.3a, version 1.2.3c, version 0.4.1f5
+    /ver\.?\s*(\d+(?:\.\d+)+(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // ver 1.2a, ver 1.2c, ver. 0.4.1f5, ver. 1.2-alpha
+    /(\d+\.\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/,     // 1.2.3a, 1.2.3c, 0.4.1f5 (standalone)
+    /\[(\d+\.\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)\]/i, // [1.2.3a], [1.2.3c], [0.4.1f5] (bracketed)
+    /\-(\d+\.\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)\-/i, // -1.2.3a-, -1.2.3c-, -0.4.1f5- (dashed)
+    /update\s*(\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // update 1.5a, update 1.5c, update 0.4.1f5
+    /patch\s*(\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,   // patch 1.2a, patch 1.2c, patch 0.4.1f5
+    /hotfix\s*(\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // hotfix 1.1a, hotfix 1.1c, hotfix 0.4.1f5
+    /rev\s*(\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,     // rev 2.1a, rev 2.1c, rev 0.4.1f5
+    /r(\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i           // r1.5a, r1.5c, r0.4.1f5
   ];
   
   // Extract build patterns - enhanced for scene releases
@@ -615,7 +651,8 @@ export async function POST(request: Request) {
 
     // First clear the cache to get fresh results
   logger.debug('Clearing game API cache before fetch');
-    const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
+    // Use internal GameAPI by default, fallback to external if configured
+    const baseUrl = getGameApiUrl();
     
     try {
       const clearCacheResponse = await fetch(`${baseUrl}/clearcache`, {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
 import { TrackedGame, User } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
-import { sendTelegramMessage, sendTelegramPhoto, getTelegramConfig, formatGameUpdateMessage } from '../../../../utils/telegram';
+import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
 
 // POST: Approve a pending update (Admin only)
 export async function POST(request: NextRequest) {
@@ -15,10 +15,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if user is admin
+    // Check if user is admin or owner
     await connectDB();
     const userDoc = await User.findById(user.id);
-    if (!userDoc || userDoc.role !== 'admin') {
+    if (!userDoc || (userDoc.role !== 'admin' && userDoc.role !== 'owner')) {
       return NextResponse.json(
         { error: 'Forbidden: Admin access required to approve updates' },
         { status: 403 }
@@ -124,32 +124,26 @@ export async function POST(request: NextRequest) {
     try {
       const trackedGames = await TrackedGame.find({ gameId: game.gameId, isActive: true });
       const userIds = trackedGames.map(g => g.userId.toString());
-            // Create notification data with proper change type
-      const notificationData = {
-        title: pendingUpdate.newTitle, // Use the new updated title
-        version: versionString, // Using the version string from the approved update
+      
+      // Create notification data for approved update
+      const notificationData = createUpdateNotificationData({
+        gameTitle: pendingUpdate.newTitle,
+        version: versionString,
         previousVersion: game.lastKnownVersion,
         gameLink: pendingUpdate.newLink || game.gameLink,
-        source: pendingUpdate.source || 'Game Tracker',
-        changeType: 'user_approved', // Mark this as an approved update
+        imageUrl: pendingUpdate.newImage || game.image,
         downloadLinks: pendingUpdate.downloadLinks || [],
-        imageUrl: pendingUpdate.newImage || game.image // Include the image URL for Telegram photos
-      };
+        updateType: 'update',
+        isPending: false,
+        source: pendingUpdate.source || 'Game Tracker'
+      });
 
-      // Format the message using the game update formatter
-      const message = formatGameUpdateMessage(notificationData);
-      // Send the notification to all users
+      // Send notification to all users tracking this game
       for (const userId of userIds) {
-        const user = await User.findById(userId);
-        if (!user) continue; // Skip if user not found
-        const telegramConfig = getTelegramConfig(user);
-        if (telegramConfig) { // Only send if we have valid telegram config
-          // Check if message includes photo
-          if ('photo' in message) {
-            await sendTelegramPhoto(telegramConfig, message);
-          } else {
-            await sendTelegramMessage(telegramConfig, message);
-          }
+        try {
+          await sendUpdateNotification(userId, notificationData);
+        } catch (notifyError) {
+          console.error(`Failed to send notification to user ${userId}:`, notifyError);
         }
       }
     } catch (notifyError) {
