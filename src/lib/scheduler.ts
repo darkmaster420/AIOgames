@@ -23,7 +23,7 @@ class UpdateScheduler {
 
   constructor() {
     // Only start the scheduler in runtime, not during build
-    if (process.env.NODE_ENV !== 'production' && process.env.NEXT_PHASE === 'phase-production-build') {
+    if (process.env.NEXT_PHASE === 'phase-production-build') {
       // Skip initialization during build
       return;
     }
