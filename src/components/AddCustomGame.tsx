@@ -104,8 +104,8 @@ export function AddCustomGame({ onGameAdded, className = '' }: AddCustomGameProp
         onClick={() => setIsOpen(true)}
         className="inline-flex items-center gap-2 px-6 py-3 text-sm btn-primary transition-all min-h-[48px] shadow-lg font-medium"
       >
-        <span>✨</span>
-        <span>Add Custom Game</span>
+        <span>➕</span>
+        <span>Quick Add</span>
       </button>
 
       {isOpen && (
