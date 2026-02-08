@@ -7,6 +7,7 @@ import { GamePosterCard } from '../components/GamePosterCard';
 import { AddCustomGame } from '../components/AddCustomGame';
 import { useNotification } from '../contexts/NotificationContext';
 import { SITES } from '../lib/sites';
+import { cleanGameTitle } from '../utils/steamApi';
 
 type Game = {
   id: string;
@@ -27,6 +28,7 @@ function DashboardInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [trackedGames, setTrackedGames] = useState<Set<string>>(new Set());
+  const [trackedTitles, setTrackedTitles] = useState<Map<string, string>>(new Map());
   const { status } = useSession();
   const notify = useNotification();
   const router = useRouter();
@@ -128,6 +130,16 @@ function DashboardInner() {
           const data = await response.json();
           const trackedGameIds = new Set<string>(data.games.map((game: { gameId: string }) => String(game.gameId)));
           setTrackedGames(trackedGameIds);
+          
+          // Also store cleaned titles -> version for cross-version matching
+          const titleMap = new Map<string, string>();
+          for (const game of data.games) {
+            const cleaned = cleanGameTitle(game.title || game.originalTitle || '');
+            if (cleaned) {
+              titleMap.set(cleaned, game.lastKnownVersion || '');
+            }
+          }
+          setTrackedTitles(titleMap);
         }
       } catch (error) {
         console.error('Failed to load tracked games:', error);
@@ -267,6 +279,22 @@ function DashboardInner() {
       }
     }, [searchQuery, siteFilter, searchGames, recentGamesCache, CLIENT_CACHE_TTL, updateURL]);
 
+    // Check if a game is tracked by ID or by cleaned title match
+    // Returns the tracked version string if found, or null if not tracked
+    const getTrackedVersion = useCallback((game: Game): string | null => {
+      // Exact ID match
+      if (trackedGames.has(game.id)) {
+        const cleaned = cleanGameTitle(game.title);
+        return (cleaned && trackedTitles.get(cleaned)) || '';
+      }
+      // Cleaned title match (catches different versions/sources of the same game)
+      const cleaned = cleanGameTitle(game.title);
+      if (cleaned && trackedTitles.has(cleaned)) {
+        return trackedTitles.get(cleaned) || '';
+      }
+      return null;
+    }, [trackedGames, trackedTitles]);
+
     // Track/untrack handlers
     const handleTrackGame = useCallback(async (game: Game) => {
       if (status !== 'authenticated') {
@@ -294,6 +322,15 @@ function DashboardInner() {
 
         if (response.ok) {
           setTrackedGames(prev => new Set(prev).add(game.id));
+          // Also add cleaned title for cross-version matching
+          const cleaned = cleanGameTitle(game.title);
+          if (cleaned) {
+            setTrackedTitles(prev => {
+              const next = new Map(prev);
+              next.set(cleaned, ''); // Version will be populated on next load
+              return next;
+            });
+          }
           notify?.showSuccess('Game added to tracking!');
         } else {
           const error = await response.json();
@@ -522,22 +559,27 @@ function DashboardInner() {
                   }
                   return true;
                 })
-                .map((game: Game) => (
-                  <GamePosterCard
-                    key={game.id}
-                    postId={game.originalId?.toString()}
-                    siteType={game.siteType}
-                    title={game.originalTitle || game.title}
-                    image={game.image}
-                    badge={game.source}
-                    badgeColor={trackedGames.has(game.id) ? 'green' : 'blue'}
-                    hasUpdate={false}
-                    isTracked={trackedGames.has(game.id)}
-                    onTrack={() => handleTrackGame(game)}
-                    onUntrack={() => handleUntrackGame(game)}
-                    className=""
-                  />
-                ))
+                .map((game: Game) => {
+                  const trackedVersion = getTrackedVersion(game);
+                  const tracked = trackedVersion !== null;
+                  return (
+                    <GamePosterCard
+                      key={game.id}
+                      postId={game.originalId?.toString()}
+                      siteType={game.siteType}
+                      title={game.originalTitle || game.title}
+                      image={game.image}
+                      badge={game.source}
+                      badgeColor={tracked ? 'green' : 'blue'}
+                      hasUpdate={false}
+                      isTracked={tracked}
+                      trackedVersion={trackedVersion || undefined}
+                      onTrack={() => handleTrackGame(game)}
+                      onUntrack={() => handleUntrackGame(game)}
+                      className=""
+                    />
+                  );
+                })
             )}
           </div>
         )}

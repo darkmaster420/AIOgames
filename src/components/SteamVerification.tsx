@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { cleanGameTitle } from '@/utils/steamApi';
 import { useNotification } from '../contexts/NotificationContext';
+import { ExternalLinkIcon } from './ExternalLinkIcon';
 
 interface SteamGameResult {
   appid: number;
@@ -27,6 +28,16 @@ interface SteamVerificationProps {
   steamLatestVersion?: string;
   steamLatestBuild?: string;
   steamLatestLink?: string;
+  steamdbUpdate?: {
+    title?: string;
+    version?: string;
+    buildNumber?: string;
+    date?: string;
+    link?: string;
+    isOutdated?: boolean;
+    outdatedReason?: string;
+    suggestion?: string;
+  };
   onVerificationUpdate: (gameId: string, verified: boolean, steamAppId?: number, steamName?: string) => void;
 }
 
@@ -38,6 +49,7 @@ export function SteamVerification({
   steamLatestVersion,
   steamLatestBuild,
   steamLatestLink,
+  steamdbUpdate,
   onVerificationUpdate 
 }: SteamVerificationProps) {
   const { showError } = useNotification();
@@ -161,19 +173,76 @@ export function SteamVerification({
     }
   };
 
+  const isSteamOutdated = steamdbUpdate?.isOutdated || false;
+
   return (
     <div className="steam-verification-container space-y-3">
       {/* Current Steam Status */}
       {steamVerified && steamName ? (
-        <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+        <div className={`p-3 border rounded-lg ${
+          isSteamOutdated
+            ? 'bg-gradient-to-r from-orange-500/10 to-red-500/10 border-orange-300/30 dark:border-red-400/30'
+            : 'bg-blue-500/10 border-blue-500/30'
+        }`}>
           <div className="flex items-start justify-between">
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-sm font-medium text-blue-400">Steam Verified</span>
+                <span className={`text-sm font-semibold ${
+                  isSteamOutdated
+                    ? 'text-orange-600 dark:text-orange-400'
+                    : 'text-blue-400'
+                }`}>
+                  {isSteamOutdated ? '⚠️ Version Behind Steam' : 'Steam Verified'}
+                </span>
+                {isSteamOutdated && steamdbUpdate?.link && (
+                  <a
+                    href={steamdbUpdate.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-orange-500 hover:text-orange-700 dark:hover:text-orange-300 text-xs transition-colors"
+                    title="View on SteamDB"
+                  >
+                    <ExternalLinkIcon className="w-3 h-3" />
+                  </a>
+                )}
               </div>
               <div className="text-sm text-gray-300 mb-1">{steamName}</div>
-              {/* Latest Version Info */}
-              {(steamLatestVersion || steamLatestBuild) && (
+              
+              {/* Outdated alert with version comparison */}
+              {isSteamOutdated && (
+                <div className="mt-1">
+                  {steamdbUpdate?.outdatedReason && (
+                    <div className="text-xs text-orange-700 dark:text-orange-300 mb-2">
+                      {steamdbUpdate.outdatedReason}
+                    </div>
+                  )}
+                  {steamdbUpdate?.suggestion && (
+                    <div className="text-xs text-green-700 dark:text-green-300 mb-2 font-medium">
+                      💡 {steamdbUpdate.suggestion}
+                    </div>
+                  )}
+                  <div className="flex gap-1 flex-wrap">
+                    {steamdbUpdate?.version && (
+                      <span className="px-1.5 py-0.5 bg-orange-100 dark:bg-orange-900 text-orange-800 dark:text-orange-200 rounded text-xs">
+                        v{steamdbUpdate.version}
+                      </span>
+                    )}
+                    {steamdbUpdate?.buildNumber && (
+                      <span className="px-1.5 py-0.5 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 rounded text-xs">
+                        Build {steamdbUpdate.buildNumber}
+                      </span>
+                    )}
+                    {steamdbUpdate?.date && (
+                      <span className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        {new Date(steamdbUpdate.date).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Non-outdated: calm latest version display */}
+              {!isSteamOutdated && (steamLatestVersion || steamLatestBuild) && (
                 <div className="mt-2 pt-2 border-t border-blue-500/20">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs font-semibold text-blue-300">Latest Version:</span>
@@ -205,7 +274,11 @@ export function SteamVerification({
             <div className="flex gap-2">
               <button
                 onClick={handleToggle}
-                className="px-3 py-1.5 text-xs font-medium bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 rounded transition-colors"
+                className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+                  isSteamOutdated
+                    ? 'bg-orange-500/20 hover:bg-orange-500/30 text-orange-300'
+                    : 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300'
+                }`}
               >
                 ⚙️ Manage
               </button>

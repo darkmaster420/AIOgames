@@ -13,6 +13,7 @@ interface GamePosterCardProps {
   badgeColor?: 'blue' | 'green' | 'red' | 'yellow';
   hasUpdate?: boolean;
   isTracked?: boolean;
+  trackedVersion?: string;
   onTrack?: () => void;
   onUntrack?: () => void;
   className?: string;
@@ -28,6 +29,7 @@ export function GamePosterCard({
   badgeColor = 'blue',
   hasUpdate = false,
   isTracked = false,
+  trackedVersion,
   onTrack,
   onUntrack,
   className = '',
@@ -43,7 +45,9 @@ export function GamePosterCard({
     <div className={`relative group ${className}`}>
       {/* Poster Image Container */}
       <div 
-        className="relative rounded-lg overflow-hidden bg-gray-800 shadow-lg transition-all duration-300 group-hover:shadow-2xl group-hover:scale-105 max-h-[400px] flex items-center"
+        className={`relative rounded-lg overflow-hidden bg-gray-800 shadow-lg transition-all duration-300 group-hover:shadow-2xl group-hover:scale-105 max-h-[400px] flex items-center ${
+          isTracked ? 'ring-2 ring-green-500/70' : ''
+        }`}
       >
         {/* Image */}
         <ImageWithFallback
@@ -59,16 +63,25 @@ export function GamePosterCard({
         
         {/* Top Badges */}
         <div className="absolute top-2 left-2 right-2 flex justify-between items-start z-10">
-          {badge && (
-            <span className={`${badgeColors[badgeColor]} text-white text-xs font-bold px-2 py-1 rounded`}>
-              {badge}
-            </span>
-          )}
-          {hasUpdate && (
-            <span className="bg-green-500 text-white text-xs font-bold px-2 py-1 rounded animate-pulse">
-              NEW
-            </span>
-          )}
+          <div className="flex items-center gap-1">
+            {badge && (
+              <span className={`${badgeColors[badgeColor]} text-white text-xs font-bold px-2 py-1 rounded`}>
+                {badge}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            {isTracked && (
+              <span className="bg-green-500/90 text-white text-xs font-bold px-2 py-1 rounded flex items-center gap-1 shadow-lg">
+                ✓ {trackedVersion ? `Tracking ${trackedVersion}` : 'Tracked'}
+              </span>
+            )}
+            {hasUpdate && (
+              <span className="bg-green-500 text-white text-xs font-bold px-2 py-1 rounded animate-pulse">
+                NEW
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Title Overlay - Always visible at bottom */}

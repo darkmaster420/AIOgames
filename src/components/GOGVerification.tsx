@@ -17,6 +17,8 @@ interface GOGVerificationProps {
   gogLatestVersion?: string;
   gogLatestBuildId?: string;
   gogLatestDate?: string;
+  trackedVersion?: string;
+  trackedBuildId?: string;
   onVerificationComplete?: () => void;
 }
 
@@ -29,6 +31,8 @@ export default function GOGVerification({
   gogLatestVersion,
   gogLatestBuildId,
   gogLatestDate,
+  trackedVersion,
+  trackedBuildId,
   onVerificationComplete
 }: GOGVerificationProps) {
   const [isSearching, setIsSearching] = useState(false);
@@ -171,6 +175,36 @@ interface GOGDBSearchResult {
     }
   };
 
+  // Helper to compare version strings (returns -1 if v1 < v2, 0 if equal, 1 if v1 > v2)
+  const compareVersions = (v1: string, v2: string): number => {
+    const clean1 = v1.replace(/^v/i, '').split('.').map(n => parseInt(n) || 0);
+    const clean2 = v2.replace(/^v/i, '').split('.').map(n => parseInt(n) || 0);
+    const maxLength = Math.max(clean1.length, clean2.length);
+    for (let i = 0; i < maxLength; i++) {
+      const num1 = clean1[i] || 0;
+      const num2 = clean2[i] || 0;
+      if (num1 < num2) return -1;
+      if (num1 > num2) return 1;
+    }
+    return 0;
+  };
+
+  // Determine if the tracked version is behind GOG latest
+  const isGogOutdated = (() => {
+    if (!currentGogId || currentGogId === -1) return false;
+    // Compare tracked version against GOG latest version
+    if (trackedVersion && gogLatestVersion) {
+      if (compareVersions(trackedVersion, gogLatestVersion) < 0) return true;
+    }
+    // Compare tracked build against GOG latest build (numeric)
+    if (trackedBuildId && gogLatestBuildId) {
+      const trackedNum = parseInt(trackedBuildId);
+      const latestNum = parseInt(gogLatestBuildId);
+      if (!isNaN(trackedNum) && !isNaN(latestNum) && latestNum > trackedNum) return true;
+    }
+    return false;
+  })();
+
   return (
     <div className="gog-verification-container space-y-3">
       {/* Current GOG Status */}
@@ -178,18 +212,28 @@ interface GOGDBSearchResult {
         <div className={`p-3 border rounded-lg ${
           currentGogId === -1 
             ? 'bg-gray-500/10 border-gray-500/30' 
-            : 'bg-purple-500/10 border-purple-500/30'
+            : isGogOutdated
+              ? 'bg-gradient-to-r from-orange-500/10 to-red-500/10 border-orange-300/30 dark:border-red-400/30'
+              : 'bg-purple-500/10 border-purple-500/30'
         }`}>
           <div className="flex items-start justify-between">
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-2">
-                <span className={`text-sm font-medium ${
-                  currentGogId === -1 ? 'text-gray-400' : 'text-purple-400'
+                <span className={`text-sm font-semibold ${
+                  currentGogId === -1 
+                    ? 'text-gray-400' 
+                    : isGogOutdated
+                      ? 'text-orange-600 dark:text-orange-400'
+                      : 'text-purple-400'
                 }`}>
-                  {currentGogId === -1 ? 'Not on GOG' : 'GOG Verified'}
+                  {currentGogId === -1 ? 'Not on GOG' : isGogOutdated ? '⚠️ Version Behind GOG' : 'GOG Verified'}
                 </span>
                 {currentGogId !== -1 && (
-                  <span className="px-2 py-0.5 text-xs bg-purple-500/20 text-purple-300 rounded">
+                  <span className={`px-2 py-0.5 text-xs rounded ${
+                    isGogOutdated
+                      ? 'bg-orange-500/20 text-orange-300'
+                      : 'bg-purple-500/20 text-purple-300'
+                  }`}>
                     ID: {currentGogId}
                   </span>
                 )}
@@ -197,8 +241,38 @@ interface GOGDBSearchResult {
               {currentGogId !== -1 && (
                 <>
                   <div className="text-sm text-gray-300 mb-1">{currentGogName}</div>
-                  {/* Latest Version Info */}
-                  {(gogLatestVersion || gogLatestBuildId) && (
+                  
+                  {/* Outdated alert with tracked vs latest comparison */}
+                  {isGogOutdated && (
+                    <div className="mt-1">
+                      <div className="text-xs text-orange-700 dark:text-orange-300 mb-2">
+                        Your tracked {trackedBuildId ? `build ${trackedBuildId}` : `version ${trackedVersion}`} is behind GOG{gogLatestBuildId ? ` build ${gogLatestBuildId}` : gogLatestVersion ? ` version ${gogLatestVersion}` : ''}
+                      </div>
+                      <div className="text-xs text-green-700 dark:text-green-300 mb-2 font-medium">
+                        💡 A newer version should be available soon!
+                      </div>
+                      <div className="flex gap-1 flex-wrap">
+                        {gogLatestVersion && (
+                          <span className="px-1.5 py-0.5 bg-orange-100 dark:bg-orange-900 text-orange-800 dark:text-orange-200 rounded text-xs">
+                            v{gogLatestVersion}
+                          </span>
+                        )}
+                        {gogLatestBuildId && (
+                          <span className="px-1.5 py-0.5 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 rounded text-xs">
+                            Build {gogLatestBuildId}
+                          </span>
+                        )}
+                        {gogLatestDate && (
+                          <span className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                            {new Date(gogLatestDate).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Non-outdated: calm latest version display */}
+                  {!isGogOutdated && (gogLatestVersion || gogLatestBuildId) && (
                     <div className="mt-2 pt-2 border-t border-purple-500/20">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-semibold text-purple-300">Latest Version:</span>
@@ -226,7 +300,11 @@ interface GOGDBSearchResult {
             <div className="flex gap-2">
               <button
                 onClick={handleToggle}
-                className="px-3 py-1.5 text-xs font-medium bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded transition-colors"
+                className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+                  isGogOutdated
+                    ? 'bg-orange-500/20 hover:bg-orange-500/30 text-orange-300'
+                    : 'bg-purple-500/20 hover:bg-purple-500/30 text-purple-300'
+                }`}
               >
                 ⚙️ Manage
               </button>

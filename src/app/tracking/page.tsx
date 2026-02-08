@@ -301,16 +301,18 @@ export default function TrackingDashboard() {
     result.steamVersion = steamVersion || '';
     result.steamBuild = steamBuild || '';
 
-    // Get tracked version info
+    // Get tracked version info (from direct fields or GOG data)
     const trackedVersion = game.lastKnownVersion || '';
+    const trackedBuildNumber = game.currentBuildNumber || game.gogBuildId || '';
+    const trackedVersionNumber = game.currentVersionNumber || game.gogVersion || '';
     result.trackedVersion = trackedVersion;
 
     // Check build numbers first (most reliable)
-    if (steamBuild && game.currentBuildNumber) {
-      const trackedBuildNum = parseInt(game.currentBuildNumber);
+    if (steamBuild && trackedBuildNumber) {
+      const trackedBuildNum = parseInt(trackedBuildNumber);
       const steamBuildNum = parseInt(steamBuild);
       
-      if (steamBuildNum > trackedBuildNum) {
+      if (!isNaN(trackedBuildNum) && !isNaN(steamBuildNum) && steamBuildNum > trackedBuildNum) {
         result.isOutdated = true;
         result.reason = `Your tracked build ${trackedBuildNum} is behind Steam build ${steamBuildNum}`;
         result.suggestion = 'A newer version should be available soon!';
@@ -319,11 +321,11 @@ export default function TrackingDashboard() {
     }
 
     // Check version numbers if available
-    if (steamVersion && game.currentVersionNumber) {
-      const comparison = compareVersions(game.currentVersionNumber, steamVersion);
+    if (steamVersion && trackedVersionNumber) {
+      const comparison = compareVersions(trackedVersionNumber, steamVersion);
       if (comparison < 0) {
         result.isOutdated = true;
-        result.reason = `Your tracked version ${game.currentVersionNumber} is behind Steam version ${steamVersion}`;
+        result.reason = `Your tracked version ${trackedVersionNumber} is behind Steam version ${steamVersion}`;
         result.suggestion = 'A newer version should be available soon!';
         return result;
       }
@@ -401,8 +403,8 @@ export default function TrackingDashboard() {
         totalSequelsFound = result.sequelsFound || 0;
       }
       
-      // Check SteamDB for Steam-verified games
-      if (game?.steamAppId && game?.steamVerified) {
+      // Check SteamDB for Steam-verified or GOG-verified games with a Steam App ID
+      if (game?.steamAppId && (game?.steamVerified || game?.gogVerified)) {
         try {
           const steamResponse = await fetch(`/api/steamdb?action=updates&appId=${game.steamAppId}`);
           if (steamResponse.ok) {
@@ -411,6 +413,11 @@ export default function TrackingDashboard() {
             
             if (steamUpdates.length > 0) {
               const latestSteamUpdate = steamUpdates[0]; // Most recent update
+              
+              // If Steam has no version but GOG does, use GOG version for comparison
+              if (!latestSteamUpdate.version && game?.gogVersion) {
+                latestSteamUpdate.version = game.gogVersion;
+              }
 
               // Store latest Steam info for this game card
               setSteamLatest(prev => ({
@@ -515,7 +522,7 @@ export default function TrackingDashboard() {
   // After loading tracked games, fetch latest Steam info for Steam-verified ones
   useEffect(() => {
     const fetchSteamLatestForGames = async () => {
-      const toFetch = trackedGames.filter(g => g.steamVerified && g.steamAppId && !steamLatest[g._id]);
+      const toFetch = trackedGames.filter(g => (g.steamVerified || g.gogVerified) && g.steamAppId && !steamLatest[g._id]);
       // Fetch sequentially with a small delay to be polite
       for (const g of toFetch) {
         try {
@@ -599,10 +606,10 @@ export default function TrackingDashboard() {
       
       let games = data.games || [];
       
-      // Fetch SteamDB updates for Steam-verified games individually
+      // Fetch SteamDB updates for Steam-verified or GOG-verified games individually
       if (games.length > 0) {
         const steamVerifiedGames = games.filter((game: TrackedGame) => 
-          game.steamAppId && game.steamVerified
+          game.steamAppId && (game.steamVerified || game.gogVerified)
         );
         
         if (steamVerifiedGames.length > 0) {
@@ -631,7 +638,7 @@ export default function TrackingDashboard() {
           
           // Map SteamDB updates to games
           games = games.map((game: TrackedGame) => {
-            if (game.steamAppId && game.steamVerified) {
+            if (game.steamAppId && (game.steamVerified || game.gogVerified)) {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const steamData = steamUpdates.find((s: any) => 
                 s?.appId === game.steamAppId?.toString()
@@ -639,6 +646,12 @@ export default function TrackingDashboard() {
               
               if (steamData?.update) {
                 const steamUpdate = steamData.update;
+                
+                // If Steam has no version but GOG does, use GOG version for comparison
+                if (!steamUpdate.version && game.gogVersion) {
+                  steamUpdate.version = game.gogVersion;
+                }
+                
                 // Check if version is outdated
                 const versionCheck = checkIfVersionOutdated(game, steamUpdate);
                 
@@ -772,14 +785,14 @@ export default function TrackingDashboard() {
           lastCheck: Date.now()
         }));
       } else {
-        throw new Error('Failed to check migration status');
+        // Silently fail - migration check is non-critical
+        setMigrationStatus(prev => ({ ...prev, checking: false, lastCheck: Date.now() }));
       }
     } catch (error) {
       console.error('Migration check error:', error);
-      setMigrationStatus(prev => ({ ...prev, checking: false }));
-      showError('Failed to check migration status');
+      setMigrationStatus(prev => ({ ...prev, checking: false, lastCheck: Date.now() }));
     }
-  }, [showError]);
+  }, []);
 
   // Check migration status when games are loaded
   useEffect(() => {
@@ -1365,6 +1378,9 @@ export default function TrackingDashboard() {
                   gogVersion={game.gogVersion}
                   gogBuildId={game.gogBuildId}
                   gogLastChecked={game.gogLastChecked}
+                  gogLatestVersion={gogLatest[game._id]?.version}
+                  gogLatestBuildId={gogLatest[game._id]?.buildId}
+                  gogLatestDate={gogLatest[game._id]?.date}
                   steamdbUpdate={game.steamdbUpdate}
                   updateHistory={game.updateHistory}
                   pendingUpdates={game.pendingUpdates}
@@ -1498,8 +1514,8 @@ export default function TrackingDashboard() {
                             )}
                           </div>
 
-                          {/* SteamDB Update Alert */}
-                          {game.steamdbUpdate && (
+                          {/* SteamDB Update Alert - shown inline in SteamVerification when not steam-verified */}
+                          {game.steamdbUpdate && !game.steamVerified && (
                             <div className={`mt-2 p-3 border rounded-lg ${
                               game.steamdbUpdate.isOutdated 
                                 ? 'bg-gradient-to-r from-orange-500/10 to-red-500/10 border-orange-300/30 dark:border-red-400/30'
@@ -1584,6 +1600,7 @@ export default function TrackingDashboard() {
                               steamLatestVersion={steamLatest[game._id]?.version}
                               steamLatestBuild={steamLatest[game._id]?.build}
                               steamLatestLink={steamLatest[game._id]?.link}
+                              steamdbUpdate={game.steamdbUpdate}
                               onVerificationUpdate={handleVerificationUpdate}
                             />
                           </div>
@@ -1601,6 +1618,8 @@ export default function TrackingDashboard() {
                               gogLatestVersion={gogLatest[game._id]?.version}
                               gogLatestBuildId={gogLatest[game._id]?.buildId}
                               gogLatestDate={gogLatest[game._id]?.date}
+                              trackedVersion={game.currentVersionNumber}
+                              trackedBuildId={game.currentBuildNumber}
                               onVerificationComplete={() => {
                                 // Refresh the game data after verification
                                 loadTrackedGames();
@@ -1620,6 +1639,7 @@ export default function TrackingDashboard() {
                               steamLatestVersion={steamLatest[game._id]?.version}
                               steamLatestBuild={steamLatest[game._id]?.build}
                               steamLatestLink={steamLatest[game._id]?.link}
+                              steamdbUpdate={game.steamdbUpdate}
                               onVerificationUpdate={handleVerificationUpdate}
                             />
                           </div>

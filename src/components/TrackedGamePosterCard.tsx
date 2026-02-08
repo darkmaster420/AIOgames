@@ -47,6 +47,9 @@ interface TrackedGamePosterCardProps {
   gogVersion?: string;
   gogBuildId?: string;
   gogLastChecked?: Date;
+  gogLatestVersion?: string;
+  gogLatestBuildId?: string;
+  gogLatestDate?: string;
   steamdbUpdate?: {
     version?: string;
     buildNumber?: string;
@@ -84,6 +87,9 @@ export function TrackedGamePosterCard({
   gogVersion,
   gogBuildId,
   gogLastChecked,
+  gogLatestVersion: gogLatestVersionProp,
+  gogLatestBuildId: gogLatestBuildIdProp,
+  gogLatestDate: gogLatestDateProp,
   steamdbUpdate,
   updateHistory = [],
   pendingUpdates = [],
@@ -215,9 +221,11 @@ export function TrackedGamePosterCard({
                 currentGogId={gogProductId}
                 currentGogName={gogName}
                 isVerified={gogVerified}
-                gogLatestVersion={gogVersion}
-                gogLatestBuildId={gogBuildId}
-                gogLatestDate={gogLastChecked ? new Date(gogLastChecked).toISOString() : undefined}
+                gogLatestVersion={gogLatestVersionProp || gogVersion}
+                gogLatestBuildId={gogLatestBuildIdProp || gogBuildId}
+                gogLatestDate={gogLatestDateProp || (gogLastChecked ? new Date(gogLastChecked).toISOString() : undefined)}
+                trackedVersion={currentVersionNumber}
+                trackedBuildId={currentBuildNumber}
                 onVerificationComplete={() => onRefresh?.()}
               />
             </div>
