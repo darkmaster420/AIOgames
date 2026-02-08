@@ -8,6 +8,7 @@ import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities, reso
 import logger from '../../../../utils/logger';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
 import { detectUpdatesWithAI, isAIDetectionAvailable, prepareCandidatesForAI } from '../../../../utils/aiUpdateDetection';
+import { calculateGameSimilarity } from '../../../../utils/titleMatching';
 
 interface GameSearchResult {
   id: string;
@@ -201,25 +202,6 @@ async function canAutoApprove(game: TrackedGameDocument, newVersionInfo: Version
     canApprove: false,
     reason: 'No clear version increase detected that meets auto-approval criteria'
   };
-}
-
-function calculateGameSimilarity(title1: string, title2: string): number {
-  const clean1 = cleanGameTitle(title1).toLowerCase();
-  const clean2 = cleanGameTitle(title2).toLowerCase();
-  
-  if (clean1 === clean2) return 1.0;
-  
-  // Check for substring matches
-  if (clean1.includes(clean2) || clean2.includes(clean1)) return 0.85;
-  
-  // Split into words and check overlap
-  const words1 = clean1.split(/\s+/);
-  const words2 = clean2.split(/\s+/);
-  
-  const intersection = words1.filter(word => words2.includes(word));
-  const union = [...new Set([...words1, ...words2])];
-  
-  return intersection.length / union.length;
 }
 
 function extractVersionInfo(title: string): VersionInfo {

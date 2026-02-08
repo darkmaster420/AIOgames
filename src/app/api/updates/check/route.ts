@@ -7,6 +7,7 @@ import { sendUpdateNotification, createUpdateNotificationData } from '../../../.
 import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, extractReleaseGroup, is0xdeadcodeRelease, isOnlineFixRelease } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
 import { detectUpdatesWithAI, isAIDetectionAvailable, prepareCandidatesForAI } from '../../../../utils/aiUpdateDetection';
+import { calculateGameSimilarity } from '../../../../utils/titleMatching';
 
 interface GameSearchResult {
   id: string;
@@ -87,26 +88,6 @@ async function fetchDownloadLinks(game: GameSearchResult): Promise<Array<{ servi
     logger.error(`Error fetching download links for ${game.title}:`, error);
     return [];
   }
-}
-
-// Helper functions - enhanced for comprehensive piracy tag handling
-function calculateGameSimilarity(title1: string, title2: string): number {
-  const clean1 = cleanGameTitle(title1).toLowerCase();
-  const clean2 = cleanGameTitle(title2).toLowerCase();
-  
-  if (clean1 === clean2) return 1.0;
-  
-  // Check for substring matches
-  if (clean1.includes(clean2) || clean2.includes(clean1)) return 0.85;
-  
-  // Split into words and check overlap
-  const words1 = clean1.split(/\s+/);
-  const words2 = clean2.split(/\s+/);
-  
-  const intersection = words1.filter((word: string) => words2.includes(word));
-  const union = [...new Set([...words1, ...words2])];
-  
-  return intersection.length / union.length;
 }
 
 // Enhanced version extraction with comprehensive piracy release support

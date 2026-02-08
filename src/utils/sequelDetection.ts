@@ -32,20 +32,42 @@ function extractBaseTitle(title: string): string {
     .trim();
 }
 
+/**
+ * Like extractBaseTitle but keeps trailing numbers/roman numerals intact.
+ * Used to compare titles before stripping sequel indicators so that
+ * "Risk of Rain" and "Risk of Rain 2" are NOT considered the same game.
+ */
+function extractBaseTitleKeepNumbers(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/-[A-Z0-9]{3,}/g, '')
+    .replace(/\[[^\]]*\]/g, '')
+    .replace(/\([^)]*\)/g, '')
+    .replace(/\b(goty|game of the year|definitive|ultimate|enhanced|complete|deluxe|premium)\b/gi, '')
+    .replace(/\b(remaster|remake|remastered|remade)\b/gi, '')
+    .replace(/\b(edition|version|ver)\b/gi, '')
+    // NOTE: intentionally NOT stripping trailing numbers or roman numerals
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // Detect if a game is a sequel of another game
 export function detectSequel(originalTitle: string, candidateTitle: string): SequelDetectionResult | null {
   const baseOriginal = extractBaseTitle(originalTitle);
   const baseCandidate = extractBaseTitle(candidateTitle);
-  
-  if (baseOriginal === baseCandidate) {
-    return null; // Same game
-  }
 
-  const baseSimilarity = calculateBaseSimilarity(baseOriginal, baseCandidate);
-  
-  // Check for numbered sequels
+  // Compare titles WITH numbers preserved first — if they differ only by a
+  // trailing sequel number they are NOT the same game.
+  const withNumsOriginal = extractBaseTitleKeepNumbers(originalTitle);
+  const withNumsCandidate = extractBaseTitleKeepNumbers(candidateTitle);
+
+  // Check for numbered sequels BEFORE the equality check.
+  // This ensures "Risk of Rain" vs "Risk of Rain 2" is caught as a sequel
+  // even though their number-stripped base titles are identical.
   const numberedResult = detectNumberedSequel(baseOriginal, candidateTitle);
   if (numberedResult.isSequel) {
+    const baseSimilarity = calculateBaseSimilarity(baseOriginal, baseCandidate);
     return {
       isSequel: true,
       sequelType: 'numbered_sequel',
@@ -55,19 +77,46 @@ export function detectSequel(originalTitle: string, candidateTitle: string): Seq
       detectedNumber: numberedResult.number
     };
   }
-  
-  // Check for named sequels
-  const namedResult = detectNamedSequel(baseOriginal, candidateTitle);
-  if (namedResult.isSequel && baseSimilarity > 0.6) {
+
+  // Also detect the reverse: tracked game has a number, candidate doesn't
+  // e.g. tracking "Risk of Rain 2", candidate is "Risk of Rain"
+  const numberedReverse = detectNumberedSequel(baseCandidate, originalTitle);
+  if (numberedReverse.isSequel) {
+    const baseSimilarity = calculateBaseSimilarity(baseOriginal, baseCandidate);
     return {
       isSequel: true,
-      sequelType: 'named_sequel',
+      sequelType: 'numbered_sequel',
       similarity: baseSimilarity,
-      confidence: 0.8,
-      baseTitle: baseOriginal,
-      detectedName: namedResult.subtitle
+      confidence: 0.9,
+      baseTitle: baseCandidate,
+      detectedNumber: numberedReverse.number
     };
   }
+  
+  // If the number-preserved titles are identical, they really are the same game
+  if (withNumsOriginal === withNumsCandidate) {
+    return null; // Same game
+  }
+
+  // If the number-stripped base titles differ, continue with other checks
+  if (baseOriginal !== baseCandidate) {
+    const baseSimilarity = calculateBaseSimilarity(baseOriginal, baseCandidate);
+  
+    // Check for named sequels
+    const namedResult = detectNamedSequel(baseOriginal, candidateTitle);
+    if (namedResult.isSequel && baseSimilarity > 0.6) {
+      return {
+        isSequel: true,
+        sequelType: 'named_sequel',
+        similarity: baseSimilarity,
+        confidence: 0.8,
+        baseTitle: baseOriginal,
+        detectedName: namedResult.subtitle
+      };
+    }
+  }
+
+  const baseSimilarity = calculateBaseSimilarity(baseOriginal, baseCandidate);
   
   // Check for expansions
   const expansionResult = detectExpansion(originalTitle, candidateTitle);
@@ -218,10 +267,15 @@ export function getSequelThreshold(sensitivity: 'strict' | 'moderate' | 'loose')
 
 // Test examples for validation
 export const SEQUEL_TEST_CASES = [
-  // Numbered sequels
+  // Numbered sequels — forward detection (base game → sequel)
   { original: 'Borderlands', candidate: 'Borderlands 2', expected: true, type: 'numbered_sequel' },
   { original: 'Grand Theft Auto', candidate: 'Grand Theft Auto V', expected: true, type: 'numbered_sequel' },
   { original: 'Civilization', candidate: 'Civilization VI', expected: true, type: 'numbered_sequel' },
+  { original: 'Risk of Rain', candidate: 'Risk of Rain 2', expected: true, type: 'numbered_sequel' },
+  
+  // Numbered sequels — reverse detection (sequel → base game)
+  { original: 'Risk of Rain 2', candidate: 'Risk of Rain', expected: true, type: 'numbered_sequel' },
+  { original: 'Borderlands 2', candidate: 'Borderlands', expected: true, type: 'numbered_sequel' },
   
   // Named sequels
   { original: 'Far Cry', candidate: 'Far Cry New Dawn', expected: true, type: 'named_sequel' },
@@ -234,7 +288,11 @@ export const SEQUEL_TEST_CASES = [
   { original: 'Skyrim', candidate: 'Skyrim Special Edition', expected: true, type: 'definitive' },
   { original: 'The Last of Us', candidate: 'The Last of Us Remastered', expected: true, type: 'remaster' },
   
-  // Not sequels
+  // Not sequels (completely different games)
   { original: 'Call of Duty', candidate: 'Medal of Honor', expected: false },
   { original: 'Borderlands', candidate: 'Battlefield', expected: false },
+  
+  // Same game (should NOT be flagged as sequel)
+  { original: 'Risk of Rain 2', candidate: 'Risk of Rain 2 v1.2.3', expected: false },
+  { original: 'Borderlands 2', candidate: 'Borderlands 2 GOTY', expected: false },
 ];
