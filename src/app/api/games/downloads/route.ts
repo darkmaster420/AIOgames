@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
 import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
+import { getGameApiUrl } from '../../../../utils/gameApiUrl';
 
 // GET: Get download links for a specific game or update
 export async function GET(req: NextRequest) {
@@ -180,7 +181,8 @@ export async function GET(req: NextRequest) {
         if (postId && siteType) {
           console.log(`Attempting to fetch download links from gameapi: postId=${postId}, siteType=${siteType}, source=${targetSource}, gameId=${game.gameId}`);
           
-          const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
+          // Use internal GameAPI by default, fallback to external if configured
+          const baseUrl = getGameApiUrl();
           const gameapiUrl = `${baseUrl}/post?id=${encodeURIComponent(postId)}&site=${encodeURIComponent(siteType)}`;
           
           const gameapiResponse = await fetch(gameapiUrl, {

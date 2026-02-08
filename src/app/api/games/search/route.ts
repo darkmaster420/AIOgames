@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cleanGameTitle } from '../../../../utils/steamApi';
+import { getGameApiUrl } from '../../../../utils/gameApiUrl';
 
 interface ApiGame {
   id: string;
@@ -25,10 +26,12 @@ export async function GET(request: NextRequest) {
       queryParams.set('site', site);
     }
     
-    const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
-    const response = await fetch(`${baseUrl}/?${queryParams}`);
+    const baseUrl = getGameApiUrl();
+    const response = await fetch(`${baseUrl}?${queryParams}`);
     
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`GameAPI request failed (${response.status}):`, errorText);
       throw new Error(`API request failed: ${response.status}`);
     }
     

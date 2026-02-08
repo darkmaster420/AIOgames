@@ -187,7 +187,7 @@ export async function POST(request: NextRequest) {
       const [command, approvalKey] = text.split(' ');
       const action = command.slice(1) as 'approve' | 'deny'; // Remove '/'
       
-      if (user.role !== 'admin') {
+      if (user.role !== 'admin' && user.role !== 'owner') {
         await botClient.sendMessage(chatId, '❌ Only admins can approve/deny updates');
         return NextResponse.json({ ok: true });
       }

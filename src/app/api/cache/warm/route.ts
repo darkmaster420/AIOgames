@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import logger from '../../../../utils/logger';
+import { getGameApiUrl } from '../../../../utils/gameApiUrl';
 
 // Import the cache clearing function
 async function clearLocalCache() {
@@ -21,7 +22,8 @@ export async function GET() {
     const startTime = Date.now();
     logger.info('🔥 Cache warming started');
 
-    const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
+    // Use internal GameAPI by default, fallback to external if configured
+    const baseUrl = getGameApiUrl();
     
     // Clear local Next.js cache first
     await clearLocalCache();

@@ -9,7 +9,7 @@ export function Navigation() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const isAdmin = (session?.user && typeof session.user === 'object' && 'role' in session.user)
-    ? (session.user as { role?: string }).role === 'admin'
+    ? ((session.user as { role?: string }).role === 'admin' || (session.user as { role?: string }).role === 'owner')
     : false;
 
   const handleLogout = () => {

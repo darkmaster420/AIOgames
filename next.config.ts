@@ -3,6 +3,17 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // Enable standalone output for Docker deployment
   output: 'standalone',
+
+  // Skip type checking and linting during build (done separately)
+  typescript: {
+    ignoreBuildErrors: false,
+  },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+
+  // Allow dev origins for proxy setup
+  allowedDevOrigins: ['https://vsproxy.iforgor.cc'],
   
   // Optimize images for production
   images: {

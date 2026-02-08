@@ -1,38 +1,5 @@
-import webpush from 'web-push';
 import { User } from '../lib/models';
-import { 
-  sendTelegramMessage, 
-  sendTelegramPhoto,
-  getTelegramConfig, 
-  formatGameUpdateMessage, 
-  formatSequelNotificationMessage,
-  TelegramMessage,
-  TelegramPhotoMessage
-} from './telegram';
-import { configureWebPush, getVapidKeys } from './vapidKeys';
-
-// Configure VAPID keys on module load
-configureWebPush();
-
-// Rate limiting for Telegram notifications to prevent API limits
-const telegramRateLimit = new Map<string, number>(); // userId -> lastSentTime
-
-/**
- * Add delay between Telegram notifications to prevent rate limiting
- */
-async function addTelegramDelay(userId: string): Promise<void> {
-  const lastSent = telegramRateLimit.get(userId) || 0;
-  const timeSinceLastSent = Date.now() - lastSent;
-  const requiredDelay = 5000; // 5 seconds between messages
-  
-  if (timeSinceLastSent < requiredDelay) {
-    const delayNeeded = requiredDelay - timeSinceLastSent;
-    console.log(`[Notifications] Adding ${delayNeeded}ms delay for Telegram rate limiting (user: ${userId})`);
-    await new Promise(resolve => setTimeout(resolve, delayNeeded));
-  }
-  
-  telegramRateLimit.set(userId, Date.now());
-}
+import { sendNotifications } from './appriseNotifier';
 
 export interface UpdateNotificationData {
   gameTitle: string;
@@ -72,7 +39,7 @@ export function createUpdateNotificationData(params: {
     updateType: params.updateType,
     gameLink: params.gameLink,
     imageUrl: params.imageUrl,
-    downloadLinks: params.isPending ? undefined : params.downloadLinks, // Don't include download links for pending updates
+    downloadLinks: params.isPending ? undefined : params.downloadLinks,
     previousVersion: params.previousVersion,
     isPending: params.isPending,
     source: params.source,
@@ -85,20 +52,64 @@ interface NotificationResult {
   sentCount: number;
   failedCount: number;
   errors: string[];
-  methods: {
-    webpush: { sent: number; failed: number, errors: string[] };
-    telegram: { sent: number; failed: number, errors: string[] };
+}
+
+/**
+ * Format notification content based on update type
+ */
+function formatNotificationContent(updateData: UpdateNotificationData): { title: string; body: string } {
+  const displayTitle = updateData.steamName || updateData.gogName || updateData.gameTitle;
+  
+  if (updateData.updateType === 'sequel') {
+    return {
+      title: '🎮 New Sequel Detected!',
+      body: `A sequel or related game to "${displayTitle}" has been found!\n\nDetected: ${updateData.version || 'Unknown Title'}`
+    };
+  }
+  
+  if (updateData.isPending) {
+    return {
+      title: '🔔 Pending Update Found',
+      body: `A potential update for "${displayTitle}" requires your approval.\n\n${updateData.version ? `Version: ${updateData.version}` : ''}`
+    };
+  }
+  
+  // Regular update
+  let body = `"${displayTitle}" has been updated!`;
+  
+  if (updateData.version) {
+    body += `\n\n🆕 New Version: ${updateData.version}`;
+  }
+  
+  if (updateData.previousVersion && updateData.previousVersion !== updateData.version) {
+    body += `\n🔄 Previous: ${updateData.previousVersion}`;
+  }
+  
+  if (updateData.source) {
+    body += `\n🌐 Source: ${updateData.source}`;
+  }
+  
+  if (updateData.downloadLinks && updateData.downloadLinks.length > 0) {
+    body += '\n\n📥 Download Links:\n';
+    updateData.downloadLinks.slice(0, 3).forEach(link => {
+      body += `• ${link.service}: ${link.url}\n`;
+    });
+  }
+  
+  return {
+    title: '🔄 Game Update Available!',
+    body
   };
 }
 
 /**
- * Send update notifications to a specific user via their preferred method(s)
+ * Send update notifications to a specific user via Apprise
  */
 export async function sendUpdateNotification(
-  userId: string, 
+  userId: string,
   updateData: UpdateNotificationData
 ): Promise<NotificationResult> {
-  console.log(`[Notifications] Starting notification process for user ${userId}`, {
+  console.log(`[Notifications] Starting Apprise notification for user ${userId}`, {
     gameTitle: updateData.gameTitle,
     updateType: updateData.updateType,
     version: updateData.version
@@ -109,11 +120,7 @@ export async function sendUpdateNotification(
     success: false,
     sentCount: 0,
     failedCount: 0,
-    errors: [],
-    methods: {
-      webpush: { sent: 0, failed: 0, errors: [] },
-      telegram: { sent: 0, failed: 0, errors: [] }
-    }
+    errors: []
   };
 
   try {
@@ -125,149 +132,56 @@ export async function sendUpdateNotification(
       return result;
     }
 
-    // Check user preferences - check if user wants immediate notifications
+    // Check if user wants immediate notifications
     if (!user.preferences?.notifications?.notifyImmediately) {
       console.log(`[Notifications] User ${userId} has disabled immediate notifications`);
       return result;
     }
 
-    const notificationPrefs = user.preferences?.notifications;
-    const provider = notificationPrefs?.provider || 'webpush';
+    // Get Apprise URLs from user preferences
+    const appriseUrls = user.preferences?.notifications?.appriseUrls || [];
     
-    
-    // Processing notifications for user        // Send Telegram notification if enabled and configured
-    if ((provider === 'telegram' || notificationPrefs?.telegramEnabled) && notificationPrefs?.telegramEnabled) {
-      // Telegram conditions met, getting config
-      const telegramConfig = getTelegramConfig(user);
-      if (telegramConfig) {
-        // Got valid Telegram config
-        try {
-          console.log(`[Notifications] Sending Telegram notification for ${updateData.gameTitle} to user ${userId}`);
-          
-          // Add rate limiting delay before sending
-          await addTelegramDelay(userId);
-          
-          // Determine the best title to display (Steam > GOG > cleaned title)
-          const displayTitle = updateData.steamName || updateData.gogName || updateData.gameTitle;
-          
-          const message = updateData.updateType === 'sequel'
-            ? formatSequelNotificationMessage({
-                originalTitle: displayTitle,
-                detectedTitle: updateData.version || 'Unknown Title',
-                sequelType: 'sequel',
-                gameLink: updateData.gameLink || '/tracking',
-                source: updateData.source || 'Game Tracker',
-                similarity: 1.0
-              })
-            : formatGameUpdateMessage({
-                title: displayTitle,
-                version: updateData.version,
-                previousVersion: updateData.previousVersion,
-                gameLink: updateData.gameLink || '/tracking',
-                source: updateData.source || 'Game Tracker',
-                changeType: updateData.isPending ? 'pending' : 'automatic', // Use 'pending' for pending updates
-                downloadLinks: updateData.isPending ? undefined : updateData.downloadLinks, // Don't send download links for pending
-                imageUrl: updateData.imageUrl
-              });
-          
-          // Check if message includes photo
-          const telegramResult = 'photo' in message 
-            ? await sendTelegramPhoto(telegramConfig, message as TelegramPhotoMessage)
-            : await sendTelegramMessage(telegramConfig, message as TelegramMessage);
-          
-          if (telegramResult.success) {
-            console.log(`[Notifications] Telegram message sent successfully to user ${userId}`);
-            result.methods.telegram.sent++;
-            result.sentCount++;
-          } else {
-            console.error(`[Notifications] Telegram failed for user ${userId}:`, telegramResult.error);
-            result.methods.telegram.failed++;
-            result.failedCount++;
-            result.methods.telegram.errors.push(telegramResult.error || 'Unknown Telegram error');
-          }
-        } catch (error) {
-          result.methods.telegram.failed++;
-          result.failedCount++;
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          result.methods.telegram.errors.push(`Telegram error: ${errorMessage}`);
-          console.error('❌ Telegram notification error:', error);
-        }
-      } else {
-        console.log(`[Notifications] Telegram config missing for user ${userId} - enabled: ${notificationPrefs?.telegramEnabled}, chatId: ${!!notificationPrefs?.telegramChatId}`);
-        result.methods.telegram.errors.push('Telegram enabled but not properly configured');
-      }
+    if (appriseUrls.length === 0) {
+      console.log(`[Notifications] User ${userId} has no Apprise URLs configured`);
+      result.errors.push('No notification URLs configured');
+      return result;
     }
 
-    // Send Web Push notification if enabled or if primary method
-    if (provider === 'webpush' || notificationPrefs?.webpushEnabled) {
-      try {
-        getVapidKeys(); // Ensure VAPID keys are available
-        if (user.pushSubscriptions && user.pushSubscriptions.length > 0) {
-        // Create notification payload
-        const isSequel = updateData.updateType === 'sequel';
-        const title = isSequel 
-          ? `🎮 New Sequel Found!`
-          : `🔄 Game Update Available!`;
-        
-        const body = isSequel
-          ? `A sequel to "${updateData.gameTitle}" has been detected!`
-          : `"${updateData.gameTitle}" has been updated${updateData.version ? ` to ${updateData.version}` : ''}!`;
+    // Format notification content
+    const { title, body } = formatNotificationContent(updateData);
+    
+    // Send via Apprise
+    const appriseResult = await sendNotifications(appriseUrls, {
+      title,
+      body,
+      imageUrl: updateData.imageUrl,
+      url: updateData.gameLink,
+      format: 'text'
+    });
 
-        const payload = JSON.stringify({
-          title,
-          body,
-          icon: '/icon-192x192.png',
-          badge: '/icon-192x192.png',
-          image: updateData.imageUrl,
-          data: {
-            gameTitle: updateData.gameTitle,
-            updateType: updateData.updateType,
-            version: updateData.version,
-            gameLink: updateData.gameLink,
-            url: updateData.gameLink || '/tracking'
-          },
-          actions: updateData.gameLink ? [
-            {
-              action: 'view',
-              title: 'View Update'
-            }
-          ] : undefined
-        });
+    result.success = appriseResult.success;
+    result.sentCount = appriseResult.sentCount;
+    result.failedCount = appriseResult.failedCount;
+    
+    // Collect errors
+    appriseResult.results.forEach(r => {
+      if (!r.success && r.error) {
+        result.errors.push(`${r.service}: ${r.error}`);
+      }
+    });
 
-        // Send to all subscribed endpoints
-        for (const sub of user.pushSubscriptions) {
-          try {
-            await webpush.sendNotification({
-              endpoint: sub.endpoint,
-              keys: {
-                p256dh: sub.keys.p256dh,
-                auth: sub.keys.auth
-              }
-            }, payload);
-            result.methods.webpush.sent++;
-            result.sentCount++;
-          } catch (error) {
-            result.methods.webpush.failed++;
-            result.failedCount++;
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            result.methods.webpush.errors.push(`Push error: ${errorMessage}`);
-          }
-        }
-      }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        result.methods.webpush.errors.push(`Web Push setup error: ${errorMessage}`);
-        console.error('Web Push setup error:', error);
-      }
+    if (result.success) {
+      console.log(`[Notifications] Successfully sent to ${result.sentCount}/${appriseUrls.length} services for user ${userId}`);
+    } else {
+      console.error(`[Notifications] Failed to send notifications for user ${userId}:`, result.errors);
     }
 
-    result.success = result.sentCount > 0;
     return result;
 
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    result.errors.push(`Notification error: ${errorMessage}`);
-    console.error('Notification error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`[Notifications] Error sending notification for user ${userId}:`, error);
+    result.errors.push(errorMessage);
     return result;
   }
 }
