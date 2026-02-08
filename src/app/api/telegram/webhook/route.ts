@@ -175,8 +175,16 @@ export async function POST(request: NextRequest) {
     const user = await findUserByTelegramChat(chatId);
     
     if (!user) {
-      // User not found - they need to set up their Telegram integration
-      console.log(`Unlinked Telegram user attempted to use bot: Chat ID ${chatId}`);
+      // User not found - reply with their Chat ID so they can set it up
+      const botClient = new TelegramBotClient(botToken);
+      const usernameInfo = message.from?.username 
+        ? `\n👤 Your username: @${message.from.username}` 
+        : '';
+      await botClient.sendMessage(
+        chatId,
+        `👋 Welcome to AIOgames Bot!\n\n🔑 Your Chat ID: <code>${chatId}</code>${usernameInfo}\n\n📋 To receive notifications:\n1. Go to your AIOgames account settings\n2. Select Telegram as your notification provider\n3. Enter your Chat ID${message.from?.username ? ' or username' : ''} above\n4. Save your settings\n\nOnce linked, send /start again to see available commands!`,
+        { parse_mode: 'HTML' }
+      );
       return NextResponse.json({ ok: true });
     }
 
@@ -215,23 +223,25 @@ export async function POST(request: NextRequest) {
     // Parse command if it's a command message
     if (text && text.startsWith('/')) {
       const botManagementEnabled = user.preferences?.notifications?.telegramBotManagementEnabled;
-      
-      if (!botManagementEnabled) {
-        // Bot management is disabled - send helpful message
-        await botClient.sendMessage(
-          chatId,
-          `🤖 Bot management is currently disabled.\n\nTo enable bot commands, go to your AIOgames user settings and enable "Telegram Bot Management".\n\nYou can still receive notifications!`
-        );
-        return NextResponse.json({ ok: true });
-      }
-      
       const command = parseCommand(text);
+      
       if (command) {
         command.chatId = chatId;
         command.userId = message.from.id;
         command.messageId = message.message_id;
         
-        await handleTelegramCommand(command, user, botClient);
+        // Always allow /start and /help regardless of bot management setting
+        if (command.command === 'start' || command.command === 'help' || command.command === 'settings') {
+          await handleTelegramCommand(command, user, botClient);
+        } else if (!botManagementEnabled) {
+          // Bot management is disabled - send helpful message for other commands
+          await botClient.sendMessage(
+            chatId,
+            `🤖 Bot management is currently disabled.\n\nTo enable bot commands, go to your AIOgames user settings and enable "Telegram Bot Management".\n\nYou can still receive notifications!`
+          );
+        } else {
+          await handleTelegramCommand(command, user, botClient);
+        }
       }
     } else if (text) {
       // Handle non-command messages
