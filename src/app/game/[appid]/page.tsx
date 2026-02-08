@@ -1,12 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { GameDownloadLinks } from '../../../components/GameDownloadLinks';
-import { ImageWithFallback } from '../../../utils/imageProxy';
 
 interface GameDetails {
   appid: number;
@@ -54,7 +52,6 @@ interface GameDetails {
 
 export default function GameDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const { data: session, status } = useSession();
   const appid = params.appid as string;
   

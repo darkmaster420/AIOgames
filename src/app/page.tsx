@@ -3,15 +3,10 @@
 import { useState, useCallback, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { ImageWithFallback } from '../utils/imageProxy';
-import { GameDownloadLinks } from '../components/GameDownloadLinks';
 import { GamePosterCard } from '../components/GamePosterCard';
 import { AddCustomGame } from '../components/AddCustomGame';
-import { TelegramSendButton } from '../components/TelegramSendButton';
-import { ExternalLinkIcon } from '../components/ExternalLinkIcon';
 import { useNotification } from '../contexts/NotificationContext';
 import { SITES } from '../lib/sites';
-import { decodeHtmlEntities } from '../utils/steamApi';
 
 type Game = {
   id: string;
@@ -546,15 +541,9 @@ function DashboardInner() {
             )}
           </div>
         )}
-        {loading && (
-          <div className="text-center py-8">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          </div>
-        )}
       </div>
     );
   }
-// Remove duplicate/erroneous code at the end
 
 export default function Page() {
   return (

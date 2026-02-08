@@ -4,7 +4,6 @@ import { ImageWithFallback } from '../utils/imageProxy';
 import { GameDownloadLinks } from './GameDownloadLinks';
 
 interface GamePosterCardProps {
-  appid?: number;
   postId?: string;
   siteType?: string;
   title: string;
@@ -20,7 +19,6 @@ interface GamePosterCardProps {
 }
 
 export function GamePosterCard({
-  appid,
   postId,
   siteType,
   title,

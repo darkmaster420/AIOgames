@@ -25,15 +25,6 @@ export interface VersionDetection {
  */
 
 export function detectVersionNumber(title: string): { found: boolean; version?: string; isDateVersion?: boolean; isStaleDateVersion?: boolean; dateValue?: Date; hasPreferredVersion?: boolean; preferredVersion?: string } {
-  // Note: dateVersionPatterns moved to specialized detection functions
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const dateVersionPatterns = [
-    /\bv(\d{4})[-\.]?(\d{2})[-\.]?(\d{2})\b/i, // vYYYYMMDD or vYYYY.MM.DD or vYYYY-MM-DD
-    /\bv(\d{8})\b/i, // vYYYYMMDD
-    /\bv(\d{2})[-\.]?(\d{2})[-\.]?(\d{2})\b/i, // vYY.MM.DD or vYYMMDD
-    /\bv(\d{6})\b/i, // vYYMMDD
-  ];
-
   const regularVersionPatterns = [
     // Special patterns like v1.0a, v2.1b, v1.5-beta, v1.0alpha, v1.33.a, v1.2.3c (check these BEFORE simple patterns)
     /\bv(\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:\-?(?:alpha|beta|rc|final|release|hotfix|patch))?)\b/i,
