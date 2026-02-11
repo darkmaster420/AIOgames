@@ -1,0 +1,34 @@
+{
+  "appId": "com.aiogames.app",
+  "productName": "AIOGames",
+  "directories": {
+    "output": "dist"
+  },
+  "files": [
+    ".next/**/*",
+    "electron/**/*",
+    "public/**/*",
+    "node_modules/**/*",
+    "package.json",
+    ".env.production"
+  ],
+  "win": {
+    "target": [{
+      "target": "nsis",
+      "arch": ["x64"]
+    }],
+    "icon": "public/icon.ico",
+    "artifactName": "${productName}-Setup-${version}.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "AIOGames"
+  },
+  "extraMetadata": {
+    "main": "electron/main.cjs",
+    "type": "commonjs"
+  }
+}

@@ -76,3 +76,7 @@ Thumbs.db
 *.bak
 *.backup
 index.sqlite3
+
+# Electron
+dist/
+*.exe

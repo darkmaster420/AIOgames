@@ -2,6 +2,7 @@
   "name": "aiogames",
   "version": "1.10.1",
   "private": true,
+  "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run dev:next\" \"npm run dev:poller\"",
@@ -12,7 +13,10 @@
     "start": "node .next/standalone/server.js",
     "start:next": "next start",
     "lint": "eslint",
-    "mock-ai-worker": "node scripts/mock-ai-worker.js"
+    "mock-ai-worker": "node scripts/mock-ai-worker.js",
+    "electron:dev": "cross-env NODE_ENV=development electron .",
+    "electron:build": "npm run build && electron-builder",
+    "electron:build:win": "npm run build && electron-builder --win"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
@@ -34,10 +38,14 @@
     "@types/react-dom": "^19.1.9",
     "autoprefixer": "^10.4.21",
     "concurrently": "^9.1.2",
+    "cross-env": "^10.1.0",
+    "electron": "^40.4.0",
+    "electron-builder": "^26.7.0",
     "eslint": "^9",
     "eslint-config-next": "15.5.3",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wait-on": "^9.0.3"
   }
 }

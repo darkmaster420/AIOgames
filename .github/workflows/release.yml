@@ -51,9 +51,16 @@ jobs:
           body: |
             # AIOgames Release ${{ github.ref_name }}
             
+            ## 🪟 Windows Desktop App
+            
+            Download the Windows installer below:
+            - `AIOGames-Setup-${{ github.ref_name }}.exe` - Windows installer (x64)
+            
+            Simply download and run the installer to install AIOgames as a native Windows application.
+            
             ## 🐳 Docker Images
             
-            This release is available as Docker images:
+            This release is also available as Docker images:
             
             ```bash
             # Pull the latest release
@@ -97,3 +104,32 @@ jobs:
           echo "🎉 New release ${{ github.ref_name }} is available!"
           echo "📦 Docker images are being built and will be available shortly"
           echo "🚀 Use the quick deploy script for easy installation"
+
+  build-windows:
+    needs: create-release
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows installer
+        run: npm run electron:build:win
+
+      - name: Upload Windows installer to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/AIOGames-Setup-*.exe
+            dist/*.exe.blockmap
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

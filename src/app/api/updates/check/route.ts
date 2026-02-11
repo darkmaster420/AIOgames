@@ -1590,10 +1590,10 @@ export async function POST(request: Request) {
         
         // Fuzzy Relationship Detection - Check for potential editions/DLC/sequels
         // Look for games with medium similarity (0.5-0.79) that aren't already tracked
-        const cleanTitle = cleanGameTitle(game.title);
+        const fuzzyCleanTitle = cleanGameTitle(game.title);
         for (const recentGame of recentGames) {
           const decodedTitle = decodeHtmlEntities(recentGame.title);
-          const similarity = calculateGameSimilarity(cleanTitle, decodedTitle);
+          const similarity = calculateGameSimilarity(fuzzyCleanTitle, decodedTitle);
           
           // Medium similarity range - could be edition, DLC, or sequel
           if (similarity >= 0.5 && similarity < 0.8) {
