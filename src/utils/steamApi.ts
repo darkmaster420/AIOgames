@@ -272,6 +272,65 @@ export async function resolveVersionFromBuild(appId: string | number, buildId: s
 }
 
 /**
+ * Resolve version and build from a date-based version string (YYYYMMDD or YYYY-MM-DD)
+ * Returns the version and build for the closest matching build on or before that date
+ */
+export async function resolveVersionFromDate(appId: string | number, dateVersion: string): Promise<{ version: string | null; build: string | null } | null> {
+  try {
+    // Parse the date from various formats
+    let targetDate: Date;
+    
+    // YYYYMMDD format
+    if (/^\d{8}$/.test(dateVersion)) {
+      const year = parseInt(dateVersion.slice(0, 4), 10);
+      const month = parseInt(dateVersion.slice(4, 6), 10) - 1;
+      const day = parseInt(dateVersion.slice(6, 8), 10);
+      targetDate = new Date(year, month, day);
+    }
+    // YYYY-MM-DD or YYYY.MM.DD format
+    else if (/^\d{4}[-\.]\d{2}[-\.]\d{2}$/.test(dateVersion)) {
+      const match = dateVersion.match(/^(\d{4})[-\.](\d{2})[-\.](\d{2})$/);
+      if (!match) return null;
+      const year = parseInt(match[1], 10);
+      const month = parseInt(match[2], 10) - 1;
+      const day = parseInt(match[3], 10);
+      targetDate = new Date(year, month, day);
+    } else {
+      return null;
+    }
+    
+    const details = await getSteamAppDetails(appId);
+    const builds = details.builds || [];
+    
+    // Filter builds that were published on or before the target date
+    const buildsBeforeDate = builds.filter(b => {
+      if (!b.published_at) return false;
+      const buildDate = new Date(b.published_at);
+      return buildDate <= targetDate;
+    });
+    
+    if (buildsBeforeDate.length === 0) {
+      return null;
+    }
+    
+    // Sort by date descending and get the most recent one before/on the target date
+    buildsBeforeDate.sort((a, b) => {
+      const dateA = new Date(a.published_at!);
+      const dateB = new Date(b.published_at!);
+      return dateB.getTime() - dateA.getTime();
+    });
+    
+    const closestBuild = buildsBeforeDate[0];
+    const version = closestBuild.version ? normalizeVersionString(closestBuild.version) : null;
+    const build = closestBuild.build_id;
+    
+    return { version, build };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Search for games by name using Steam API Worker
  * @param query - Game name to search for
  * @param limit - Maximum number of results (default: 10)

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '../../../../lib/auth';
-import { resolveBuildFromVersion, resolveVersionFromBuild } from '../../../../utils/steamApi';
+import { resolveBuildFromVersion, resolveVersionFromBuild, resolveVersionFromDate } from '../../../../utils/steamApi';
 
 // POST: Resolve version<->build via SteamDB Worker
 export async function POST(request: NextRequest) {

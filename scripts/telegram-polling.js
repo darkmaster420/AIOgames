@@ -4,7 +4,7 @@
 import https from 'https';
 import http from 'http';
 
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8599392101:AAHO-BOL1-t-y1fH0VpXfUoc2uU-RM4fjIY';
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const WEBHOOK_URL = 'http://localhost:3000/api/telegram/webhook';
 
 if (!BOT_TOKEN) {

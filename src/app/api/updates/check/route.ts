@@ -4,7 +4,7 @@ import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel } from '../../../../utils/sequelDetection';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
-import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, extractReleaseGroup, is0xdeadcodeRelease, isOnlineFixRelease } from '../../../../utils/steamApi';
+import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, resolveVersionFromDate, extractReleaseGroup, is0xdeadcodeRelease, isOnlineFixRelease } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
 import { detectUpdatesWithAI, isAIDetectionAvailable, prepareCandidatesForAI } from '../../../../utils/aiUpdateDetection';
 import { calculateGameSimilarity } from '../../../../utils/titleMatching';
@@ -1121,7 +1121,27 @@ export async function POST(request: Request) {
           // If we detected only version or only build, try to resolve the missing one via SteamDB Worker when appId is known
           if (game.steamAppId) {
             try {
-              if (newVersionInfo.version && !newVersionInfo.build) {
+              // If this is a date-based version, try to resolve the actual version/build from SteamDB
+              if (newVersionInfo.isDateVersion && newVersionInfo.version) {
+                logger.debug(`🗓️ Date-based version detected: ${newVersionInfo.version}, resolving from SteamDB...`);
+                const resolved = await resolveVersionFromDate(game.steamAppId, newVersionInfo.version);
+                if (resolved) {
+                  if (resolved.version) {
+                    logger.info(`Resolved version ${resolved.version} from date ${newVersionInfo.version} via SteamDB`);
+                    // Keep the date version for reference, but use the resolved version for comparison
+                    newVersionInfo.version = resolved.version;
+                    newVersionInfo.isDateVersion = false; // Mark as regular version now
+                  }
+                  if (resolved.build && !newVersionInfo.build) {
+                    logger.info(`Resolved build ${resolved.build} from date ${newVersionInfo.version} via SteamDB`);
+                    newVersionInfo.build = resolved.build;
+                  }
+                } else {
+                  logger.debug(`Could not resolve version from date ${newVersionInfo.version}, using date as-is`);
+                }
+              }
+              // Otherwise, resolve missing parts normally
+              else if (newVersionInfo.version && !newVersionInfo.build) {
                 const build = await resolveBuildFromVersion(game.steamAppId, newVersionInfo.version);
                 if (build) {
                   newVersionInfo.build = build;

@@ -3,7 +3,7 @@ import connectDB from '../../../../lib/db';
 import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { autoVerifyWithSteam } from '../../../../utils/autoSteamVerification';
-import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild } from '../../../../utils/steamApi';
+import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, resolveVersionFromDate } from '../../../../utils/steamApi';
 import { updateScheduler } from '../../../../lib/scheduler';
 import { analyzeGameTitle } from '../../../../utils/versionDetection';
 import { searchIGDB, type IGDBSearchResult } from '../../../../utils/igdb';
