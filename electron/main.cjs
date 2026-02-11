@@ -75,11 +75,10 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: true,
-      // Enable web push notifications and service workers
+      // Relaxed security for service workers and notifications
+      webSecurity: false,  // Allow service workers to work properly
       enableRemoteModule: false,
-      // Allow service workers for web push
-      partition: 'persist:main'
+      partition: 'persist:main'  // Persistent session for service workers
     },
     autoHideMenuBar: true,
     backgroundColor: '#000000'
@@ -103,6 +102,11 @@ function createWindow() {
     }, 2000);
   });
 
+  // Log console messages from the web page for debugging
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    console.log(`[WEB] ${message}`);
+  });
+
   // Open DevTools in development
   if (isDev) {
     mainWindow.webContents.openDevTools();
@@ -124,12 +128,21 @@ function createWindow() {
 
   // Handle web push notification permissions
   mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-    // Auto-grant permission for notifications
-    if (permission === 'notifications') {
+    // Auto-grant permission for notifications and other web APIs
+    const allowedPermissions = ['notifications', 'media', 'geolocation'];
+    if (allowedPermissions.includes(permission)) {
       callback(true);
     } else {
       callback(false);
     }
+  });
+
+  // Handle notification permission checks
+  mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission) => {
+    if (permission === 'notifications') {
+      return true;
+    }
+    return false;
   });
 }
 
