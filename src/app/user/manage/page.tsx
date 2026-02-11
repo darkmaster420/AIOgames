@@ -107,41 +107,63 @@ export default function UserManagePage() {
   // Register service worker and subscribe if webpush enabled
   useEffect(() => {
     async function setupPush() {
-      if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        console.warn('[WebPush] Service Worker or Push Manager not supported');
+        return;
+      }
       try {
+        console.log('[WebPush] Starting setup...');
         // register service worker
         const reg = await navigator.serviceWorker.register('/sw.js');
+        console.log('[WebPush] Service worker registered:', reg);
 
         // fetch VAPID public key
         const r = await fetch('/api/notifications/vapid-public');
-        if (!r.ok) return;
+        if (!r.ok) {
+          console.error('[WebPush] Failed to fetch VAPID key:', r.status);
+          return;
+        }
         const { publicKey } = await r.json();
-        if (!publicKey) return;
+        if (!publicKey) {
+          console.error('[WebPush] No VAPID public key returned');
+          return;
+        }
+        console.log('[WebPush] VAPID key fetched');
 
         // subscribe if permission is default and user wants webpush
         if (form.notificationsProvider === 'webpush' && form.webpushEnabled) {
+          console.log('[WebPush] Notification permission:', Notification.permission);
           if (Notification.permission === 'default') {
             // request permission first
             const perm = await Notification.requestPermission();
+            console.log('[WebPush] Permission result:', perm);
             if (perm !== 'granted') return;
           }
 
           if (Notification.permission === 'granted') {
+            console.log('[WebPush] Subscribing to push notifications...');
             const sub = await reg.pushManager.subscribe({
               userVisibleOnly: true,
               applicationServerKey: urlBase64ToUint8Array(publicKey)
             });
+            console.log('[WebPush] Subscribed:', sub.endpoint);
 
             // send subscription to backend
-            await fetch('/api/user/subscribe', {
+            const subRes = await fetch('/api/user/subscribe', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ subscription: sub })
             });
+            
+            if (subRes.ok) {
+              console.log('[WebPush] Subscription saved to backend');
+            } else {
+              console.error('[WebPush] Failed to save subscription:', await subRes.text());
+            }
           }
         }
-          } catch {
-        // ignore errors during push setup
+      } catch (error) {
+        console.error('[WebPush] Setup error:', error);
       }
     }
 
