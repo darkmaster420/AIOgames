@@ -1,27 +1,24 @@
 const { app, BrowserWindow, Menu } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
-const fs = require('fs');
+const config = require('./config.cjs');
 
-// Load environment variables from .env file
-const dotenv = require('dotenv');
-
-// In development, load from project root .env
-// In production, load from .env.production in the app directory
-const isDev = process.env.NODE_ENV === 'development';
-if (isDev) {
-  dotenv.config();
-} else {
-  // Load production env from the app directory
-  const envPath = path.join(app.getAppPath(), '.env.production');
-  if (fs.existsSync(envPath)) {
-    dotenv.config({ path: envPath });
-  }
+// Load environment variables from .env file in development
+if (process.env.NODE_ENV === 'development') {
+  require('dotenv').config();
 }
+// In production, environment variables should be set externally
+// DO NOT bundle .env files with secrets - this is a security risk!
 
 let mainWindow;
 let nextServer;
+const isDev = process.env.NODE_ENV === 'development';
 const port = process.env.PORT || 3000;
+
+// Backend URL configuration
+// In production, use BACKEND_URL to connect to hosted backend
+// If not set, fallback to local server mode
+const BACKEND_URL = config.backendUrl;
 
 // Determine the correct command based on platform
 function getNodeCommand() {
@@ -78,7 +75,11 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: true
+      webSecurity: true,
+      // Enable web push notifications and service workers
+      enableRemoteModule: false,
+      // Allow service workers for web push
+      partition: 'persist:main'
     },
     autoHideMenuBar: true,
     backgroundColor: '#000000'
@@ -88,7 +89,11 @@ function createWindow() {
   Menu.setApplicationMenu(null);
 
   // Load the Next.js app
-  const url = `http://localhost:${port}`;
+  // If BACKEND_URL is set, connect to hosted backend (secure mode)
+  // Otherwise, connect to local server (development/standalone mode)
+  const url = BACKEND_URL || `http://localhost:${port}`;
+  
+  console.log(`Loading application from: ${url}`);
   
   mainWindow.loadURL(url).catch((err) => {
     console.error('Failed to load URL:', err);
@@ -116,11 +121,27 @@ function createWindow() {
     }
     return { action: 'allow' };
   });
+
+  // Handle web push notification permissions
+  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+    // Auto-grant permission for notifications
+    if (permission === 'notifications') {
+      callback(true);
+    } else {
+      callback(false);
+    }
+  });
 }
 
 app.whenReady().then(async () => {
   try {
-    await startNextServer();
+    // Only start local server if no BACKEND_URL is configured
+    if (!BACKEND_URL) {
+      console.log('Starting local Next.js server...');
+      await startNextServer();
+    } else {
+      console.log(`Connecting to hosted backend: ${BACKEND_URL}`);
+    }
     createWindow();
   } catch (err) {
     console.error('Error starting application:', err);

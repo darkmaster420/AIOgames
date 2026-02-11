@@ -1,113 +1,203 @@
-# AIOGames Desktop App - Configuration Guide
+# AIOGames Desktop App - Secure Configuration Guide
 
-## Initial Setup
+## ⚠️ Critical Security Warning
 
-After installing the Windows app, you need to configure your environment variables.
+**DO NOT bundle credentials/API keys into the .exe file!**
 
-### Quick Setup
+Anyone who installs your app can:
+- Navigate to the installation folder
+- Open the `resources\app` directory
+- Read ANY file you bundled, including `.env` files
+- Extract your MongoDB passwords, API keys, secrets, etc.
 
-1. **Locate the Installation Folder**
-   - Right-click the AIOGames shortcut
-   - Select "Open file location"
-   - Navigate to the installation directory (usually `C:\Users\YourName\AppData\Local\Programs\AIOGames\`)
+## Secure Architecture Options
 
-2. **Edit the Configuration File**
-   - Find the file `.env.production` in `resources\app\.env.production`
-   - Open it with Notepad or any text editor
-   - Configure the following settings:
+### ✅ Option 1: Self-Hosted Backend (RECOMMENDED)
 
-### Required Settings
+**Best for**: Public distribution, security, maintainability
 
-#### MongoDB Connection
-```env
-MONGODB_URI=mongodb://localhost:27017/aiogames
+**Architecture**:
 ```
-- For local MongoDB: `mongodb://localhost:27017/aiogames`
-- For MongoDB Atlas: `mongodb+srv://username:password@cluster.mongodb.net/aiogames`
-
-#### Authentication Secret
-```env
-NEXTAUTH_SECRET=your-super-secret-nextauth-secret-change-this
-```
-- Generate a strong random string (at least 32 characters)
-
-#### Admin Account
-```env
-OWNER_EMAIL=your-email@example.com
-OWNER_PASSWORD=your-secure-password
-OWNER_NAME=Your Name
+[User's Desktop App] → [Your Hosted Server] → [Your MongoDB + APIs]
 ```
 
-### Optional Settings
+**How it works**:
+1. You host the Next.js backend on a server (Vercel, Railway, VPS, etc.)
+2. Desktop app is just a webview that loads your hosted URL
+3. NO local server, NO bundled credentials
+4. All secrets stay safely on YOUR server
 
-#### Telegram Bot (for notifications)
-```env
-TELEGRAM_BOT_TOKEN=your-bot-token-here
-```
-- Get a bot token from [@BotFather](https://t.me/botfather) on Telegram
+**Setup**:
 
-#### Game API Endpoint
-```env
-GAME_API_URL=https://gameapi.iforgor.cc
-```
-- Keep the default or use your own API endpoint
+1. **Deploy your backend** to any hosting service:
+   ```bash
+   # Example with Vercel
+   vercel deploy --prod
+   ```
 
-#### IGDB Integration
-```env
-IGDB_CLIENT_ID=your-twitch-client-id
-IGDB_CLIENT_SECRET=your-twitch-client-secret
-```
-- Get credentials from [Twitch Developer Console](https://dev.twitch.tv/console)
+2. **Edit [`electron/main.cjs`](electron/main.cjs)** - change around line 60:
 
-### Apply Changes
+   ```javascript
+   // BEFORE (local server):
+   const url = `http://localhost:${port}`;
+   
+   // AFTER (your hosted backend):
+   const url = `https://your-domain.com`;  // Your production URL
+   ```
 
-After editing `.env.production`:
-1. Save the file
-2. Restart the AIOGames application
-3. Your new settings will be loaded
+3. **Disable local server startup** in the same file:
 
-### Configuration Location
+   ```javascript
+   app.whenReady().then(async () => {
+     try {
+       // COMMENT OUT THIS LINE:
+       // await startNextServer();
+       
+       createWindow();  // Just open the window
+     } catch (err) {
+       console.error('Error starting application:', err);
+       app.quit();
+     }
+   });
+   ```
 
-The configuration file is located at:
-```
-C:\Users\YourName\AppData\Local\Programs\AIOGames\resources\app\.env.production
-```
-
-or wherever you installed the app.
-
-## For Developers: Pre-configured Builds
-
-If you want to distribute a pre-configured version:
-
-1. **Edit `.env.production`** in your project before building
-2. **Update the values** with your production settings
-3. **Build the installer**:
+4. **Build the desktop app**:
    ```bash
    npm run electron:build:win
    ```
-4. The `.env.production` file will be bundled into the installer
-5. Users will get your pre-configured settings
 
-### Security Note
+**Benefits**:
+- ✅ **Secure**: Users never see your credentials
+- ✅ **Easy updates**: Update your server, no new .exe needed
+- ✅ **Scalable**: One backend serves all desktop users
+- ✅ **Professional**: Like Discord, Slack, VS Code, etc.
 
-⚠️ **Important**: If you pre-configure the build with secrets (MongoDB passwords, API keys, etc.), these will be visible to anyone who installs the app. For distributed apps:
+**Users need**:
+- Just the .exe file
+- Internet connection
+- That's it!
 
-- Use placeholder values in `.env.production`
-- Instruct users to configure their own credentials after installation
-- Or implement a first-run setup wizard in the app
+---
 
-## Troubleshooting
+### ⚠️ Option 2: Fully Standalone (Personal Use ONLY)
 
-### Can't Find .env.production
-- Reinstall the app
-- The file should be in `resources\app\.env.production` inside the installation folder
+**Best for**: Building for yourself, development/testing
 
-### Changes Not Applied
-- Make sure you saved the file
-- Completely close and restart AIOGames (not just minimize)
-- Check for typos in variable names
+**How it works**:
+- Desktop app runs its own Next.js server
+- Requires local or remote MongoDB access
+- Each instance is completely independent
 
-### MongoDB Connection Failed
-- Verify MongoDB is running
-- Check your connection string format
-- For Atlas: make sure your IP is whitelisted
+**⚠️ Security Risks**:
+- If you bundle credentials, anyone can extract them
+- Users can access your MongoDB if you use your connection string
+- API keys are exposed
+
+#### Approach 2a: No Bundled Credentials (Still risky for distribution)
+
+Users must set up their own:
+- MongoDB (local or Atlas)
+- API keys
+- Configuration
+
+Not recommended - too complex for end users.
+
+#### Approach 2b: For Personal Use Only (YOU are the only user)
+
+If you're building for yourself and won't distribute:
+
+1. Keep your `.env` file (don't commit to GitHub!)
+2. Optionally bundle `.env.production`:
+   - Edit [`electron-builder.json`](electron-builder.json)
+   - Add `.env.production` to the `files` array
+3. Build and use personally
+
+**⚠️ Never share this .exe with anyone!**
+
+---
+
+## Recommendation
+
+**Use Option 1** - it's what professional desktop apps do:
+
+- **VS Code**: Connects to Microsoft's servers for extensions, sync
+- **Discord**: Desktop app connects to Discord's servers
+- **Slack**: Desktop app connects to Slack's workspace servers
+- **Spotify**: Desktop app streams from Spotify's servers
+
+Your app should work the same way - desktop UI + your hosted backend.
+
+---
+
+## Example: Converting to Self-Hosted
+
+Here's the exact changes needed for Option 1:
+
+**File: [`electron/main.cjs`](electron/main.cjs)**
+
+```javascript
+// Around line 60-90, replace the entire URL loading section:
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 800,
+    minHeight: 600,
+    icon: path.join(__dirname, '../public/icon.png'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: true
+    },
+    autoHideMenuBar: true,
+    backgroundColor: '#000000'
+  });
+
+  Menu.setApplicationMenu(null);
+
+  // YOUR HOSTED URL HERE:
+  const url = 'https://aiogames.yourdomain.com';
+  
+  mainWindow.loadURL(url).catch((err) => {
+    console.error('Failed to load URL:', err);
+  });
+
+  // Remove this in production:
+  // if (isDev) {
+  //   mainWindow.webContents.openDevTools();
+  // }
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      require('electron').shell.openExternal(url);
+      return { action: 'deny' };
+    }
+    return { action: 'allow' };
+  });
+}
+
+// Simplified app startup - no local server:
+app.whenReady().then(() => {
+  createWindow();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+```
+
+That's it! Now your desktop app is just a secure webview to your hosted backend.

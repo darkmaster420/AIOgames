@@ -56,6 +56,11 @@ jobs:
             Download the Windows installer below:
             - `AIOGames-Setup-${{ github.ref_name }}.exe` - Windows installer (x64)
             
+            **Connection Mode**: This desktop app connects to a hosted backend server.
+            - No local server required
+            - No sensitive credentials in the app
+            - Just download, install, and run!
+            
             Simply download and run the installer to install AIOgames as a native Windows application.
             
             ## 🐳 Docker Images
@@ -122,8 +127,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Windows installer
+      - name: Build Next.js (production mode)
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: Build Windows installer (self-hosted backend mode)
         run: npm run electron:build:win
+        env:
+          NODE_ENV: production
+          BACKEND_URL: ${{ secrets.BACKEND_URL || 'https://aiogames.yourdomain.com' }}
 
       - name: Upload Windows installer to release
         uses: softprops/action-gh-release@v2

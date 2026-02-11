@@ -9,8 +9,7 @@
     "electron/**/*",
     "public/**/*",
     "node_modules/**/*",
-    "package.json",
-    ".env.production"
+    "package.json"
   ],
   "win": {
     "target": [{

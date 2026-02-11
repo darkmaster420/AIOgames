@@ -15,8 +15,9 @@
     "lint": "eslint",
     "mock-ai-worker": "node scripts/mock-ai-worker.js",
     "electron:dev": "cross-env NODE_ENV=development electron .",
-    "electron:build": "npm run build && electron-builder",
-    "electron:build:win": "npm run build && electron-builder --win"
+    "electron:prebuild": "node scripts/generate-electron-config.cjs",
+    "electron:build": "npm run electron:prebuild && npm run build && electron-builder",
+    "electron:build:win": "npm run electron:prebuild && npm run build && electron-builder --win"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

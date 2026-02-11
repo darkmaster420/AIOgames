@@ -12,18 +12,11 @@ The desktop app wraps the Next.js web application using Electron, providing a na
 
 ## Configuration
 
-See [Desktop App Configuration Guide](DESKTOP_APP_CONFIG.md) for complete instructions on:
-- Configuring MongoDB connection
-- Setting up authentication
-- Adding Telegram bot integration
-- Pre-configuring builds before distribution
+**⚠️ Security Warning**: DO NOT bundle credentials or `.env` files in the desktop app! Anyone can extract and read them.
 
-### Quick Config Summary
-
-The app uses [`.env.production`](.env.production) for configuration. You can:
-
-1. **Pre-configure before building**: Edit `.env.production` with your settings, then build
-2. **Let users configure**: Users edit the file after installation at `resources\app\.env.production`
+See [Desktop App Configuration Guide](DESKTOP_APP_CONFIG.md) for secure deployment options:
+- **Self-hosted backend** (recommended for distribution) - Desktop app connects to your hosted server
+- **Fully standalone** (personal use only) - Requires manual credential management
 
 ## Development
 
@@ -48,13 +41,44 @@ The app will open in a desktop window with DevTools enabled for debugging.
 
 ## Building for Production
 
-### Building the Windows Installer
+The app supports two modes:
 
-To create a Windows installer (.exe):
+### 1. Self-Hosted Backend Mode (RECOMMENDED for distribution)
+
+Build a desktop app that connects to your hosted backend:
+
+```bash
+# Windows PowerShell
+$env:BACKEND_URL="https://your-domain.com"
+npm run electron:build:win
+
+# Linux/Mac
+BACKEND_URL="https://your-domain.com" npm run electron:build:win
+```
+
+**Benefits**:
+- ✅ No credentials bundled in the .exe
+- ✅ Users can't access your database/APIs
+- ✅ Easy to update - just update your server
+- ✅ Secure and professional
+
+**Requirements**:
+- Deploy your Next.js app to a server first (Vercel, Railway, VPS, etc.)
+- The desktop app will load that URL like a browser
+
+### 2. Standalone Mode (Personal use only)
+
+Build without setting `BACKEND_URL`:
 
 ```bash
 npm run electron:build:win
 ```
+
+This creates a fully standalone app with its own Next.js server.
+
+**⚠️ Warning**: Requires MongoDB access and API keys on each machine.
+
+### Building the Windows Installer
 
 This will:
 1. Build the Next.js production bundle
@@ -174,6 +198,17 @@ To enable auto-updates, integrate `electron-updater`:
 
 ## Releasing on GitHub
 
+### Initial Setup
+
+**Configure your backend URL secret**:
+
+1. Go to your GitHub repository
+2. Navigate to Settings → Secrets and variables → Actions
+3. Click "New repository secret"
+4. Name: `BACKEND_URL`
+5. Value: `https://your-domain.com` (your hosted Next.js backend)
+6. Click "Add secret"
+
 ### Automated Release (Recommended)
 
 The project includes a GitHub Actions workflow that automatically builds and publishes releases:
@@ -191,11 +226,15 @@ The project includes a GitHub Actions workflow that automatically builds and pub
    ```
 
 3. **Wait for the build** - GitHub Actions will:
+   - Generate Electron config with your `BACKEND_URL` secret
+   - Build the Next.js production bundle
    - Build the Windows installer
    - Create a GitHub release
    - Upload the `.exe` file automatically
 
-4. **Publish the release** - Go to your GitHub repository's Releases page and the new release will be ready!
+4. **Release is ready!** - Users can download the installer from your GitHub Releases page
+
+The desktop app will connect to your `BACKEND_URL` - no credentials bundled, fully secure!
 
 ### Manual Release
 
