@@ -140,12 +140,46 @@ export default function TrackingDashboard() {
   // Advanced view for showing original titles
   const [showAdvanced, setShowAdvanced] = useState(false);
   
+  // Helper function to get cookie value
+  const getCookie = (name: string): string | null => {
+    if (typeof document === 'undefined') return null;
+    const value = document.cookie
+      .split('; ')
+      .find(row => row.startsWith(`${name}=`))
+      ?.split('=')[1];
+    return value || null;
+  };
+  
+  // Helper function to set cookie
+  const setCookie = (name: string, value: string, days: number = 365) => {
+    if (typeof document === 'undefined') return;
+    const expires = new Date();
+    expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000);
+    document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/`;
+  };
+  
   // Layout mode: 'grid' (responsive), 'list' (1 column), 'horizontal' (1 row)
-  const [layoutMode, setLayoutMode] = useState<'grid' | 'list' | 'horizontal'>('grid');
+  const [layoutMode, setLayoutMode] = useState<'grid' | 'list' | 'horizontal'>(() => {
+    const saved = getCookie('trackingLayoutMode');
+    if (saved === 'grid' || saved === 'list' || saved === 'horizontal') {
+      return saved;
+    }
+    return 'grid';
+  });
   
   // Layout customization state
-  const [customCols, setCustomCols] = useState<number | 'auto'>('auto');
-  const [customRows, setCustomRows] = useState<number | 'auto'>('auto');
+  const [customCols, setCustomCols] = useState<number | 'auto'>(() => {
+    const saved = getCookie('trackingCustomCols');
+    if (saved === 'auto') return 'auto';
+    if (saved && !isNaN(Number(saved))) return Number(saved);
+    return 'auto';
+  });
+  const [customRows, setCustomRows] = useState<number | 'auto'>(() => {
+    const saved = getCookie('trackingCustomRows');
+    if (saved === 'auto') return 'auto';
+    if (saved && !isNaN(Number(saved))) return Number(saved);
+    return 'auto';
+  });
 
   // Dropdown state for mobile layout settings
   const [showLayoutDropdown, setShowLayoutDropdown] = useState(false);
@@ -689,45 +723,14 @@ export default function TrackingDashboard() {
     }
   }, [status, loadTrackedGames]);
 
-  // Load layout and custom grid preferences from localStorage (client-only)
+  // Save layout and custom grid preferences to cookies
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedLayout = localStorage.getItem('trackingLayoutMode');
-      if (savedLayout && (savedLayout === 'grid' || savedLayout === 'list' || savedLayout === 'horizontal')) {
-        setLayoutMode(savedLayout);
-      }
-      const savedCols = localStorage.getItem('trackingCustomCols');
-      if (savedCols !== null) {
-        setCustomCols(savedCols === 'auto' ? 'auto' : (Number(savedCols) || 'auto'));
-      }
-      const savedRows = localStorage.getItem('trackingCustomRows');
-      if (savedRows !== null) {
-        setCustomRows(savedRows === 'auto' ? 'auto' : (Number(savedRows) || 'auto'));
-      }
-    }
-  }, []);
-
-  // Save layout and custom grid preferences to localStorage (client-only)
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('trackingLayoutMode', layoutMode);
-    }
+    setCookie('trackingLayoutMode', layoutMode);
   }, [layoutMode]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      if (customCols === 'auto') {
-        localStorage.setItem('trackingCustomCols', 'auto');
-      } else {
-        localStorage.setItem('trackingCustomCols', String(customCols));
-      }
-      
-      if (customRows === 'auto') {
-        localStorage.setItem('trackingCustomRows', 'auto');
-      } else {
-        localStorage.setItem('trackingCustomRows', String(customRows));
-      }
-    }
+    setCookie('trackingCustomCols', customCols === 'auto' ? 'auto' : String(customCols));
+    setCookie('trackingCustomRows', customRows === 'auto' ? 'auto' : String(customRows));
   }, [customCols, customRows]);
 
   const handleUntrack = async (gameId: string) => {
