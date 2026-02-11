@@ -1345,7 +1345,6 @@ export default function TrackingDashboard() {
                   originalTitle={game.originalTitle}
                   description={game.description}
                   image={game.image || ''}
-                  source={game.source}
                   hasUpdate={game.hasNewUpdate}
                   gameLink={game.gameLink}
                   lastKnownVersion={game.lastKnownVersion}

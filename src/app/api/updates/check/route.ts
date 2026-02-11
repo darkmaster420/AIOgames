@@ -4,7 +4,7 @@ import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel } from '../../../../utils/sequelDetection';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
-import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, resolveVersionFromDate, extractReleaseGroup, is0xdeadcodeRelease, isOnlineFixRelease } from '../../../../utils/steamApi';
+import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, resolveVersionFromDate, extractReleaseGroup, is0xdeadcodeRelease, isOnlineFixRelease, calculateGamePriority } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
 import { detectUpdatesWithAI, isAIDetectionAvailable, prepareCandidatesForAI } from '../../../../utils/aiUpdateDetection';
 import { calculateGameSimilarity } from '../../../../utils/titleMatching';
@@ -569,13 +569,13 @@ export async function POST(request: Request) {
     // Get release group preferences
     const releaseGroupPreferences = fullUser.preferences?.releaseGroups || {
       prioritize0xdeadcode: false,
-      prefer0xdeadcodeForOnlineFixes: true,
-      avoidRepacks: false
+      avoidRepacks: false,
+      preferRepacks: false
     };
 
     logger.debug(`AI Detection preferences: enabled=${aiPreferences.enabled}, threshold=${aiPreferences.autoApprovalThreshold}`);
     logger.debug(`Sequel Detection preferences: enabled=${sequelPreferences.enabled}, sensitivity=${sequelPreferences.sensitivity}`);
-    logger.debug(`Release Group preferences: prioritize0xdeadcode=${releaseGroupPreferences.prioritize0xdeadcode}, prefer0xdeadcodeForOnlineFixes=${releaseGroupPreferences.prefer0xdeadcodeForOnlineFixes}, avoidRepacks=${releaseGroupPreferences.avoidRepacks}`);
+    logger.debug(`Release Group preferences: prioritize0xdeadcode=${releaseGroupPreferences.prioritize0xdeadcode}, avoidRepacks=${releaseGroupPreferences.avoidRepacks}, preferRepacks=${releaseGroupPreferences.preferRepacks}`);
 
     // Get all active tracked games for this user
     const trackedGames = await TrackedGame.find({ 
@@ -621,8 +621,20 @@ export async function POST(request: Request) {
         const recentData = await recentResponse.json();
         recentGames = recentData.results || [];
         
-        // Filter out repacks if user preference is set
-        if (releaseGroupPreferences.avoidRepacks) {
+        // Filter based on repack preferences
+        if (releaseGroupPreferences.preferRepacks) {
+          // Only keep repacks
+          const originalCount = recentGames.length;
+          recentGames = recentGames.filter((game: GameSearchResult) => {
+            const title = game.title.toLowerCase();
+            return title.includes('repack') || title.includes('-repack') || /\b(fitgirl|dodi)\b/i.test(title);
+          });
+          const filtered = originalCount - recentGames.length;
+          if (filtered > 0) {
+            logger.info(`Filtered to ONLY ${recentGames.length} repack(s) based on user preference (removed ${filtered} non-repacks)`);
+          }
+        } else if (releaseGroupPreferences.avoidRepacks) {
+          // Filter out repacks
           const originalCount = recentGames.length;
           recentGames = recentGames.filter((game: GameSearchResult) => {
             const title = game.title.toLowerCase();
@@ -1164,6 +1176,10 @@ export async function POST(request: Request) {
           let comparisonReason = '';
           let comparison: { isNewer: boolean; changeType: string; significance: number; shouldWaitForRegular?: boolean; suspiciousVersion?: { isSuspicious: boolean; reason?: string }; skipDueToHierarchy?: boolean } | undefined;
           
+          // Calculate priority for the new post
+          const newPriority = calculateGamePriority(decodedTitle, releaseGroupPreferences.preferRepacks);
+          const currentPriority = game.priority || 2; // Default to 2 if not set
+          
           // More flexible update detection - don't require version if we have other indicators
           const hasVersionInfo = newVersionInfo.version || newVersionInfo.build;
           const hasUpdateKeywords = /\b(update|patch|hotfix|new|latest|improved|fixed|enhanced)\b/i.test(decodedTitle);
@@ -1176,14 +1192,10 @@ export async function POST(request: Request) {
           }
           
           // Special handling for 0xdeadcode releases (online fixes)
-          if (is0xdeadcodeUpdate && releaseGroupPreferences.prefer0xdeadcodeForOnlineFixes) {
+          if (is0xdeadcodeUpdate && releaseGroupPreferences.prioritize0xdeadcode) {
             isActuallyNewer = true;
-            comparisonReason = '0xdeadcode online fix release (user prefers 0xdeadcode)';
+            comparisonReason = '0xdeadcode online fix release (user preference enabled)';
             logger.info(`0xdeadcode release detected with user preference: ${decodedTitle}`);
-          } else if (is0xdeadcodeUpdate) {
-            isActuallyNewer = true;
-            comparisonReason = '0xdeadcode online fix release';
-            logger.info(`0xdeadcode release detected: ${decodedTitle}`);
           } else if (hasVerifiedVersion && hasVerifiedBuild && hasVersionInfo) {
             // Compare both version and build when we have verified data
             const currentVersion = parseFloat(currentVersionInfo.version || '0');
@@ -1194,6 +1206,11 @@ export async function POST(request: Request) {
             if (newVersion > currentVersion || (newVersion === currentVersion && newBuild > currentBuild)) {
               isActuallyNewer = true;
               comparisonReason = `Version/Build: ${currentVersionInfo.version || '0'}/${currentVersionInfo.build || '0'} → ${newVersionInfo.version || '0'}/${newVersionInfo.build || '0'}`;
+            } else if (newVersion === currentVersion && newBuild === currentBuild && newPriority < currentPriority) {
+              // Same version and build, but higher priority edition/DLC
+              isActuallyNewer = true;
+              comparisonReason = `Same version but higher priority edition (Priority ${currentPriority} → ${newPriority})`;
+              logger.info(`Priority upgrade: ${game.title} from priority ${currentPriority} to ${newPriority}`);
             }
           } else if (hasVerifiedVersion) {
             // Only compare versions
@@ -1203,6 +1220,11 @@ export async function POST(request: Request) {
             if (newVersion > currentVersion) {
               isActuallyNewer = true;
               comparisonReason = `Version: ${currentVersion} → ${newVersion}`;
+            } else if (newVersion === currentVersion && newPriority < currentPriority) {
+              // Same version, but higher priority edition/DLC
+              isActuallyNewer = true;
+              comparisonReason = `Same version but higher priority edition (Priority ${currentPriority} → ${newPriority})`;
+              logger.info(`Priority upgrade: ${game.title} from priority ${currentPriority} to ${newPriority}`);
             }
           } else if (hasVerifiedBuild) {
             // Only compare builds
@@ -1212,6 +1234,11 @@ export async function POST(request: Request) {
             if (newBuild > currentBuild) {
               isActuallyNewer = true;
               comparisonReason = `Build: ${currentBuild} → ${newBuild}`;
+            } else if (newBuild === currentBuild && newPriority < currentPriority) {
+              // Same build, but higher priority edition/DLC
+              isActuallyNewer = true;
+              comparisonReason = `Same build but higher priority edition (Priority ${currentPriority} → ${newPriority})`;
+              logger.info(`Priority upgrade: ${game.title} from priority ${currentPriority} to ${newPriority}`);
             }
           } else {
             // Enhanced comparison with date-version awareness and release hierarchy
@@ -1397,7 +1424,8 @@ export async function POST(request: Request) {
                   title: cleanGameTitle(decodedTitle), // Clean the title before saving
                   originalTitle: bestMatch.title, // Update original title to the new post title
                   hasNewUpdate: true,
-                  newUpdateSeen: false
+                  newUpdateSeen: false,
+                  priority: newPriority // Update priority based on new post
                 };
 
                 // Update version or build numbers based on what was detected
@@ -1555,6 +1583,74 @@ export async function POST(request: Request) {
                 } else {
                   logger.info(`Pending update found for ${game.title} but notifications are disabled`);
                 }
+              }
+            }
+          }
+        }
+        
+        // Fuzzy Relationship Detection - Check for potential editions/DLC/sequels
+        // Look for games with medium similarity (0.5-0.79) that aren't already tracked
+        const cleanTitle = cleanGameTitle(game.title);
+        for (const recentGame of recentGames) {
+          const decodedTitle = decodeHtmlEntities(recentGame.title);
+          const similarity = calculateGameSimilarity(cleanTitle, decodedTitle);
+          
+          // Medium similarity range - could be edition, DLC, or sequel
+          if (similarity >= 0.5 && similarity < 0.8) {
+            const cleanedRecentTitle = cleanGameTitle(decodedTitle);
+            
+            // Check if this game is already tracked by the user
+            const alreadyTracked = await TrackedGame.findOne({
+              userId: game.userId,
+              isActive: true,
+              $or: [
+                { gameId: recentGame.id },
+                { title: cleanedRecentTitle }
+              ]
+            });
+            
+            if (!alreadyTracked) {
+              // Check if already in pending list for this game
+              const alreadyPending = game.pendingRelatedGames?.some(
+                (pending: { gameId: string; dismissed: boolean }) => 
+                  pending.gameId === recentGame.id && !pending.dismissed
+              );
+              
+              if (!alreadyPending) {
+                // Determine relationship type based on title analysis
+                let relationshipType: 'potential_sequel' | 'potential_edition' | 'potential_dlc' = 'potential_sequel';
+                
+                const lowerTitle = decodedTitle.toLowerCase();
+                if (/\b(dlc|expansion|add-on|addon|season pass)\b/i.test(lowerTitle)) {
+                  relationshipType = 'potential_dlc';
+                } else if (/\b(complete|ultimate|goty|definitive|gold|deluxe|premium|edition)\b/i.test(lowerTitle)) {
+                  relationshipType = 'potential_edition';
+                } else if (/\b(\d+|ii|iii|iv|v|vi|sequel|2|3|4|5)\b/i.test(lowerTitle) && !game.title.toLowerCase().includes('2')) {
+                  relationshipType = 'potential_sequel';
+                }
+                
+                // Add to pending related games
+                const versionInfo = extractVersionInfo(decodedTitle);
+                await TrackedGame.findByIdAndUpdate(game._id, {
+                  $push: {
+                    pendingRelatedGames: {
+                      gameId: recentGame.id,
+                      title: cleanedRecentTitle,
+                      originalTitle: decodedTitle,
+                      similarity: similarity,
+                      relationshipType: relationshipType,
+                      link: recentGame.link,
+                      image: recentGame.image,
+                      description: recentGame.description,
+                      source: recentGame.source,
+                      version: versionInfo.fullVersionString || versionInfo.version || 'Unknown',
+                      detectedDate: new Date(),
+                      dismissed: false
+                    }
+                  }
+                });
+                
+                logger.info(`🔍 Detected ${relationshipType.replace('potential_', '')} for "${game.title}": "${decodedTitle}" (similarity: ${similarity.toFixed(2)})`);
               }
             }
           }

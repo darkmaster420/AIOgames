@@ -38,7 +38,6 @@ export async function GET() {
       preferences: {
         notifyImmediately: user.preferences?.notifications?.notifyImmediately || false,
         provider: notificationPrefs?.provider || 'none',
-        telegramEnabled: notificationPrefs?.telegramEnabled || false,
         hasBotToken: !!process.env.TELEGRAM_BOT_TOKEN,
         hasSharedBotToken: !!process.env.TELEGRAM_BOT_TOKEN,
         hasChatId: !!notificationPrefs?.telegramChatId,
@@ -83,7 +82,6 @@ export async function GET() {
 function getRecommendations(debug: {
   preferences: {
     notifyImmediately: boolean;
-    telegramEnabled: boolean;
     hasBotToken: boolean;
     hasChatId: boolean;
     provider: string;
@@ -93,11 +91,7 @@ function getRecommendations(debug: {
   const recommendations = [];
 
   if (!debug.preferences.notifyImmediately) {
-    recommendations.push('Enable immediate notifications in your user preferences');
-  }
-
-  if (!debug.preferences.telegramEnabled) {
-    recommendations.push('Enable Telegram notifications in your settings');
+    recommendations.push('Enable immediate notifications in your user preferences to use Telegram');
   }
 
   if (!debug.preferences.hasBotToken) {
@@ -112,7 +106,7 @@ function getRecommendations(debug: {
     recommendations.push(`Fix Telegram configuration: ${testResult.error}`);
   }
 
-  if (debug.preferences.provider !== 'telegram' && debug.preferences.telegramEnabled) {
+  if (debug.preferences.provider !== 'telegram' && debug.preferences.hasChatId && debug.preferences.notifyImmediately) {
     recommendations.push('Consider setting Telegram as your primary notification provider');
   }
 

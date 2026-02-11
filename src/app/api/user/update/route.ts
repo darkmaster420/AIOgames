@@ -21,13 +21,12 @@ export async function PATCH(req: Request) {
     provider, 
     webpushEnabled,
     notifyImmediately,
-    telegramEnabled, 
     telegramUsername, 
     telegramChatId,
     telegramBotManagementEnabled,
     prioritize0xdeadcode,
-    prefer0xdeadcodeForOnlineFixes,
-    avoidRepacks
+    avoidRepacks,
+    preferRepacks
   } = body;
 
     await connectDB();
@@ -104,12 +103,6 @@ export async function PATCH(req: Request) {
     }
 
     // Update Telegram notification settings
-    if (typeof telegramEnabled === 'boolean') {
-      user.preferences = user.preferences || {};
-      user.preferences.notifications = user.preferences.notifications || {};
-      user.preferences.notifications.telegramEnabled = telegramEnabled;
-    }
-
     if (typeof telegramUsername === 'string') {
       user.preferences = user.preferences || {};
       user.preferences.notifications = user.preferences.notifications || {};
@@ -135,16 +128,16 @@ export async function PATCH(req: Request) {
       user.preferences.releaseGroups.prioritize0xdeadcode = prioritize0xdeadcode;
     }
 
-    if (typeof prefer0xdeadcodeForOnlineFixes === 'boolean') {
-      user.preferences = user.preferences || {};
-      user.preferences.releaseGroups = user.preferences.releaseGroups || {};
-      user.preferences.releaseGroups.prefer0xdeadcodeForOnlineFixes = prefer0xdeadcodeForOnlineFixes;
-    }
-
     if (typeof avoidRepacks === 'boolean') {
       user.preferences = user.preferences || {};
       user.preferences.releaseGroups = user.preferences.releaseGroups || {};
       user.preferences.releaseGroups.avoidRepacks = avoidRepacks;
+    }
+
+    if (typeof preferRepacks === 'boolean') {
+      user.preferences = user.preferences || {};
+      user.preferences.releaseGroups = user.preferences.releaseGroups || {};
+      user.preferences.releaseGroups.preferRepacks = preferRepacks;
     }
 
     await user.save();

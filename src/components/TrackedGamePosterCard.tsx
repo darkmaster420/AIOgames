@@ -32,7 +32,6 @@ interface TrackedGamePosterCardProps {
   originalTitle?: string;
   description?: string;
   image: string;
-  source: string;
   hasUpdate?: boolean;
   gameLink: string;
   lastKnownVersion?: string;
@@ -72,7 +71,6 @@ export function TrackedGamePosterCard({
   originalTitle,
   description,
   image,
-  source,
   hasUpdate = false,
   gameLink,
   lastKnownVersion,
@@ -144,9 +142,6 @@ export function TrackedGamePosterCard({
         <div className="p-6 space-y-6">
           {/* Status Row */}
           <div className="flex flex-wrap gap-2">
-            <span className="bg-green-600 text-white text-xs font-bold px-3 py-1 rounded-full">
-              ✓ {source}
-            </span>
             {hasUpdate && (
               <span className="bg-red-500 text-white text-xs font-bold px-3 py-1 rounded-full animate-pulse">
                 NEW UPDATE
@@ -438,10 +433,7 @@ export function TrackedGamePosterCard({
         </div>
         
         {/* Status Badges */}
-        <div className="absolute top-12 left-2 right-2 flex justify-between items-start z-30">
-          <span className="bg-green-600 text-white text-xs font-bold px-2 py-1 rounded">
-            ✓ {source}
-          </span>
+        <div className="absolute top-12 left-2 right-2 flex justify-end items-start z-30">
           {hasUpdate && (
             <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded animate-pulse">
               UPDATE

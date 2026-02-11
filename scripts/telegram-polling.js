@@ -3,13 +3,18 @@
 
 import https from 'https';
 import http from 'http';
+import dotenv from 'dotenv';
+
+// Load .env file
+dotenv.config();
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const WEBHOOK_URL = 'http://localhost:3000/api/telegram/webhook';
 
 if (!BOT_TOKEN) {
-  console.error('❌ TELEGRAM_BOT_TOKEN not found in environment variables');
-  process.exit(1);
+  console.log('⚠️  TELEGRAM_BOT_TOKEN not found - skipping Telegram polling');
+  console.log('💡 Set TELEGRAM_BOT_TOKEN in .env to enable Telegram bot polling');
+  process.exit(0); // Exit gracefully
 }
 
 let offset = 0;

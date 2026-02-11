@@ -26,15 +26,9 @@ export async function POST(request: NextRequest) {
 
     // Check if user has Telegram configured
     const telegramConfig = user.preferences?.notifications || {};
-    
-    if (!telegramConfig.telegramEnabled) {
-      return NextResponse.json({ 
-        error: 'Telegram notifications are not enabled. Please enable them in your user settings.' 
-      }, { status: 400 });
-    }
-
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = telegramConfig.telegramChatId;
+    const notifyImmediately = telegramConfig.notifyImmediately;
 
     if (!botToken) {
       return NextResponse.json({ 
@@ -45,6 +39,12 @@ export async function POST(request: NextRequest) {
     if (!chatId) {
       return NextResponse.json({ 
         error: 'Telegram chat ID is not set. Please configure your Telegram settings.' 
+      }, { status: 400 });
+    }
+
+    if (!notifyImmediately) {
+      return NextResponse.json({ 
+        error: 'Immediate notifications are disabled. Please enable them in your user settings to use Telegram.' 
       }, { status: 400 });
     }
 

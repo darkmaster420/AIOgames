@@ -18,7 +18,7 @@ if (!isBuildPhase) {
     console.error('Failed to load seedOwner:', error);
   });
 
-  // Set up Telegram webhook in production
+  // Set up Telegram webhook and commands in production
   if (process.env.NODE_ENV === 'production' && process.env.TELEGRAM_BOT_TOKEN && process.env.NEXTAUTH_URL) {
     const webhookUrl = `${process.env.NEXTAUTH_URL}/api/telegram/webhook`;
     const telegramApiUrl = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/setWebhook`;
@@ -38,6 +38,70 @@ if (!isBuildPhase) {
       })
       .catch(error => {
         console.error('❌ Error setting Telegram webhook:', error);
+      });
+
+    // Set up bot commands
+    const commandsApiUrl = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/setMyCommands`;
+    const commands = [
+      { command: 'start', description: 'Start the bot and see welcome message' },
+      { command: 'help', description: 'Show available commands' },
+      { command: 'id', description: 'Get your Telegram Chat ID' },
+      { command: 'update', description: 'Check for game updates' },
+      { command: 'track', description: 'Track a new game' },
+      { command: 'untrack', description: 'Untrack a game' },
+      { command: 'search', description: 'Search for games' },
+      { command: 'list', description: 'Show your tracked games' },
+      { command: 'settings', description: 'Open settings link' }
+    ];
+
+    fetch(commandsApiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commands })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.ok) {
+          console.log('🤖 Telegram bot commands registered successfully');
+        } else {
+          console.error('❌ Failed to register bot commands:', data.description);
+        }
+      })
+      .catch(error => {
+        console.error('❌ Error registering bot commands:', error);
+      });
+  }
+
+  // Set up Telegram bot commands in development (for local testing with polling)
+  if (process.env.NODE_ENV === 'development' && process.env.TELEGRAM_BOT_TOKEN) {
+    const commandsApiUrl = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/setMyCommands`;
+    const commands = [
+      { command: 'start', description: 'Start the bot and see welcome message' },
+      { command: 'help', description: 'Show available commands' },
+      { command: 'id', description: 'Get your Telegram Chat ID' },
+      { command: 'update', description: 'Check for game updates' },
+      { command: 'track', description: 'Track a new game' },
+      { command: 'untrack', description: 'Untrack a game' },
+      { command: 'search', description: 'Search for games' },
+      { command: 'list', description: 'Show your tracked games' },
+      { command: 'settings', description: 'Open settings link' }
+    ];
+
+    fetch(commandsApiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commands })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.ok) {
+          console.log('🤖 Telegram bot commands registered successfully (dev mode)');
+        } else {
+          console.error('❌ Failed to register bot commands:', data.description);
+        }
+      })
+      .catch(error => {
+        console.error('❌ Error registering bot commands:', error);
       });
   }
 

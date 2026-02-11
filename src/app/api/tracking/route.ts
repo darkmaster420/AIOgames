@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../lib/db';
 import { TrackedGame } from '../../../lib/models';
 import { getCurrentUser } from '../../../lib/auth';
-import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, resolveVersionFromDate } from '../../../utils/steamApi';
+import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, resolveVersionFromDate, calculateGamePriority } from '../../../utils/steamApi';
 import logger from '../../../utils/logger';
 import { autoVerifyWithSteam } from '../../../utils/autoSteamVerification';
 import { updateScheduler } from '../../../lib/scheduler';
@@ -84,6 +84,11 @@ export async function POST(request: NextRequest) {
     }
 
     await connectDB();
+
+    // Get user preferences for priority calculation
+    const { User } = await import('../../../lib/models');
+    const fullUser = await User.findById(user.id);
+    const preferRepacks = fullUser?.preferences?.releaseGroups?.preferRepacks || false;
 
     // Check if game is already tracked by this user (check by gameId OR similar title)
     const existingGame = await TrackedGame.findOne({ 
@@ -183,6 +188,7 @@ export async function POST(request: NextRequest) {
         existingGame.lastKnownVersion = newVersion || newBuild ? 
           [newVersion, newBuild ? `Build ${newBuild}` : ''].filter(Boolean).join(' · ') :
           existingGame.lastKnownVersion;
+        existingGame.priority = calculateGamePriority(title, preferRepacks);
         
         await existingGame.save();
         
@@ -204,7 +210,8 @@ export async function POST(request: NextRequest) {
       description: decodeHtmlEntities(description || ''),
       gameLink,
       originalTitle: originalTitle || title, // Use original title for Steam verification and advanced view
-      cleanedTitle: cleanedTitle || cleanGameTitle(title) // Ensure we have a cleaned title
+      cleanedTitle: cleanedTitle || cleanGameTitle(title), // Ensure we have a cleaned title
+      priority: calculateGamePriority(title, preferRepacks) // Calculate priority based on title and user preference
     });
 
     await trackedGame.save();

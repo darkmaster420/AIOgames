@@ -135,11 +135,9 @@ export async function sendUpdateNotification(
     const provider = notificationPrefs?.provider || 'webpush';
     
     
-    // Processing notifications for user        // Send Telegram notification if enabled and configured
-    if ((provider === 'telegram' || notificationPrefs?.telegramEnabled) && notificationPrefs?.telegramEnabled) {
-      // Telegram conditions met, getting config
-      const telegramConfig = getTelegramConfig(user);
-      if (telegramConfig) {
+    // Processing notifications for user        // Send Telegram notification if configured (provider is telegram OR chat ID is set)
+    const telegramConfig = getTelegramConfig(user);
+    if (telegramConfig && (provider === 'telegram' || notificationPrefs?.telegramChatId)) {
         // Got valid Telegram config
         try {
           console.log(`[Notifications] Sending Telegram notification for ${updateData.gameTitle} to user ${userId}`);
@@ -192,10 +190,9 @@ export async function sendUpdateNotification(
           result.methods.telegram.errors.push(`Telegram error: ${errorMessage}`);
           console.error('❌ Telegram notification error:', error);
         }
-      } else {
-        console.log(`[Notifications] Telegram config missing for user ${userId} - enabled: ${notificationPrefs?.telegramEnabled}, chatId: ${!!notificationPrefs?.telegramChatId}`);
-        result.methods.telegram.errors.push('Telegram enabled but not properly configured');
-      }
+    } else if (provider === 'telegram' || notificationPrefs?.telegramChatId) {
+      console.log(`[Notifications] Telegram config missing for user ${userId} - chatId: ${!!notificationPrefs?.telegramChatId}, notifyImmediately: ${!!notificationPrefs?.notifyImmediately}`);
+      result.methods.telegram.errors.push('Telegram not properly configured or immediate notifications disabled');
     }
 
     // Send Web Push notification if enabled or if primary method

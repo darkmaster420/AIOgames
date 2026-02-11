@@ -24,14 +24,13 @@ export default function UserManagePage() {
     notificationsProvider: '',
     webpushEnabled: true,
     notifyImmediately: true,
-    telegramEnabled: false,
     telegramUsername: '',
     telegramChatId: '',
     telegramBotManagementEnabled: false,
     // release group preferences
     prioritize0xdeadcode: false,
-    prefer0xdeadcodeForOnlineFixes: true,
-    avoidRepacks: false
+    avoidRepacks: false,
+    preferRepacks: false
   });
 
   const router = useRouter();
@@ -53,7 +52,6 @@ export default function UserManagePage() {
             notificationsProvider: data.preferences.notifications.provider || f.notificationsProvider,
             webpushEnabled: typeof data.preferences.notifications.webpushEnabled === 'boolean' ? data.preferences.notifications.webpushEnabled : f.webpushEnabled,
             notifyImmediately: typeof data.preferences.notifications.notifyImmediately === 'boolean' ? data.preferences.notifications.notifyImmediately : true,
-            telegramEnabled: data.preferences.notifications.telegramEnabled || false,
             telegramUsername: data.preferences.notifications.telegramUsername || '',
             telegramChatId: data.preferences.notifications.telegramChatId || '',
             telegramBotManagementEnabled: data.preferences.notifications.telegramBotManagementEnabled || false
@@ -75,8 +73,8 @@ export default function UserManagePage() {
           setForm((f) => ({
             ...f,
             prioritize0xdeadcode: data.preferences.releaseGroups.prioritize0xdeadcode || false,
-            prefer0xdeadcodeForOnlineFixes: data.preferences.releaseGroups.prefer0xdeadcodeForOnlineFixes !== false,
-            avoidRepacks: data.preferences.releaseGroups.avoidRepacks || false
+            avoidRepacks: data.preferences.releaseGroups.avoidRepacks || false,
+            preferRepacks: data.preferences.releaseGroups.preferRepacks || false
           }));
         }
       } catch (err: unknown) {
@@ -189,13 +187,12 @@ export default function UserManagePage() {
         provider?: string; 
         webpushEnabled?: boolean;
         notifyImmediately?: boolean;
-        telegramEnabled?: boolean;
         telegramUsername?: string;
         telegramChatId?: string;
         telegramBotManagementEnabled?: boolean;
         prioritize0xdeadcode?: boolean;
-        prefer0xdeadcodeForOnlineFixes?: boolean;
         avoidRepacks?: boolean;
+        preferRepacks?: boolean;
       } = { email: form.email };
 
       if (form.username) {
@@ -211,15 +208,15 @@ export default function UserManagePage() {
       payload.provider = form.notificationsProvider;
       payload.webpushEnabled = form.webpushEnabled;
       payload.notifyImmediately = form.notifyImmediately;
-      payload.telegramEnabled = form.telegramEnabled;
       payload.telegramUsername = form.telegramUsername;
       payload.telegramChatId = form.telegramChatId;
       payload.telegramBotManagementEnabled = form.telegramBotManagementEnabled;
       
       // Release group preferences
       payload.prioritize0xdeadcode = form.prioritize0xdeadcode;
-      payload.prefer0xdeadcodeForOnlineFixes = form.prefer0xdeadcodeForOnlineFixes;
       payload.avoidRepacks = form.avoidRepacks;
+      payload.preferRepacks = form.preferRepacks;
+      payload.preferRepacks = form.preferRepacks;
 
       const res = await fetch('/api/user/update', {
         method: 'PATCH',
@@ -342,7 +339,6 @@ export default function UserManagePage() {
                   className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 >
                   <option value="webpush">Web Push Notifications</option>
-                  <option value="email">Email Notifications</option>
                   <option value="telegram">Telegram Bot</option>
                 </select>
               </div>
@@ -369,53 +365,10 @@ export default function UserManagePage() {
                 </div>
               )}
 
-              {/* Email Settings */}
-              {form.notificationsProvider === 'email' && (
-                <div className="space-y-3 p-4 border border-green-200 dark:border-green-700 bg-green-50 dark:bg-green-900/20 rounded-md">
-                  <div className="text-sm text-gray-700 dark:text-gray-300">
-                    <p><strong>Email Notifications</strong></p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      Notifications will be sent to your registered email: <span className="font-mono">{form.email}</span>
-                    </p>
-                  </div>
-                </div>
-              )}
-
               {/* Telegram Settings */}
               {form.notificationsProvider === 'telegram' && (
                 <div className="space-y-3 p-4 border border-purple-200 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/20 rounded-md">
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      name="telegramEnabled"
-                      checked={form.telegramEnabled}
-                      onChange={(e) => setForm({ ...form, telegramEnabled: e.target.checked })}
-                      className="w-4 h-4"
-                    />
-                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Enable Telegram Notifications</label>
-                  </div>
-                  {form.telegramEnabled && (
-                    <>
-                      <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-700">
-                        <p className="text-xs text-blue-700 dark:text-blue-300 mb-2">
-                          <strong>📱 Shared Telegram Bot</strong>
-                        </p>
-                        <p className="text-xs text-gray-600 dark:text-gray-400">
-                          This application uses a shared Telegram bot{botInfo && (
-                            <>
-                              {' '}(<a 
-                                href={botInfo.botLink} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
-                              >
-                                @{botInfo.username}
-                              </a>)
-                            </>
-                          )}. Simply start the bot and provide your username or chat ID below to receive notifications!
-                        </p>
-                      </div>
-                      <div>
+                  <div>
                         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                           Telegram Username
                           <span className="text-gray-500 ml-1">(optional - use this OR Chat ID)</span>
@@ -494,8 +447,6 @@ export default function UserManagePage() {
                           Manage your tracked games directly from Telegram (add, remove, list, update) — coming soon!
                         </p>
                       </div>
-                    </>
-                  )}
                 </div>
               )}
             </div>
@@ -517,28 +468,10 @@ export default function UserManagePage() {
                 />
                 <div>
                   <label className="text-sm font-medium text-gray-900 dark:text-white">
-                    Prioritize 0xdeadcode releases
+                    Prefer 0xdeadcode releases (online fixes)
                   </label>
                   <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                    When multiple updates are found, prioritize 0xdeadcode releases (online fixes) over other groups
-                  </p>
-                </div>
-              </div>
-              
-              <div className="flex items-start space-x-3">
-                <input
-                  type="checkbox"
-                  name="prefer0xdeadcodeForOnlineFixes"
-                  checked={form.prefer0xdeadcodeForOnlineFixes}
-                  onChange={handleChange}
-                  className="mt-1 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                />
-                <div>
-                  <label className="text-sm font-medium text-gray-900 dark:text-white">
-                    Prefer 0xdeadcode for online fixes
-                  </label>
-                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                    Always consider 0xdeadcode releases as valid updates (they provide online fixes)
+                    Always accept 0xdeadcode releases as valid updates and prioritize them over other groups
                   </p>
                 </div>
               </div>
@@ -550,6 +483,7 @@ export default function UserManagePage() {
                   checked={form.avoidRepacks}
                   onChange={handleChange}
                   className="mt-1 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  disabled={form.preferRepacks}
                 />
                 <div>
                   <label className="text-sm font-medium text-gray-900 dark:text-white">
@@ -557,6 +491,24 @@ export default function UserManagePage() {
                   </label>
                   <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
                     Filter out repack releases (titles containing &quot;repack&quot; or &quot;-repack&quot;) from update notifications
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-start space-x-3">
+                <input
+                  type="checkbox"
+                  name="preferRepacks"
+                  checked={form.preferRepacks}
+                  onChange={handleChange}
+                  className="mt-1 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <div>
+                  <label className="text-sm font-medium text-gray-900 dark:text-white">
+                    Prefer Repacks ONLY
+                  </label>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                    Only track and receive repack releases. Repacks get priority 1, all other releases are ignored
                   </p>
                 </div>
               </div>
@@ -598,7 +550,7 @@ export default function UserManagePage() {
               </button>
             )}
             
-            {form.notificationsProvider === 'telegram' && form.telegramEnabled && form.telegramChatId && (
+            {form.notificationsProvider === 'telegram' && form.notifyImmediately && form.telegramChatId && (
               <button
                 type="button"
                 className="px-4 py-2 bg-purple-600 text-white rounded-md"

@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import Image from 'next/image';
 import { SchedulerStatus } from '../../components/SchedulerStatus';
 import { AIDetectionStatus } from '../../components/AIDetectionStatus';
+import { PendingRelatedGames } from '../../components/PendingRelatedGames';
 import { useNotification } from '../../contexts/NotificationContext';
 
 interface UpdateHistoryItem {
@@ -221,6 +222,7 @@ export default function UpdatesPage() {
         <div className="mb-6 space-y-4">
           <SchedulerStatus />
           <AIDetectionStatus />
+          <PendingRelatedGames />
         </div>
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
           <div>

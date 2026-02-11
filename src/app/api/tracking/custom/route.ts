@@ -107,7 +107,6 @@ export async function POST(req: NextRequest) {
 
     const releaseGroupPreferences = fullUser.preferences?.releaseGroups || {
       prioritize0xdeadcode: false,
-      prefer0xdeadcodeForOnlineFixes: true,
       avoidRepacks: false
     };
 

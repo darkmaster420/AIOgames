@@ -230,8 +230,8 @@ export async function POST(request: NextRequest) {
         command.userId = message.from.id;
         command.messageId = message.message_id;
         
-        // Always allow /start and /help regardless of bot management setting
-        if (command.command === 'start' || command.command === 'help' || command.command === 'settings') {
+        // Always allow /start, /help, and /id regardless of bot management setting
+        if (command.command === 'start' || command.command === 'help' || command.command === 'id' || command.command === 'settings') {
           await handleTelegramCommand(command, user, botClient);
         } else if (!botManagementEnabled) {
           // Bot management is disabled - send helpful message for other commands

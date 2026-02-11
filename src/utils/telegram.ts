@@ -416,16 +416,15 @@ export function formatSequelNotificationMessage(sequelData: {
 /**
  * Get user's Telegram configuration from user data
  * Uses shared bot token from environment variable
+ * Telegram is enabled if notifyImmediately is true and chatId is provided
  */
-export function getTelegramConfig(user: { preferences?: { notifications?: { telegramEnabled?: boolean; telegramUsername?: string; telegramChatId?: string } } }): TelegramConfig | null {
-  if (!user?.preferences?.notifications?.telegramEnabled) {
-    return null;
-  }
-
+export function getTelegramConfig(user: { preferences?: { notifications?: { notifyImmediately?: boolean; telegramUsername?: string; telegramChatId?: string } } }): TelegramConfig | null {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = user.preferences.notifications.telegramChatId;
+  const chatId = user?.preferences?.notifications?.telegramChatId;
+  const notifyImmediately = user?.preferences?.notifications?.notifyImmediately;
 
-  if (!botToken || !chatId) {
+  // Telegram is enabled if user wants immediate notifications and has a chat ID configured
+  if (!botToken || !chatId || !notifyImmediately) {
     return null;
   }
 

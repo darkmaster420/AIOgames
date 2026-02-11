@@ -1,10 +1,12 @@
 {
   "name": "aiogames",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "concurrently \"npm run dev:next\" \"npm run dev:poller\"",
+    "dev:next": "next dev --turbopack",
+    "dev:poller": "node scripts/telegram-polling.js",
     "prebuild": "node scripts/ensure-vapid.js",
     "build": "next build --turbopack",
     "start": "node .next/standalone/server.js",
@@ -14,6 +16,7 @@
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
+    "dotenv": "^17.2.4",
     "mongoose": "^8.18.1",
     "next": "15.5.3",
     "next-auth": "^4.24.11",
@@ -30,6 +33,7 @@
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
     "autoprefixer": "^10.4.21",
+    "concurrently": "^9.1.2",
     "eslint": "^9",
     "eslint-config-next": "15.5.3",
     "postcss": "^8.5.6",

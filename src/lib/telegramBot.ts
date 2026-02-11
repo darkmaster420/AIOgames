@@ -133,14 +133,22 @@ export async function handleTelegramCommand(
       case 'start':
         await botClient.sendMessage(
           chatId,
-          `🎮 Welcome to AIOgames Bot!\n\nYou're connected as: ${user.name}\n\nAvailable commands:\n/update - Check for game updates\n/track <game title> - Track a new game\n/untrack <game title> - Untrack a game\n/search <query> - Search for games\n/list - Show your tracked games\n/settings - Manage your settings\n/help - Show this help message`
+          `🎮 Welcome to AIOgames Bot!\n\nYou're connected as: ${user.name}\n\nAvailable commands:\n/update - Check for game updates\n/track <game title> - Track a new game\n/untrack <game title> - Untrack a game\n/search <query> - Search for games\n/list - Show your tracked games\n/id - Get your Telegram Chat ID\n/settings - Manage your settings\n/help - Show this help message`
         );
         break;
 
       case 'help':
         await botClient.sendMessage(
           chatId,
-          `🤖 AIOgames Bot Commands:\n\n/update - Check all tracked games for updates\n/track <game title> - Add a game to tracking\n/untrack <game title> - Remove a game from tracking\n/search <query> - Search for games to track\n/list - Show all your tracked games\n/settings - Open settings link\n/help - Show this help`
+          `🤖 AIOgames Bot Commands:\n\n/update - Check all tracked games for updates\n/track <game title> - Add a game to tracking\n/untrack <game title> - Remove a game from tracking\n/search <query> - Search for games to track\n/list - Show all your tracked games\n/id - Get your Telegram Chat ID\n/settings - Open settings link\n/help - Show this help`
+        );
+        break;
+
+      case 'id':
+        await botClient.sendMessage(
+          chatId,
+          `🔑 Your Telegram Chat ID: <code>${chatId}</code>\n\n📋 You can use this ID in your AIOgames notification settings.`,
+          { parse_mode: 'HTML' }
         );
         break;
 

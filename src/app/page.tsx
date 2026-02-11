@@ -9,6 +9,13 @@ import { useNotification } from '../contexts/NotificationContext';
 import { SITES } from '../lib/sites';
 import { cleanGameTitle } from '../utils/steamApi';
 
+type TrackedGameInfo = {
+  gameId: string;
+  version: string;
+  priority: number;
+  fullTitle: string;
+};
+
 type Game = {
   id: string;
   originalId?: string | number; // Optional since some APIs might not include it
@@ -28,7 +35,7 @@ function DashboardInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [trackedGames, setTrackedGames] = useState<Set<string>>(new Set());
-  const [trackedTitles, setTrackedTitles] = useState<Map<string, string>>(new Map());
+  const [trackedTitles, setTrackedTitles] = useState<Map<string, TrackedGameInfo[]>>(new Map());
   const { status } = useSession();
   const notify = useNotification();
   const router = useRouter();
@@ -43,6 +50,10 @@ function DashboardInner() {
     timestamp: number;
   } | null>(null);
   const CLIENT_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+  
+  // Client-side cache for search results (24 hours)
+  const [searchCache, setSearchCache] = useState<Map<string, { data: Game[], timestamp: number }>>(new Map());
+  const SEARCH_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
   // Function to update URL parameters
   const updateURL = useCallback((search?: string, site?: string, refine?: string) => {
@@ -131,12 +142,22 @@ function DashboardInner() {
           const trackedGameIds = new Set<string>(data.games.map((game: { gameId: string }) => String(game.gameId)));
           setTrackedGames(trackedGameIds);
           
-          // Also store cleaned titles -> version for cross-version matching
-          const titleMap = new Map<string, string>();
+          // Store cleaned titles -> array of tracked game info for cross-version matching with priority
+          const titleMap = new Map<string, TrackedGameInfo[]>();
           for (const game of data.games) {
             const cleaned = cleanGameTitle(game.title || game.originalTitle || '');
             if (cleaned) {
-              titleMap.set(cleaned, game.lastKnownVersion || '');
+              const info: TrackedGameInfo = {
+                gameId: game.gameId,
+                version: game.lastKnownVersion || '',
+                priority: game.priority || 2,
+                fullTitle: game.title || game.originalTitle || ''
+              };
+              
+              if (!titleMap.has(cleaned)) {
+                titleMap.set(cleaned, []);
+              }
+              titleMap.get(cleaned)!.push(info);
             }
           }
           setTrackedTitles(titleMap);
@@ -189,6 +210,18 @@ function DashboardInner() {
       return;
     }
     
+    // Create cache key from search parameters
+    const cacheKey = `${searchQuery}|${siteFilter}|${refineText}`;
+    
+    // Check search cache first
+    const now = Date.now();
+    const cachedResult = searchCache.get(cacheKey);
+    if (cachedResult && (now - cachedResult.timestamp) < SEARCH_CACHE_TTL) {
+      setGames(cachedResult.data);
+      setShowRefine(true);
+      return;
+    }
+    
     // Update URL with current search parameters
     updateURL(searchQuery, siteFilter, refineText);
     
@@ -210,13 +243,18 @@ function DashboardInner() {
       setGames(data);
       setShowRefine(true);
       setRecentGamesCookie(true);
+      
+      // Store in search cache
+      const newCache = new Map(searchCache);
+      newCache.set(cacheKey, { data, timestamp: now });
+      setSearchCache(newCache);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to search games');
       setGames([]);
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, siteFilter, refineText, loadRecentGames, updateURL]);
+  }, [searchQuery, siteFilter, refineText, loadRecentGames, updateURL, searchCache, SEARCH_CACHE_TTL]);
 
   // Load recent games on mount and check cookie for visibility
   useEffect(() => {
@@ -279,20 +317,44 @@ function DashboardInner() {
       }
     }, [searchQuery, siteFilter, searchGames, recentGamesCache, CLIENT_CACHE_TTL, updateURL]);
 
-    // Check if a game is tracked by ID or by cleaned title match
-    // Returns the tracked version string if found, or null if not tracked
+    // Check if a game is tracked by ID or by fuzzy cleaned title match with priority
+    // Returns the tracked version string from highest priority match if found, or null if not tracked
     const getTrackedVersion = useCallback((game: Game): string | null => {
+      const cleaned = cleanGameTitle(game.title);
+      
       // Exact ID match
       if (trackedGames.has(game.id)) {
-        const cleaned = cleanGameTitle(game.title);
-        return (cleaned && trackedTitles.get(cleaned)) || '';
+        const matches = cleaned && trackedTitles.get(cleaned);
+        if (matches && matches.length > 0) {
+          // Sort by priority (lower number = higher priority) and return best match
+          const sorted = [...matches].sort((a, b) => a.priority - b.priority);
+          return sorted[0].version;
+        }
+        return '';
       }
-      // Cleaned title match (catches different versions/sources of the same game)
-      const cleaned = cleanGameTitle(game.title);
-      if (cleaned && trackedTitles.has(cleaned)) {
-        return trackedTitles.get(cleaned) || '';
+      
+      // Fuzzy title match - find all tracked titles that this game's title starts with
+      // or that start with this game's title (for DLC/edition matching)
+      if (!cleaned) return null;
+      
+      let bestMatch: TrackedGameInfo | null = null;
+      
+      for (const [trackedTitle, infos] of trackedTitles.entries()) {
+        // Check if the game title starts with a tracked title (e.g., "cuphead the delicious last course" starts with "cuphead")
+        // OR if a tracked title starts with the game title (e.g., tracking "cuphead deluxe" finds "cuphead")
+        if (cleaned.startsWith(trackedTitle) || trackedTitle.startsWith(cleaned)) {
+          // Get highest priority from this tracked title's versions
+          const sorted = [...infos].sort((a, b) => a.priority - b.priority);
+          const candidate = sorted[0];
+          
+          // Keep the highest priority match overall
+          if (!bestMatch || candidate.priority < bestMatch.priority) {
+            bestMatch = candidate;
+          }
+        }
       }
-      return null;
+      
+      return bestMatch ? bestMatch.version : null;
     }, [trackedGames, trackedTitles]);
 
     // Track/untrack handlers
@@ -327,7 +389,14 @@ function DashboardInner() {
           if (cleaned) {
             setTrackedTitles(prev => {
               const next = new Map(prev);
-              next.set(cleaned, ''); // Version will be populated on next load
+              const existing = next.get(cleaned) || [];
+              existing.push({
+                gameId: game.id,
+                version: '', // Version will be populated on next load
+                priority: 2, // Default priority until loaded from server
+                fullTitle: game.title
+              });
+              next.set(cleaned, existing);
               return next;
             });
           }

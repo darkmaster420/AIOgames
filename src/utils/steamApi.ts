@@ -273,10 +273,13 @@ export async function resolveVersionFromBuild(appId: string | number, buildId: s
 
 /**
  * Resolve version and build from a date-based version string (YYYYMMDD or YYYY-MM-DD)
- * Returns the version and build for the closest matching build on or before that date
+ * Uses SteamDB API to find the closest update on or before that date
  */
 export async function resolveVersionFromDate(appId: string | number, dateVersion: string): Promise<{ version: string | null; build: string | null } | null> {
   try {
+    // Import dynamically to avoid circular dependencies
+    const { fetchSteamDBUpdates } = await import('./steamdbMonitor');
+    
     // Parse the date from various formats
     let targetDate: Date;
     
@@ -299,33 +302,37 @@ export async function resolveVersionFromDate(appId: string | number, dateVersion
       return null;
     }
     
-    const details = await getSteamAppDetails(appId);
-    const builds = details.builds || [];
+    // Fetch SteamDB updates for this app
+    const updates = await fetchSteamDBUpdates(String(appId));
     
-    // Filter builds that were published on or before the target date
-    const buildsBeforeDate = builds.filter(b => {
-      if (!b.published_at) return false;
-      const buildDate = new Date(b.published_at);
-      return buildDate <= targetDate;
+    if (updates.length === 0) {
+      return null;
+    }
+    
+    // Filter updates that were published on or before the target date
+    const updatesBeforeDate = updates.filter(u => {
+      const updateDate = new Date(u.date);
+      return updateDate <= targetDate;
     });
     
-    if (buildsBeforeDate.length === 0) {
+    if (updatesBeforeDate.length === 0) {
       return null;
     }
     
     // Sort by date descending and get the most recent one before/on the target date
-    buildsBeforeDate.sort((a, b) => {
-      const dateA = new Date(a.published_at!);
-      const dateB = new Date(b.published_at!);
+    updatesBeforeDate.sort((a, b) => {
+      const dateA = new Date(a.date);
+      const dateB = new Date(b.date);
       return dateB.getTime() - dateA.getTime();
     });
     
-    const closestBuild = buildsBeforeDate[0];
-    const version = closestBuild.version ? normalizeVersionString(closestBuild.version) : null;
-    const build = closestBuild.build_id;
+    const closestUpdate = updatesBeforeDate[0];
+    const version = closestUpdate.version ? normalizeVersionString(closestUpdate.version) : null;
+    const build = closestUpdate.changeNumber || null;
     
     return { version, build };
-  } catch {
+  } catch (error) {
+    console.error(`Failed to resolve version from date for appId ${appId}:`, error);
     return null;
   }
 }
@@ -633,6 +640,44 @@ export function extractReleaseGroup(title: string): string | null {
   }
   
   return null;
+}
+
+/**
+ * Calculate game priority based on title characteristics
+ * Priority 1 (Highest): DLC, Complete/Ultimate/GOTY editions, Definitive editions (or Repacks if preferRepacks is true)
+ * Priority 2 (Standard): Regular base game releases
+ * Priority 3 (Lowest): Repacks (FitGirl, DODI, etc.) (or non-repacks if preferRepacks is true)
+ * @param title - Game title to analyze
+ * @param preferRepacks - If true, repacks get priority 1 and everything else gets priority 3
+ */
+export function calculateGamePriority(title: string, preferRepacks: boolean = false): number {
+  const lowerTitle = title.toLowerCase();
+  const isRepack = /\b(repack|fitgirl|dodi)\b/i.test(title);
+  
+  // If user prefers repacks ONLY
+  if (preferRepacks) {
+    return isRepack ? 1 : 3; // Repacks = priority 1, everything else = priority 3
+  }
+  
+  // Standard priority logic
+  // Priority 3: Repacks (lowest priority)
+  if (isRepack) {
+    return 3;
+  }
+  
+  // Priority 1: DLC, expansions, and premium editions (highest priority)
+  if (/\b(dlc|expansion|add-on|addon|season pass)\b/i.test(lowerTitle)) {
+    return 1;
+  }
+  if (/\b(complete|ultimate|goty|game of the year|definitive|gold|royal|special)\b/i.test(lowerTitle)) {
+    return 1;
+  }
+  if (/\b(deluxe|premium|collectors?|limited|enhanced)\b/i.test(lowerTitle)) {
+    return 1;
+  }
+  
+  // Priority 2: Standard/base game (default)
+  return 2;
 }
 
 /**

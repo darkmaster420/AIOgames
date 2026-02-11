@@ -30,10 +30,10 @@ export async function POST(req: NextRequest) {
 
     await connectDB();
 
-    // Get all admin users with Telegram enabled
+    // Get all admin users with Telegram enabled (notifyImmediately: true and chatId configured)
     const adminUsers = await User.find({
       role: 'admin',
-      'preferences.notifications.telegramEnabled': true,
+      'preferences.notifications.notifyImmediately': true,
       'preferences.notifications.telegramChatId': { $exists: true, $ne: null }
     });
 
