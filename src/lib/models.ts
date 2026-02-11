@@ -385,7 +385,11 @@ const trackedGameSchema = new mongoose.Schema({
         type: String,
         default: 'download'
       }
-    }]
+    }],
+    notificationSent: {
+      type: Boolean,
+      default: false
+    }
   }],
   latestApprovedUpdate: {
     version: String,

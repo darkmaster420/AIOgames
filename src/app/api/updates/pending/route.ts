@@ -118,7 +118,8 @@ export async function POST(req: NextRequest) {
         previousVersion: game.lastKnownVersion || 'Unknown',
         confirmedByUser: true,
         originalReason: pendingUpdate.reason,
-        downloadLinks: pendingUpdate.downloadLinks || []
+        downloadLinks: pendingUpdate.downloadLinks || [],
+        notificationSent: true  // Mark as already sent during approval notification
       };
 
       await TrackedGame.findByIdAndUpdate(gameId, {

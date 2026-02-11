@@ -1300,7 +1300,7 @@ export async function POST(request: Request) {
             logger.info(`Update found: ${decodedTitle} (different link: ${isDifferentLink}, newer: ${isActuallyNewer})`);
             
             // Check if we already have this update
-            const existingUpdate = game.updateHistory?.some((update: { gameLink: string }) => 
+            const existingUpdate = game.updateHistory?.find((update: { gameLink: string }) => 
               update.gameLink === bestMatch.link
             );
             
@@ -1308,45 +1308,9 @@ export async function POST(request: Request) {
               pending.newLink === bestMatch.link
             );
             
-            // Check if this is the SAME version/build (duplicate detection)
-            const isSameVersion = (
-              (newVersionInfo.version && currentVersionInfo.version && 
-               newVersionInfo.version === currentVersionInfo.version) ||
-              (newVersionInfo.build && currentVersionInfo.build && 
-               newVersionInfo.build === currentVersionInfo.build)
-            );
-            
-            // Check if this is a LOWER version/build (should never auto-approve lower versions)
-            const isLowerVersion = (() => {
-              if (newVersionInfo.version && currentVersionInfo.version) {
-                const newParts = newVersionInfo.version.split('.').map(Number);
-                const currentParts = currentVersionInfo.version.split('.').map(Number);
-                const maxLength = Math.max(newParts.length, currentParts.length);
-                
-                for (let i = 0; i < maxLength; i++) {
-                  const newPart = newParts[i] || 0;
-                  const currentPart = currentParts[i] || 0;
-                  if (newPart < currentPart) return true;
-                  if (newPart > currentPart) return false;
-                }
-              }
-              
-              if (newVersionInfo.build && currentVersionInfo.build) {
-                const newBuild = parseInt(newVersionInfo.build);
-                const currentBuild = parseInt(currentVersionInfo.build);
-                if (!isNaN(newBuild) && !isNaN(currentBuild) && newBuild < currentBuild) {
-                  return true;
-                }
-              }
-              
-              return false;
-            })();
-            
-            // Skip if it's the same version or a lower version
-            if (isSameVersion) {
-              logger.info(`Skipping duplicate version: ${newVersionInfo.version || newVersionInfo.build} (same as current: ${currentVersionInfo.version || currentVersionInfo.build})`);
-            } else if (isLowerVersion) {
-              logger.info(`Skipping lower version: ${newVersionInfo.version || newVersionInfo.build} (current: ${currentVersionInfo.version || currentVersionInfo.build})`);
+            // If update exists and notification was already sent, skip it
+            if (existingUpdate && existingUpdate.notificationSent) {
+              logger.info(`Skipping update that already had notification sent: ${bestMatch.link}`);
             } else if (!existingUpdate && !existingPending) {
               // Create version string
               let versionString = decodedTitle;
@@ -1455,6 +1419,13 @@ export async function POST(request: Request) {
                     });
                     
                     await sendUpdateNotification(game.userId.toString(), notificationData);
+                    
+                    // Mark notification as sent
+                    await TrackedGame.updateOne(
+                      { _id: game._id, 'updateHistory.gameLink': bestMatch.link },
+                      { $set: { 'updateHistory.$.notificationSent': true } }
+                    );
+                    
                     logger.info(`Update notification sent for ${game.title}`);
                   } catch (notificationError) {
                     logger.error('Failed to send update notification:', notificationError);

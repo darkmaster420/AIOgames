@@ -915,6 +915,13 @@ export async function POST(request: Request) {
                 });
                 
                 await sendUpdateNotification(game.userId.toString(), notificationData);
+                
+                // Mark notification as sent in updateHistory
+                await TrackedGame.updateOne(
+                  { _id: game._id, 'updateHistory.gameLink': result.link },
+                  { $set: { 'updateHistory.$.notificationSent': true } }
+                );
+                
                 logger.debug(`📢 ${autoApproveResult.canApprove ? 'Auto-approved' : 'Pending'} update notification sent for ${game.title}`);
               } catch (notificationError) {
                 logger.error(`Failed to send update notification for ${game.title}:`, notificationError);

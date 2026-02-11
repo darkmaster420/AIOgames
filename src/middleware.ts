@@ -13,6 +13,7 @@ export async function middleware(request: NextRequest) {
     '/api/tracking/check-updates', // Update checking endpoint should be public for automated systems
     '/api/updates/check', // Main update check endpoint used by scheduler
     '/api/steam', // Steam API endpoints (appid, search)
+    '/api/telegram', // Telegram webhook endpoint must be public
     '/icon.svg',
   ];
 

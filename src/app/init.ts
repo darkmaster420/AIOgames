@@ -18,6 +18,29 @@ if (!isBuildPhase) {
     console.error('Failed to load seedOwner:', error);
   });
 
+  // Set up Telegram webhook in production
+  if (process.env.NODE_ENV === 'production' && process.env.TELEGRAM_BOT_TOKEN && process.env.NEXTAUTH_URL) {
+    const webhookUrl = `${process.env.NEXTAUTH_URL}/api/telegram/webhook`;
+    const telegramApiUrl = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/setWebhook`;
+    
+    fetch(telegramApiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: webhookUrl })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.ok) {
+          console.log('✉️ Telegram webhook configured:', webhookUrl);
+        } else {
+          console.error('❌ Failed to set Telegram webhook:', data.description);
+        }
+      })
+      .catch(error => {
+        console.error('❌ Error setting Telegram webhook:', error);
+      });
+  }
+
   console.log('🚀 AIOgames application initialized with automatic update scheduling');
 } else {
   console.log('⏭️ Skipping app initialization during build phase');
