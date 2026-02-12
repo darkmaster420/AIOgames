@@ -621,6 +621,21 @@ export async function POST(request: Request) {
         const recentData = await recentResponse.json();
         recentGames = recentData.results || [];
         
+        // Deduplicate by game link to prevent processing the same release twice
+        const seenLinks = new Set<string>();
+        const originalCount = recentGames.length;
+        recentGames = recentGames.filter((game: GameSearchResult) => {
+          if (seenLinks.has(game.link)) {
+            return false; // Skip duplicate
+          }
+          seenLinks.add(game.link);
+          return true;
+        });
+        const duplicatesRemoved = originalCount - recentGames.length;
+        if (duplicatesRemoved > 0) {
+          logger.info(`Removed ${duplicatesRemoved} duplicate(s) from recent games feed`);
+        }
+        
         // Filter based on repack preferences
         if (releaseGroupPreferences.preferRepacks) {
           // Only keep repacks
@@ -664,6 +679,9 @@ export async function POST(request: Request) {
     let updatesFound = 0;
     let sequelsFound = 0;
     let errors = 0;
+    
+    // Track processed game links globally to prevent duplicate notifications
+    const processedLinks = new Set<string>();
 
     // Check each tracked game against the recent feed
     for (const game of trackedGames) {
@@ -806,6 +824,10 @@ export async function POST(request: Request) {
                             downloadLinks: downloadLinks
                           });
                           await sendUpdateNotification(game.userId.toString(), notificationData);
+                          
+                          // Mark this link as processed to prevent duplicates
+                          processedLinks.add(recentGame.link);
+                          
                           logger.info(`Sequel update notification sent: ${cleanedSequelTitle} -> ${versionString}`);
                         } catch (notificationError) {
                           logger.error('Failed to send sequel update notification:', notificationError);
@@ -863,6 +885,10 @@ export async function POST(request: Request) {
                           updateType: 'sequel'
                         });
                         await sendUpdateNotification(game.userId.toString(), notificationData);
+                        
+                        // Mark this link as processed to prevent duplicates
+                        processedLinks.add(recentGame.link);
+                        
                         logger.info(`New sequel tracking notification sent: ${cleanedSequelTitle}`);
                       } catch (notificationError) {
                         logger.error('Failed to send new sequel notification:', notificationError);
@@ -1346,6 +1372,12 @@ export async function POST(request: Request) {
           if (isDifferentLink || isActuallyNewer) {
             logger.info(`Update found: ${decodedTitle} (different link: ${isDifferentLink}, newer: ${isActuallyNewer})`);
             
+            // Skip if we've already processed this exact link in this check run
+            if (processedLinks.has(bestMatch.link)) {
+              logger.info(`Skipping duplicate link already processed in this run: ${bestMatch.link}`);
+              continue;
+            }
+            
             // Check if we already have this update
             const existingUpdate = game.updateHistory?.find((update: { gameLink: string }) => 
               update.gameLink === bestMatch.link
@@ -1468,6 +1500,9 @@ export async function POST(request: Request) {
                     
                     await sendUpdateNotification(game.userId.toString(), notificationData);
                     
+                    // Mark this link as processed to prevent duplicates
+                    processedLinks.add(bestMatch.link);
+                    
                     // Mark notification as sent
                     await TrackedGame.updateOne(
                       { _id: game._id, 'updateHistory.gameLink': bestMatch.link },
@@ -1576,6 +1611,10 @@ export async function POST(request: Request) {
                     });
                     
                     await sendUpdateNotification(game.userId.toString(), notificationData);
+                    
+                    // Mark this link as processed to prevent duplicates
+                    processedLinks.add(bestMatch.link);
+                    
                     logger.info(`Pending update notification sent for ${game.title}`);
                   } catch (notificationError) {
                     logger.error('Failed to send pending update notification:', notificationError);
