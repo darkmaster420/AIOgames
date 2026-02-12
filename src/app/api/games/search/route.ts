@@ -9,6 +9,25 @@ interface ApiGame {
   [key: string]: unknown;
 }
 
+interface CacheEntry {
+  data: ApiGame[];
+  timestamp: number;
+}
+
+// In-memory cache with 10-minute TTL
+const searchCache = new Map<string, CacheEntry>();
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+// Clean up old cache entries periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of searchCache.entries()) {
+    if (now - entry.timestamp > CACHE_TTL) {
+      searchCache.delete(key);
+    }
+  }
+}, 60 * 1000); // Run every minute
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -18,6 +37,18 @@ export async function GET(request: NextRequest) {
     if (!search) {
       return NextResponse.json({ error: 'Search query required' }, { status: 400 });
     }
+
+    // Create cache key from search params
+    const cacheKey = `${search.toLowerCase().trim()}:${site}`;
+    
+    // Check cache first
+    const cached = searchCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+      console.log(`[Search] Cache HIT for "${search}" (site: ${site})`);
+      return NextResponse.json(cached.data);
+    }
+
+    console.log(`[Search] Cache MISS for "${search}" (site: ${site}) - fetching from API`);
 
     // Build query parameters for the external API - it supports site filtering for search
     const queryParams = new URLSearchParams({ search });
@@ -42,6 +73,12 @@ export async function GET(request: NextRequest) {
         originalTitle: game.title, // Store the original title
         title: cleanGameTitle(game.title) // Clean the title
       }));
+      
+      // Store in cache
+      searchCache.set(cacheKey, {
+        data: results,
+        timestamp: Date.now()
+      });
       
       return NextResponse.json(results);
     } else {
