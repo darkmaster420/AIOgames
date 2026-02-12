@@ -281,7 +281,11 @@ function extractVersionInfo(title: string): VersionInfo {
     releaseType,
     updateType,
     baseTitle: cleanTitle,
-    fullVersionString: `${version}${build ? ` Build ${build}` : ''}${releaseType ? ` ${releaseType}` : ''}`,
+    fullVersionString: version 
+      ? `${version}${build ? ` Build ${build}` : ''}${releaseType ? ` ${releaseType}` : ''}`
+      : build 
+        ? `Build ${build}${releaseType ? ` ${releaseType}` : ''}`
+        : '',
     confidence: Math.min(confidence, 1.0), // Cap at 1.0
     needsUserConfirmation: confidence < 0.7,
     isDateVersion: isDateVersion || !!versionDate,
@@ -1396,6 +1400,10 @@ export async function POST(request: Request) {
               if (newVersionInfo.version) {
                 versionString = `v${newVersionInfo.version}`;
                 if (newVersionInfo.build) versionString += ` Build ${newVersionInfo.build}`;
+                if (newVersionInfo.releaseType) versionString += ` ${newVersionInfo.releaseType}`;
+              } else if (newVersionInfo.build) {
+                // Build-only update (no version number)
+                versionString = `Build ${newVersionInfo.build}`;
                 if (newVersionInfo.releaseType) versionString += ` ${newVersionInfo.releaseType}`;
               }
               
