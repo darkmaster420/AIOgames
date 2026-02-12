@@ -160,7 +160,7 @@ app.whenReady().then(async () => {
 
     // Initialize auto-updater
     const updater = new AppUpdater();
-    updater.startPeriodicChecks(async (update) => {
+    updater.checkOnStartup(async (update) => {
       console.log(`[Updater] New version available: ${update.version}`);
       
       // Show update notification dialog

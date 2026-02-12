@@ -4,7 +4,6 @@ const path = require('path');
 const { app } = require('electron');
 
 const GITHUB_REPO = 'darkmaster420/AIOgames';
-const CHECK_INTERVAL = 4 * 60 * 60 * 1000; // Check every 4 hours
 
 class AppUpdater {
   constructor() {
@@ -174,27 +173,22 @@ class AppUpdater {
   }
 
   /**
-   * Start periodic update checks
+   * Check for updates once on startup
    */
-  startPeriodicChecks(callback) {
+  checkOnStartup(callback) {
     this.onUpdateAvailable = callback;
 
-    // Check immediately on startup
-    setTimeout(() => this.performCheck(), 30000); // Wait 30s after startup
-
-    // Then check every 4 hours
-    setInterval(() => this.performCheck(), CHECK_INTERVAL);
-  }
-
-  async performCheck() {
-    try {
-      const update = await this.checkForUpdates();
-      if (update && this.onUpdateAvailable) {
-        this.onUpdateAvailable(update);
+    // Check 30 seconds after startup to avoid slowing down app launch
+    setTimeout(async () => {
+      try {
+        const update = await this.checkForUpdates();
+        if (update && this.onUpdateAvailable) {
+          this.onUpdateAvailable(update);
+        }
+      } catch (error) {
+        console.error('[Updater] Update check failed:', error);
       }
-    } catch (error) {
-      console.error('[Updater] Update check failed:', error);
-    }
+    }, 30000);
   }
 }
 
