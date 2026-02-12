@@ -21,27 +21,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Generate changelog
-        id: changelog
-        run: |
-          # Simple changelog generation
-          if git describe --tags --abbrev=0 HEAD^ >/dev/null 2>&1; then
-            PREV_TAG=$(git describe --tags --abbrev=0 HEAD^)
-            echo "## Changes since $PREV_TAG" > CHANGELOG.md
-            echo "" >> CHANGELOG.md
-            git log --pretty=format:"* %s (%an)" $PREV_TAG..HEAD >> CHANGELOG.md
-          else
-            echo "## Initial Release" > CHANGELOG.md
-            echo "" >> CHANGELOG.md
-            echo "* First release of AIOgames" >> CHANGELOG.md
-          fi
-          
-          {
-            echo 'changelog<<CHANGELOG_EOF'
-            cat CHANGELOG.md
-            echo 'CHANGELOG_EOF'
-          } >> "$GITHUB_OUTPUT"
-
       - name: Create Release
         id: create-release
         uses: actions/create-release@v1
@@ -88,8 +67,6 @@ jobs:
             
             ## 📋 Deployment Guide
             See [Docker Deployment Guide](https://github.com/darkmaster420/AIOgames/blob/main/docs/DOCKER_REGISTRY_DEPLOYMENT.md) for complete instructions.
-            
-            ${{ steps.changelog.outputs.changelog }}
           draft: false
           prerelease: false
 
