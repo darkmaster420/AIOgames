@@ -94,12 +94,12 @@ class AppUpdater {
             }
           } catch (error) {
             console.error('[Updater] Error parsing release data:', error);
-            reject(error);
+            resolve(null);
           }
         });
       }).on('error', (error) => {
         console.error('[Updater] Error checking for updates:', error);
-        reject(error);
+        resolve(null);
       });
     });
   }
