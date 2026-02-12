@@ -815,26 +815,31 @@ export async function POST(request: Request) {
                       
                       // Send notification for the sequel update if immediate notifications are enabled
                       if (sequelPreferences.notifyImmediately) {
-                        try {
-                          // Fetch download links for the sequel
-                          const downloadLinks = await fetchDownloadLinks(recentGame);
-                          
-                          const notificationData = createUpdateNotificationData({
-                            gameTitle: cleanedSequelTitle,
-                            version: versionString,
-                            gameLink: recentGame.link,
-                            imageUrl: recentGame.image,
-                            updateType: 'update',
-                            downloadLinks: downloadLinks
-                          });
-                          await sendUpdateNotification(game.userId.toString(), notificationData);
-                          
-                          // Mark this link as processed to prevent duplicates
-                          processedLinks.add(recentGame.link);
-                          
-                          logger.info(`Sequel update notification sent: ${cleanedSequelTitle} -> ${versionString}`);
-                        } catch (notificationError) {
-                          logger.error('Failed to send sequel update notification:', notificationError);
+                        // Skip if we've already sent notification for this link
+                        if (processedLinks.has(recentGame.link)) {
+                          logger.info(`Skipping duplicate sequel notification (already sent): ${recentGame.link}`);
+                        } else {
+                          try {
+                            // Mark this link as processed BEFORE sending to prevent race conditions
+                            processedLinks.add(recentGame.link);
+                            
+                            // Fetch download links for the sequel
+                            const downloadLinks = await fetchDownloadLinks(recentGame);
+                            
+                            const notificationData = createUpdateNotificationData({
+                              gameTitle: cleanedSequelTitle,
+                              version: versionString,
+                              gameLink: recentGame.link,
+                              imageUrl: recentGame.image,
+                              updateType: 'update',
+                              downloadLinks: downloadLinks
+                            });
+                            await sendUpdateNotification(game.userId.toString(), notificationData);
+                            
+                            logger.info(`Sequel update notification sent: ${cleanedSequelTitle} -> ${versionString}`);
+                          } catch (notificationError) {
+                            logger.error('Failed to send sequel update notification:', notificationError);
+                          }
                         }
                       } else {
                         logger.info(`Sequel update found but immediate notifications disabled: ${cleanedSequelTitle} -> ${versionString}`);
@@ -880,22 +885,27 @@ export async function POST(request: Request) {
                     
                     // Send notification for the new sequel if immediate notifications are enabled
                     if (sequelPreferences.notifyImmediately) {
-                      try {
-                        const notificationData = createUpdateNotificationData({
-                          gameTitle: `${game.title} (Sequel: ${cleanedSequelTitle})`,
-                          version: versionString,
-                          gameLink: recentGame.link,
-                          imageUrl: recentGame.image,
-                          updateType: 'sequel'
-                        });
-                        await sendUpdateNotification(game.userId.toString(), notificationData);
-                        
-                        // Mark this link as processed to prevent duplicates
-                        processedLinks.add(recentGame.link);
-                        
-                        logger.info(`New sequel tracking notification sent: ${cleanedSequelTitle}`);
-                      } catch (notificationError) {
-                        logger.error('Failed to send new sequel notification:', notificationError);
+                      // Skip if we've already sent notification for this link
+                      if (processedLinks.has(recentGame.link)) {
+                        logger.info(`Skipping duplicate new sequel notification (already sent): ${recentGame.link}`);
+                      } else {
+                        try {
+                          // Mark this link as processed BEFORE sending to prevent race conditions
+                          processedLinks.add(recentGame.link);
+                          
+                          const notificationData = createUpdateNotificationData({
+                            gameTitle: `${game.title} (Sequel: ${cleanedSequelTitle})`,
+                            version: versionString,
+                            gameLink: recentGame.link,
+                            imageUrl: recentGame.image,
+                            updateType: 'sequel'
+                          });
+                          await sendUpdateNotification(game.userId.toString(), notificationData);
+                          
+                          logger.info(`New sequel tracking notification sent: ${cleanedSequelTitle}`);
+                        } catch (notificationError) {
+                          logger.error('Failed to send new sequel notification:', notificationError);
+                        }
                       }
                     } else {
                       logger.info(`New sequel detected but immediate notifications disabled: ${cleanedSequelTitle}`);
@@ -1493,6 +1503,9 @@ export async function POST(request: Request) {
                 // Send notification only if enabled for this game
                 if (game.notificationsEnabled) {
                   try {
+                    // Mark this link as processed FIRST to prevent any race conditions
+                    processedLinks.add(bestMatch.link);
+                    
                     // Fetch full download links for auto-approved updates
                     const downloadLinks = await fetchDownloadLinks(bestMatch);
                     
@@ -1507,9 +1520,6 @@ export async function POST(request: Request) {
                     });
                     
                     await sendUpdateNotification(game.userId.toString(), notificationData);
-                    
-                    // Mark this link as processed to prevent duplicates
-                    processedLinks.add(bestMatch.link);
                     
                     // Mark notification as sent
                     await TrackedGame.updateOne(
@@ -1608,6 +1618,9 @@ export async function POST(request: Request) {
                 // Send notification only if enabled for this game
                 if (game.notificationsEnabled) {
                   try {
+                    // Mark this link as processed FIRST to prevent any race conditions
+                    processedLinks.add(bestMatch.link);
+                    
                     const notificationData = createUpdateNotificationData({
                       gameTitle: game.title,
                       version: versionString,
@@ -1619,10 +1632,6 @@ export async function POST(request: Request) {
                     });
                     
                     await sendUpdateNotification(game.userId.toString(), notificationData);
-                    
-                    // Mark this link as processed to prevent duplicates
-                    processedLinks.add(bestMatch.link);
-                    
                     logger.info(`Pending update notification sent for ${game.title}`);
                   } catch (notificationError) {
                     logger.error('Failed to send pending update notification:', notificationError);
