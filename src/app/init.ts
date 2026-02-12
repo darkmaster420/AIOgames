@@ -3,7 +3,7 @@
 const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build';
 
 if (!isBuildPhase) {
-  // Dynamic imports to avoid loading heavy modules (mongoose, web-push, bcrypt) during build
+  // Dynamic imports to avoid loading heavy modules (mongoose, bcrypt) during build
   import('../lib/scheduler').then(() => {
     console.log('📅 Scheduler module loaded');
   }).catch((error) => {

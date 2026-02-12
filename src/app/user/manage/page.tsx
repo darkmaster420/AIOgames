@@ -21,8 +21,7 @@ export default function UserManagePage() {
     newPassword: '',
     confirmNewPassword: '',
     // notification settings
-    notificationsProvider: '',
-    webpushEnabled: true,
+    notificationsProvider: 'telegram',
     notifyImmediately: true,
     telegramUsername: '',
     telegramChatId: '',
@@ -49,23 +48,12 @@ export default function UserManagePage() {
         if (data.preferences?.notifications) {
           setForm((f) => ({
             ...f,
-            notificationsProvider: data.preferences.notifications.provider || f.notificationsProvider,
-            webpushEnabled: typeof data.preferences.notifications.webpushEnabled === 'boolean' ? data.preferences.notifications.webpushEnabled : f.webpushEnabled,
+            notificationsProvider: data.preferences.notifications.provider || 'telegram',
             notifyImmediately: typeof data.preferences.notifications.notifyImmediately === 'boolean' ? data.preferences.notifications.notifyImmediately : true,
             telegramUsername: data.preferences.notifications.telegramUsername || '',
             telegramChatId: data.preferences.notifications.telegramChatId || '',
             telegramBotManagementEnabled: data.preferences.notifications.telegramBotManagementEnabled || false
           }));
-          // If provider is webpush and enabled, prompt for permission
-          if ((data.preferences.notifications.provider === 'webpush' || !data.preferences.notifications.provider) && data.preferences.notifications.webpushEnabled !== false) {
-            // prompt after a tick to avoid blocking render
-                    setTimeout(() => {
-                      if (Notification && Notification.permission === 'default') {
-                        // request permission non-blocking
-                        void Notification.requestPermission();
-                      }
-                    }, 500);
-          }
         }
         
         // Load release group preferences
@@ -104,84 +92,6 @@ export default function UserManagePage() {
     fetchBotInfo();
   }, []);
 
-  // Register service worker and subscribe if webpush enabled
-  useEffect(() => {
-    async function setupPush() {
-      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-        console.warn('[WebPush] Service Worker or Push Manager not supported');
-        return;
-      }
-      try {
-        console.log('[WebPush] Starting setup...');
-        // register service worker
-        const reg = await navigator.serviceWorker.register('/sw.js');
-        console.log('[WebPush] Service worker registered:', reg);
-
-        // fetch VAPID public key
-        const r = await fetch('/api/notifications/vapid-public');
-        if (!r.ok) {
-          console.error('[WebPush] Failed to fetch VAPID key:', r.status);
-          return;
-        }
-        const { publicKey } = await r.json();
-        if (!publicKey) {
-          console.error('[WebPush] No VAPID public key returned');
-          return;
-        }
-        console.log('[WebPush] VAPID key fetched');
-
-        // subscribe if permission is default and user wants webpush
-        if (form.notificationsProvider === 'webpush' && form.webpushEnabled) {
-          console.log('[WebPush] Notification permission:', Notification.permission);
-          if (Notification.permission === 'default') {
-            // request permission first
-            const perm = await Notification.requestPermission();
-            console.log('[WebPush] Permission result:', perm);
-            if (perm !== 'granted') return;
-          }
-
-          if (Notification.permission === 'granted') {
-            console.log('[WebPush] Subscribing to push notifications...');
-            const sub = await reg.pushManager.subscribe({
-              userVisibleOnly: true,
-              applicationServerKey: urlBase64ToUint8Array(publicKey)
-            });
-            console.log('[WebPush] Subscribed:', sub.endpoint);
-
-            // send subscription to backend
-            const subRes = await fetch('/api/user/subscribe', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ subscription: sub })
-            });
-            
-            if (subRes.ok) {
-              console.log('[WebPush] Subscription saved to backend');
-            } else {
-              console.error('[WebPush] Failed to save subscription:', await subRes.text());
-            }
-          }
-        }
-      } catch (error) {
-        console.error('[WebPush] Setup error:', error);
-      }
-    }
-
-    setupPush();
-  }, [form.notificationsProvider, form.webpushEnabled]);
-
-  // helper: convert base64 public key to Uint8Array
-  function urlBase64ToUint8Array(base64String: string) {
-    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-    const rawData = atob(base64);
-    const outputArray = new Uint8Array(rawData.length);
-    for (let i = 0; i < rawData.length; ++i) {
-      outputArray[i] = rawData.charCodeAt(i);
-    }
-    return outputArray;
-  }
-
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const target = e.target as HTMLInputElement | HTMLSelectElement;
     const { name, type } = target;
@@ -207,7 +117,6 @@ export default function UserManagePage() {
         currentPassword?: string; 
         newPassword?: string; 
         provider?: string; 
-        webpushEnabled?: boolean;
         notifyImmediately?: boolean;
         telegramUsername?: string;
         telegramChatId?: string;
@@ -228,7 +137,6 @@ export default function UserManagePage() {
       
       // Notification settings
       payload.provider = form.notificationsProvider;
-      payload.webpushEnabled = form.webpushEnabled;
       payload.notifyImmediately = form.notifyImmediately;
       payload.telegramUsername = form.telegramUsername;
       payload.telegramChatId = form.telegramChatId;
@@ -351,45 +259,8 @@ export default function UserManagePage() {
                 <label className="text-sm text-gray-600 dark:text-gray-300">Send notifications immediately when updates are found</label>
               </div>
 
-              {/* Notification Provider */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Notification Method</label>
-                <select
-                  name="notificationsProvider"
-                  value={form.notificationsProvider}
-                  onChange={handleChange}
-                  className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                >
-                  <option value="webpush">Web Push Notifications</option>
-                  <option value="telegram">Telegram Bot</option>
-                </select>
-              </div>
-
-              {/* Web Push Settings */}
-              {form.notificationsProvider === 'webpush' && (
-                <div className="space-y-3 p-4 border border-blue-200 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20 rounded-md">
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      name="webpushEnabled"
-                      checked={form.webpushEnabled}
-                      onChange={(e) => setForm({ ...form, webpushEnabled: e.target.checked })}
-                      className="w-4 h-4"
-                    />
-                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Enable Web Push Notifications</label>
-                  </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
-                    <p><strong>Web Push Setup:</strong></p>
-                    <p>• Notifications appear directly in your browser</p>
-                    <p>• Works even when the site is closed (if browser is running)</p>
-                    <p>• You&apos;ll be prompted to allow notifications when enabled</p>
-                  </div>
-                </div>
-              )}
-
               {/* Telegram Settings */}
-              {form.notificationsProvider === 'telegram' && (
-                <div className="space-y-3 p-4 border border-purple-200 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/20 rounded-md">
+              <div className="space-y-3 p-4 border border-purple-200 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/20 rounded-md">
                   <div>
                         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                           Telegram Username
@@ -470,7 +341,6 @@ export default function UserManagePage() {
                         </p>
                       </div>
                 </div>
-              )}
             </div>
           </div>
 
@@ -549,30 +419,8 @@ export default function UserManagePage() {
               {saving ? 'Saving...' : 'Save Changes'}
             </button>
             
-            {/* Test buttons based on selected provider */}
-            {form.notificationsProvider === 'webpush' && form.webpushEnabled && (
-              <button
-                type="button"
-                className="px-4 py-2 bg-green-600 text-white rounded-md"
-                onClick={async () => {
-                  try {
-                    const res = await fetch('/api/notifications/send-test', { method: 'POST' });
-                    const data = await res.json();
-                    if (!res.ok) {
-                      showError('Test Failed', data?.error || 'Failed to send test notification');
-                      return;
-                    }
-                    showSuccess('Test Sent', 'Test notification sent (check your device)');
-                  } catch {
-                    showError('Test Failed', 'Failed to send test notification');
-                  }
-                }}
-              >
-                Test Web Push
-              </button>
-            )}
-            
-            {form.notificationsProvider === 'telegram' && form.notifyImmediately && form.telegramChatId && (
+            {/* Test Telegram button */}
+            {form.telegramChatId && (
               <button
                 type="button"
                 className="px-4 py-2 bg-purple-600 text-white rounded-md"
@@ -598,28 +446,6 @@ export default function UserManagePage() {
                 }}
               >
                 Test Telegram
-              </button>
-            )}
-            
-            {form.notificationsProvider === 'email' && (
-              <button
-                type="button"
-                className="px-4 py-2 bg-orange-600 text-white rounded-md"
-                onClick={async () => {
-                  try {
-                    const res = await fetch('/api/notifications/send-test', { method: 'POST' });
-                    const data = await res.json();
-                    if (!res.ok) {
-                      showError('Test Failed', data?.error || 'Failed to send test email');
-                      return;
-                    }
-                    showSuccess('Test Sent', 'Test email sent (check your inbox)');
-                  } catch {
-                    showError('Test Failed', 'Failed to send test email');
-                  }
-                }}
-              >
-                Test Email
               </button>
             )}
             

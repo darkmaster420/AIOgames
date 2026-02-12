@@ -1,4 +1,3 @@
-import webpush from 'web-push';
 import { User } from '../lib/models';
 import { 
   sendTelegramMessage, 
@@ -9,10 +8,6 @@ import {
   TelegramMessage,
   TelegramPhotoMessage
 } from './telegram';
-import { configureWebPush, getVapidKeys } from './vapidKeys';
-
-// Configure VAPID keys on module load
-configureWebPush();
 
 // Rate limiting for Telegram notifications to prevent API limits
 const telegramRateLimit = new Map<string, number>(); // userId -> lastSentTime
@@ -132,7 +127,6 @@ interface NotificationResult {
   failedCount: number;
   errors: string[];
   methods: {
-    webpush: { sent: number; failed: number, errors: string[] };
     telegram: { sent: number; failed: number, errors: string[] };
   };
 }
@@ -161,7 +155,6 @@ export async function sendUpdateNotification(
       failedCount: 0,
       errors: ['Duplicate notification (already sent recently)'],
       methods: {
-        webpush: { sent: 0, failed: 0, errors: [] },
         telegram: { sent: 0, failed: 0, errors: [] }
       }
     };
@@ -174,7 +167,6 @@ export async function sendUpdateNotification(
     failedCount: 0,
     errors: [],
     methods: {
-      webpush: { sent: 0, failed: 0, errors: [] },
       telegram: { sent: 0, failed: 0, errors: [] }
     }
   };
@@ -195,12 +187,10 @@ export async function sendUpdateNotification(
     }
 
     const notificationPrefs = user.preferences?.notifications;
-    const provider = notificationPrefs?.provider || 'webpush';
     
-    
-    // Processing notifications for user        // Send Telegram notification if configured (provider is telegram OR chat ID is set)
+    // Send Telegram notification if configured
     const telegramConfig = getTelegramConfig(user);
-    if (telegramConfig && (provider === 'telegram' || notificationPrefs?.telegramChatId)) {
+    if (telegramConfig && notificationPrefs?.telegramChatId) {
         // Got valid Telegram config
         try {
           console.log(`[Notifications] Sending Telegram notification for ${updateData.gameTitle} to user ${userId}`);
@@ -253,72 +243,9 @@ export async function sendUpdateNotification(
           result.methods.telegram.errors.push(`Telegram error: ${errorMessage}`);
           console.error('❌ Telegram notification error:', error);
         }
-    } else if (provider === 'telegram' || notificationPrefs?.telegramChatId) {
-      console.log(`[Notifications] Telegram config missing for user ${userId} - chatId: ${!!notificationPrefs?.telegramChatId}, notifyImmediately: ${!!notificationPrefs?.notifyImmediately}`);
+    } else {
+      console.log(`[Notifications] Telegram not configured for user ${userId} - chatId: ${!!notificationPrefs?.telegramChatId}, notifyImmediately: ${!!notificationPrefs?.notifyImmediately}`);
       result.methods.telegram.errors.push('Telegram not properly configured or immediate notifications disabled');
-    }
-
-    // Send Web Push notification if enabled or if primary method
-    if (provider === 'webpush' || notificationPrefs?.webpushEnabled) {
-      try {
-        getVapidKeys(); // Ensure VAPID keys are available
-        if (user.pushSubscriptions && user.pushSubscriptions.length > 0) {
-        // Create notification payload
-        const isSequel = updateData.updateType === 'sequel';
-        const title = isSequel 
-          ? `🎮 New Sequel Found!`
-          : `🔄 Game Update Available!`;
-        
-        const body = isSequel
-          ? `A sequel to "${updateData.gameTitle}" has been detected!`
-          : `"${updateData.gameTitle}" has been updated${updateData.version ? ` to ${updateData.version}` : ''}!`;
-
-        const payload = JSON.stringify({
-          title,
-          body,
-          icon: '/icon-192x192.png',
-          badge: '/icon-192x192.png',
-          image: updateData.imageUrl,
-          data: {
-            gameTitle: updateData.gameTitle,
-            updateType: updateData.updateType,
-            version: updateData.version,
-            gameLink: updateData.gameLink,
-            url: updateData.gameLink || '/tracking'
-          },
-          actions: updateData.gameLink ? [
-            {
-              action: 'view',
-              title: 'View Update'
-            }
-          ] : undefined
-        });
-
-        // Send to all subscribed endpoints
-        for (const sub of user.pushSubscriptions) {
-          try {
-            await webpush.sendNotification({
-              endpoint: sub.endpoint,
-              keys: {
-                p256dh: sub.keys.p256dh,
-                auth: sub.keys.auth
-              }
-            }, payload);
-            result.methods.webpush.sent++;
-            result.sentCount++;
-          } catch (error) {
-            result.methods.webpush.failed++;
-            result.failedCount++;
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            result.methods.webpush.errors.push(`Push error: ${errorMessage}`);
-          }
-        }
-      }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        result.methods.webpush.errors.push(`Web Push setup error: ${errorMessage}`);
-        console.error('Web Push setup error:', error);
-      }
     }
 
     result.success = result.sentCount > 0;
