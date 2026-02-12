@@ -17,6 +17,52 @@ configureWebPush();
 // Rate limiting for Telegram notifications to prevent API limits
 const telegramRateLimit = new Map<string, number>(); // userId -> lastSentTime
 
+// Deduplication cache to prevent sending duplicate notifications
+const notificationCache = new Map<string, number>(); // cacheKey -> timestamp
+const DEDUP_WINDOW_MS = 60000; // 1 minute deduplication window
+
+/**
+ * Generate a cache key for deduplication
+ */
+function getNotificationCacheKey(userId: string, gameTitle: string, version?: string, updateType?: string): string {
+  return `${userId}:${gameTitle}:${version || 'none'}:${updateType || 'update'}`;
+}
+
+/**
+ * Check if this notification was recently sent (within dedup window)
+ */
+function wasRecentlySent(cacheKey: string): boolean {
+  const lastSent = notificationCache.get(cacheKey);
+  if (!lastSent) return false;
+  
+  const timeSince = Date.now() - lastSent;
+  if (timeSince < DEDUP_WINDOW_MS) {
+    console.log(`[Notifications] Skipping duplicate notification (sent ${Math.round(timeSince/1000)}s ago): ${cacheKey}`);
+    return true;
+  }
+  
+  // Clean up old entry
+  notificationCache.delete(cacheKey);
+  return false;
+}
+
+/**
+ * Mark notification as sent
+ */
+function markNotificationSent(cacheKey: string): void {
+  notificationCache.set(cacheKey, Date.now());
+  
+  // Clean up old entries periodically (keep cache from growing indefinitely)
+  if (notificationCache.size > 1000) {
+    const now = Date.now();
+    for (const [key, timestamp] of notificationCache.entries()) {
+      if (now - timestamp > DEDUP_WINDOW_MS * 2) {
+        notificationCache.delete(key);
+      }
+    }
+  }
+}
+
 /**
  * Add delay between Telegram notifications to prevent rate limiting
  */
@@ -103,6 +149,23 @@ export async function sendUpdateNotification(
     updateType: updateData.updateType,
     version: updateData.version
   });
+
+  // Check for duplicate notification
+  const cacheKey = getNotificationCacheKey(userId, updateData.gameTitle, updateData.version, updateData.updateType);
+  if (wasRecentlySent(cacheKey)) {
+    console.log(`[Notifications] Skipping duplicate notification for ${updateData.gameTitle}`);
+    return {
+      userId,
+      success: true,
+      sentCount: 0,
+      failedCount: 0,
+      errors: ['Duplicate notification (already sent recently)'],
+      methods: {
+        webpush: { sent: 0, failed: 0, errors: [] },
+        telegram: { sent: 0, failed: 0, errors: [] }
+      }
+    };
+  }
 
   const result: NotificationResult = {
     userId,
@@ -259,6 +322,12 @@ export async function sendUpdateNotification(
     }
 
     result.success = result.sentCount > 0;
+    
+    // Mark as sent in deduplication cache if we successfully sent any notifications
+    if (result.success) {
+      markNotificationSent(cacheKey);
+    }
+    
     return result;
 
   } catch (error) {
