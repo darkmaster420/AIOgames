@@ -1,6 +1,6 @@
 {
   "name": "aiogames",
-  "version": "1.10.12",
+  "version": "1.10.13",
   "private": true,
   "main": "electron/main.cjs",
   "type": "module",
