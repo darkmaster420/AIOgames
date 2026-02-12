@@ -1,6 +1,7 @@
 {
   "appId": "com.aiogames.app",
   "productName": "AIOGames",
+  "publish": null,
   "directories": {
     "output": "dist"
   },

@@ -1,7 +1,8 @@
-const { app, BrowserWindow, Menu } = require('electron');
+const { app, BrowserWindow, Menu, dialog, shell } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const config = require('./config.cjs');
+const AppUpdater = require('./updater.cjs');
 
 // Load environment variables from .env file in development
 if (process.env.NODE_ENV === 'development') {
@@ -156,6 +157,50 @@ app.whenReady().then(async () => {
       console.log(`Connecting to hosted backend: ${BACKEND_URL}`);
     }
     createWindow();
+
+    // Initialize auto-updater
+    const updater = new AppUpdater();
+    updater.startPeriodicChecks(async (update) => {
+      console.log(`[Updater] New version available: ${update.version}`);
+      
+      // Show update notification dialog
+      const response = await dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Update Available',
+        message: `A new version of AIOgames is available!`,
+        detail: `Version ${update.version} is now available. You are currently running version ${app.getVersion()}.\n\nWould you like to download it now?`,
+        buttons: ['Download Now', 'Later'],
+        defaultId: 0,
+        cancelId: 1,
+      });
+
+      if (response.response === 0) {
+        // User clicked "Download Now"
+        try {
+          const downloadPath = await updater.downloadUpdate();
+          
+          const installResponse = await dialog.showMessageBox(mainWindow, {
+            type: 'info',
+            title: 'Update Downloaded',
+            message: 'Update downloaded successfully!',
+            detail: `The installer has been saved to:\n${downloadPath}\n\nWould you like to open the downloads folder?`,
+            buttons: ['Open Downloads Folder', 'OK'],
+            defaultId: 0,
+            cancelId: 1,
+          });
+
+          if (installResponse.response === 0) {
+            shell.showItemInFolder(downloadPath);
+          }
+        } catch (error) {
+          console.error('[Updater] Download failed:', error);
+          dialog.showErrorBox(
+            'Download Failed',
+            `Failed to download the update: ${error.message}`
+          );
+        }
+      }
+    });
   } catch (err) {
     console.error('Error starting application:', err);
     app.quit();
