@@ -347,11 +347,39 @@ export async function POST(request: NextRequest) {
       const versionAnalysis = analyzeGameTitle(title);
       
       if (versionAnalysis.detectedVersion) {
-        // Auto-verify the detected version
-        trackedGame.currentVersionNumber = versionAnalysis.detectedVersion;
+        let finalVersion = versionAnalysis.detectedVersion;
+        let resolvedFromDate = false;
+        
+        // Check if this is a date-based version (YYYYMMDD format)
+        const isDateVersion = /^\d{8}$/.test(finalVersion) || 
+                             /^\d{4}[-.]\d{2}[-.]\d{2}$/.test(finalVersion);
+        
+        // If it's a date-based version and we have Steam App ID, resolve it via SteamDB
+        if (isDateVersion && trackedGame.steamAppId) {
+          logger.info(`🗓️ Date-based version detected: ${finalVersion}, resolving via SteamDB...`);
+          const resolved = await resolveVersionFromDate(trackedGame.steamAppId, finalVersion);
+          if (resolved && resolved.version) {
+            logger.info(`✅ Resolved version ${resolved.version} from date ${finalVersion} via SteamDB`);
+            finalVersion = resolved.version;
+            resolvedFromDate = true;
+            
+            // Also set the build if available
+            if (resolved.build && !versionAnalysis.detectedBuild) {
+              trackedGame.currentBuildNumber = resolved.build;
+              trackedGame.buildNumberVerified = true;
+              trackedGame.buildNumberSource = 'steamdb:date-resolved';
+              logger.info(`✅ Also resolved build ${resolved.build} from date ${finalVersion} via SteamDB`);
+            }
+          } else {
+            logger.warn(`⚠️ Could not resolve date-based version ${finalVersion}, storing as-is`);
+          }
+        }
+        
+        // Auto-verify the detected (or resolved) version
+        trackedGame.currentVersionNumber = finalVersion;
         trackedGame.versionNumberVerified = true;
-        trackedGame.versionNumberSource = 'auto-detected';
-  logger.info(`Auto-detected and verified version for "${title}": ${versionAnalysis.detectedVersion.startsWith('v') ? versionAnalysis.detectedVersion : `v${versionAnalysis.detectedVersion}`}`);
+        trackedGame.versionNumberSource = resolvedFromDate ? 'steamdb:date-resolved' : 'auto-detected';
+  logger.info(`Auto-detected and verified version for "${title}": ${finalVersion.startsWith('v') ? finalVersion : `v${finalVersion}`}${resolvedFromDate ? ' (resolved from date)' : ''}`);
       }
       
       if (versionAnalysis.detectedBuild) {
