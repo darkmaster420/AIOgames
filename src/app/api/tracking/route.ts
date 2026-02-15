@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../lib/db';
 import { TrackedGame } from '../../../lib/models';
 import { getCurrentUser } from '../../../lib/auth';
-import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, resolveVersionFromDate, calculateGamePriority } from '../../../utils/steamApi';
+import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, resolveVersionFromDate, calculateGamePriority, detectAndResolveGameConflicts } from '../../../utils/steamApi';
 import logger from '../../../utils/logger';
 import { autoVerifyWithSteam } from '../../../utils/autoSteamVerification';
 import { updateScheduler } from '../../../lib/scheduler';
@@ -89,6 +89,46 @@ export async function POST(request: NextRequest) {
     const { User } = await import('../../../lib/models');
     const fullUser = await User.findById(user.id);
     const preferRepacks = fullUser?.preferences?.releaseGroups?.preferRepacks || false;
+
+    // Check for potential conflicts with existing tracked games (sequels/variants)
+    // Get all active tracked games for this user
+    const allTrackedGames = await TrackedGame.find({ 
+      userId: user.id,
+      isActive: true 
+    }).select('title originalTitle steamAppId cleanedTitle gameId');
+    
+    // Detect conflicts with related game titles (e.g., "Assetto Corsa" vs "Assetto Corsa Evo")
+    const conflictCheck = await detectAndResolveGameConflicts(
+      originalTitle || title,
+      allTrackedGames.map(g => ({
+        title: g.originalTitle || g.title,
+        steamAppId: g.steamAppId,
+        cleanedTitle: g.cleanedTitle
+      }))
+    );
+    
+    if (conflictCheck.hasConflict && conflictCheck.conflictingGame) {
+      logger.warn(`❌ Potential sequel/variant conflict detected for "${title}"`);
+      logger.warn(`   Conflicts with: "${conflictCheck.conflictingGame.title}"`);
+      
+      return NextResponse.json(
+        { 
+          error: `This game may be related to "${conflictCheck.conflictingGame.title}" that you're already tracking. Please verify they are different games.`,
+          conflictingGame: conflictCheck.conflictingGame.title,
+          suggestion: 'If these are different games (e.g., sequel or different edition), they need unique Steam App IDs to be tracked separately.'
+        },
+        { status: 409 }
+      );
+    }
+    
+    // If Steam differentiation was successful, store the Steam info
+    const autoSteamAppId: string | undefined = conflictCheck.resolvedSteamAppId;
+    const autoSteamName: string | undefined = conflictCheck.resolvedSteamName;
+    
+    if (autoSteamAppId && autoSteamName) {
+      logger.info(`✅ Steam differentiation successful for "${title}"`);
+      logger.info(`   Steam App ID: ${autoSteamAppId} - ${autoSteamName}`);
+    }
 
     // Check if game is already tracked by this user (check by gameId OR similar title)
     const existingGame = await TrackedGame.findOne({ 
@@ -258,34 +298,45 @@ export async function POST(request: NextRequest) {
 
     // Attempt automatic Steam verification
     try {
-  logger.info(`Auto Steam verification for newly added game: "${originalTitle || title}"`);
-      
-      // Try with original title first (best for Steam matching)
-      const titleForSteam = originalTitle || title;
-      let autoVerification = await autoVerifyWithSteam(titleForSteam, 0.85);
-      
-      // If original title fails, try with cleaned title
-      if (!autoVerification.success) {
-        const cleanedTitleForSteam = cleanedTitle || cleanGameTitle(title);
-        if (cleanedTitleForSteam !== titleForSteam.toLowerCase().trim()) {
-          logger.debug(`Retry auto Steam verification with cleaned title: "${cleanedTitleForSteam}"`);
-          autoVerification = await autoVerifyWithSteam(cleanedTitleForSteam, 0.80); // Slightly lower threshold for cleaned title
+      // If we already resolved Steam info during conflict detection, use it
+      if (autoSteamAppId && autoSteamName) {
+        logger.info(`✅ Using pre-resolved Steam info from conflict detection`);
+        trackedGame.steamVerified = true;
+        trackedGame.steamAppId = parseInt(autoSteamAppId);
+        trackedGame.steamName = autoSteamName;
+        await trackedGame.save();
+        logger.info(`Steam verification complete: ${autoSteamName} (${autoSteamAppId})`);
+      } else {
+        // Otherwise, attempt normal auto Steam verification
+        logger.info(`Auto Steam verification for newly added game: "${originalTitle || title}"`);
+        
+        // Try with original title first (best for Steam matching)
+        const titleForSteam = originalTitle || title;
+        let autoVerification = await autoVerifyWithSteam(titleForSteam, 0.85);
+        
+        // If original title fails, try with cleaned title
+        if (!autoVerification.success) {
+          const cleanedTitleForSteam = cleanedTitle || cleanGameTitle(title);
+          if (cleanedTitleForSteam !== titleForSteam.toLowerCase().trim()) {
+            logger.debug(`Retry auto Steam verification with cleaned title: "${cleanedTitleForSteam}"`);
+            autoVerification = await autoVerifyWithSteam(cleanedTitleForSteam, 0.80); // Slightly lower threshold for cleaned title
+          }
+        }
+        
+        if (autoVerification.success && autoVerification.steamAppId && autoVerification.steamName) {
+          // Update the game with Steam verification data
+          trackedGame.steamVerified = true;
+          trackedGame.steamAppId = autoVerification.steamAppId;
+          trackedGame.steamName = autoVerification.steamName;
+          await trackedGame.save();
+          
+          logger.info(`Auto Steam verification successful for "${title}": ${autoVerification.steamName} (${autoVerification.steamAppId})`);
+        } else {
+          logger.warn(`Auto Steam verification failed for "${title}": ${autoVerification.reason}`);
         }
       }
-      
-      if (autoVerification.success && autoVerification.steamAppId && autoVerification.steamName) {
-        // Update the game with Steam verification data
-        trackedGame.steamVerified = true;
-        trackedGame.steamAppId = autoVerification.steamAppId;
-        trackedGame.steamName = autoVerification.steamName;
-        await trackedGame.save();
-        
-  logger.info(`Auto Steam verification successful for "${title}": ${autoVerification.steamName} (${autoVerification.steamAppId})`);
-      } else {
-  logger.warn(`Auto Steam verification failed for "${title}": ${autoVerification.reason}`);
-      }
     } catch (verificationError) {
-  logger.error(`Auto Steam verification error for "${title}":`, verificationError);
+      logger.error(`Auto Steam verification error for "${title}":`, verificationError);
       // Don't fail the entire request if Steam verification fails
     }
 

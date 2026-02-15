@@ -439,12 +439,19 @@ function DashboardInner() {
         {/* Page Header */}
         <div className="text-center mb-4 sm:mb-6">
           <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">Game Discovery</h1>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Search and discover games to track</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Search and discover games{status === 'authenticated' ? ' to track' : ''}</p>
+          {status !== 'authenticated' && (
+            <p className="text-xs text-blue-600 dark:text-blue-400 mt-2">
+              <a href="/auth/signin" className="hover:underline">Sign in</a> to track games and receive update notifications
+            </p>
+          )}
         </div>
-        {/* Add Custom Game Button */}
-        <div className="mb-4">
-          <AddCustomGame onGameAdded={loadTrackedGames} />
-        </div>
+        {/* Add Custom Game Button - Only show for authenticated users */}
+        {status === 'authenticated' && (
+          <div className="mb-4">
+            <AddCustomGame onGameAdded={loadTrackedGames} />
+          </div>
+        )}
         {/* Mobile-optimized Search */}
         <form onSubmit={searchGames} className="mb-4 sm:mb-6">
           <div className="flex flex-col sm:flex-row gap-2">
@@ -643,8 +650,8 @@ function DashboardInner() {
                       hasUpdate={false}
                       isTracked={tracked}
                       trackedVersion={trackedVersion || undefined}
-                      onTrack={() => handleTrackGame(game)}
-                      onUntrack={() => handleUntrackGame(game)}
+                      onTrack={status === 'authenticated' ? () => handleTrackGame(game) : undefined}
+                      onUntrack={status === 'authenticated' ? () => handleUntrackGame(game) : undefined}
                       className=""
                     />
                   );

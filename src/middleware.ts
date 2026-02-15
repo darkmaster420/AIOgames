@@ -6,7 +6,6 @@ export async function middleware(request: NextRequest) {
 
   // Public routes (excluding /auth/signin which needs special handling for redirect-after-login)
   const publicRoutes = [
-    '/auth/signup',
     '/api/auth',
     '/api/health', // Health check endpoint should be public
     '/api/cache/warm', // Cache warming endpoint should be public for automated systems
@@ -14,6 +13,8 @@ export async function middleware(request: NextRequest) {
     '/api/updates/check', // Main update check endpoint used by scheduler
     '/api/steam', // Steam API endpoints (appid, search)
     '/api/telegram', // Telegram webhook endpoint must be public
+    '/api/games/search', // Allow anonymous users to search for games
+    '/api/updates/recent', // Allow anonymous users to see recent game uploads
     '/icon.svg',
   ];
 
@@ -34,6 +35,11 @@ export async function middleware(request: NextRequest) {
       const redirectUrl = new URL('/', request.url);
       return NextResponse.redirect(redirectUrl);
     }
+    return NextResponse.next();
+  }
+
+  // Allow anonymous access to the home page for searching games
+  if (pathname === '/') {
     return NextResponse.next();
   }
 

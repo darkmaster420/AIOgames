@@ -1027,3 +1027,179 @@ export function getSteamCacheStats(): { size: number; keys: string[] } {
     keys: Array.from(steamCache.keys())
   };
 }
+
+/**
+ * Detect if two game titles are potentially related (sequel, variant, or expansion)
+ * Returns true if one title is a subset of another with extra words
+ * Example: "Assetto Corsa" and "Assetto Corsa Evo" would return true
+ */
+export function areTitlesRelated(title1: string, title2: string): boolean {
+  const clean1 = title1.toLowerCase().trim();
+  const clean2 = title2.toLowerCase().trim();
+  
+  // Don't compare identical titles
+  if (clean1 === clean2) {
+    return false;
+  }
+  
+  const words1 = clean1.split(/\s+/);
+  const words2 = clean2.split(/\s+/);
+  
+  // Check if one set of words is a subset of the other
+  // This handles cases like "hollow knight" vs "hollow knight silksong"
+  const isSubset = (shorter: string[], longer: string[]): boolean => {
+    // All words from shorter must appear in order in longer
+    let longerIndex = 0;
+    for (const word of shorter) {
+      let found = false;
+      for (let i = longerIndex; i < longer.length; i++) {
+        if (longer[i] === word) {
+          found = true;
+          longerIndex = i + 1;
+          break;
+        }
+      }
+      if (!found) {
+        return false;
+      }
+    }
+    return true;
+  };
+  
+  // Check both directions
+  if (words1.length < words2.length) {
+    return isSubset(words1, words2);
+  } else if (words2.length < words1.length) {
+    return isSubset(words2, words1);
+  }
+  
+  return false;
+}
+
+/**
+ * Differentiate between related games using Steam API
+ * Returns Steam App IDs and names for both games, or null if they can't be differentiated
+ */
+export async function differentiateRelatedGames(
+  title1: string, 
+  title2: string
+): Promise<{
+  game1: { appId: string; name: string; } | null;
+  game2: { appId: string; name: string; } | null;
+  areDistinct: boolean;
+} | null> {
+  try {
+    // Search for both games on Steam
+    const [results1, results2] = await Promise.all([
+      searchSteamGames(title1, 5),
+      searchSteamGames(title2, 5)
+    ]);
+    
+    if (results1.results.length === 0 || results2.results.length === 0) {
+      return null;
+    }
+    
+    // Get the best matches for each
+    const bestMatch1 = results1.results[0];
+    const bestMatch2 = results2.results[0];
+    
+    // Check if they have different Steam App IDs (meaning they are distinct games)
+    const areDistinct = bestMatch1.appid !== bestMatch2.appid;
+    
+    return {
+      game1: {
+        appId: bestMatch1.appid,
+        name: bestMatch1.name
+      },
+      game2: {
+        appId: bestMatch2.appid,
+        name: bestMatch2.name
+      },
+      areDistinct
+    };
+    
+  } catch (error) {
+    console.error('Error differentiating related games:', error);
+    return null;
+  }
+}
+
+/**
+ * Check if a new game being tracked conflicts with existing tracked games
+ * If conflict detected, uses Steam API to differentiate
+ */
+export async function detectAndResolveGameConflicts(
+  newGameTitle: string,
+  existingGameTitles: Array<{ title: string; steamAppId?: number; cleanedTitle?: string }>
+): Promise<{
+  hasConflict: boolean;
+  conflictingGame?: { title: string; steamAppId?: number };
+  resolvedSteamAppId?: string;
+  resolvedSteamName?: string;
+  needsSteamVerification: boolean;
+}> {
+  const cleanNewTitle = cleanGameTitle(newGameTitle);
+  
+  // Check for related titles among existing games
+  for (const existingGame of existingGameTitles) {
+    const cleanExistingTitle = existingGame.cleanedTitle || cleanGameTitle(existingGame.title);
+    
+    // Check if titles are related (one is subset of another)
+    if (areTitlesRelated(cleanNewTitle, cleanExistingTitle)) {
+      console.log(`🔍 Detected related games: "${newGameTitle}" vs "${existingGame.title}"`);
+      
+      // If existing game has Steam App ID, differentiate using Steam
+      if (existingGame.steamAppId) {
+        console.log(`📊 Using Steam to differentiate...`);
+        
+        const differentiation = await differentiateRelatedGames(newGameTitle, existingGame.title);
+        
+        if (differentiation && differentiation.areDistinct) {
+          console.log(`✅ Games are distinct:`);
+          console.log(`  - "${differentiation.game1?.name}" (${differentiation.game1?.appId})`);
+          console.log(`  - "${differentiation.game2?.name}" (${differentiation.game2?.appId})`);
+          
+          // Return the Steam info for the new game
+          return {
+            hasConflict: false, // Not a conflict, they're distinct games
+            needsSteamVerification: false,
+            resolvedSteamAppId: differentiation.game1?.appId,
+            resolvedSteamName: differentiation.game1?.name
+          };
+        }
+      } else {
+        // Existing game doesn't have Steam verification, need it for both
+        console.log(`⚠️ Conflict detected but existing game "${existingGame.title}" lacks Steam verification`);
+        
+        const differentiation = await differentiateRelatedGames(newGameTitle, existingGame.title);
+        
+        if (differentiation && differentiation.areDistinct) {
+          console.log(`✅ Games are distinct (Steam verification recommended for both):`);
+          console.log(`  - "${differentiation.game1?.name}" (${differentiation.game1?.appId})`);
+          console.log(`  - "${differentiation.game2?.name}" (${differentiation.game2?.appId})`);
+          
+          return {
+            hasConflict: false,
+            needsSteamVerification: true,
+            conflictingGame: existingGame,
+            resolvedSteamAppId: differentiation.game1?.appId,
+            resolvedSteamName: differentiation.game1?.name
+          };
+        } else {
+          // Can't differentiate or they're the same game
+          return {
+            hasConflict: true,
+            conflictingGame: existingGame,
+            needsSteamVerification: true
+          };
+        }
+      }
+    }
+  }
+  
+  // No conflicts detected
+  return {
+    hasConflict: false,
+    needsSteamVerification: false
+  };
+}

@@ -449,10 +449,123 @@ export default function AdminDashboard() {
 
             {/* Users Tab */}
             {activeTab === 'users' && (
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">User Management</h3>
+              <div className="space-y-6">
+                {/* Create User Form */}
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+                  <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Create New User</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Add a new user account (public registration is disabled)</p>
+                  </div>
+                  <form onSubmit={async (e) => {
+                    e.preventDefault();
+                    const formData = new FormData(e.currentTarget);
+                    const userData = {
+                      name: formData.get('name') as string,
+                      email: formData.get('email') as string,
+                      username: formData.get('username') as string || undefined,
+                      password: formData.get('password') as string,
+                      role: formData.get('role') as string,
+                    };
+
+                    try {
+                      const response = await fetch('/api/admin/users', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(userData),
+                      });
+
+                      if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.error || 'Failed to create user');
+                      }
+
+                      const result = await response.json();
+                      showSuccess('User Created', `User "${result.user.name}" has been created successfully.`);
+                      e.currentTarget.reset();
+                      loadUsers();
+                      loadAdminData();
+                    } catch (err) {
+                      showError('Failed to Create User', err instanceof Error ? err.message : 'An unexpected error occurred.');
+                    }
+                  }} className="p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Full Name *
+                        </label>
+                        <input
+                          type="text"
+                          name="name"
+                          required
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                          placeholder="John Doe"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Email *
+                        </label>
+                        <input
+                          type="email"
+                          name="email"
+                          required
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                          placeholder="john@example.com"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Username (optional)
+                        </label>
+                        <input
+                          type="text"
+                          name="username"
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                          placeholder="johndoe"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Password *
+                        </label>
+                        <input
+                          type="password"
+                          name="password"
+                          required
+                          minLength={6}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                          placeholder="Minimum 6 characters"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Role
+                        </label>
+                        <select
+                          name="role"
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                        >
+                          <option value="user">User</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                      </div>
+                      <div className="flex items-end">
+                        <button
+                          type="submit"
+                          className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm font-medium"
+                        >
+                          Create User
+                        </button>
+                      </div>
+                    </div>
+                  </form>
                 </div>
+
+                {/* Users List */}
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+                  <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">User Management</h3>
+                  </div>
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                     <thead className="bg-gray-50 dark:bg-gray-700">
@@ -491,6 +604,7 @@ export default function AdminDashboard() {
                     </tbody>
                   </table>
                 </div>
+              </div>
               </div>
             )}
 
