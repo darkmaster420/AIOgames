@@ -27,7 +27,8 @@ export async function GET(req: NextRequest) {
     try {
       // Fetch download links from the gameapi using the /post endpoint
       // postId should be the originalId (numeric WordPress post ID) from the gameapi
-      const apiUrl = `https://gameapi.a7a8524.workers.dev/post?id=${encodeURIComponent(postId)}&site=${encodeURIComponent(siteType)}`;
+      const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
+      const apiUrl = `${baseUrl}/post?id=${encodeURIComponent(postId)}&site=${encodeURIComponent(siteType)}`;
       
       console.log(`Fetching download links from: ${apiUrl}`);
       

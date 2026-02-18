@@ -114,7 +114,8 @@ export async function POST(req: NextRequest) {
 
     // Search for the game using the existing search API
     try {
-      const searchUrl = `https://gameapi.a7a8524.workers.dev/?search=${encodeURIComponent(trimmedGameName)}`;
+      const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
+      const searchUrl = `${baseUrl}/?search=${encodeURIComponent(trimmedGameName)}`;
       const searchResponse = await fetch(searchUrl);
 
       if (!searchResponse.ok) {
