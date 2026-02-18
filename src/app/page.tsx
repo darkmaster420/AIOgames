@@ -643,6 +643,7 @@ function DashboardInner() {
                       key={game.id}
                       postId={game.originalId?.toString()}
                       siteType={game.siteType}
+                      link={game.link}
                       title={game.originalTitle || game.title}
                       image={game.image}
                       badge={game.source}

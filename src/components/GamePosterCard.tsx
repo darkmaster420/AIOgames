@@ -2,10 +2,12 @@
 
 import { ImageWithFallback } from '../utils/imageProxy';
 import { GameDownloadLinks } from './GameDownloadLinks';
+import { ExternalLinkIcon } from './ExternalLinkIcon';
 
 interface GamePosterCardProps {
   postId?: string;
   siteType?: string;
+  link?: string;
   title: string;
   image: string;
   year?: string;
@@ -22,6 +24,7 @@ interface GamePosterCardProps {
 export function GamePosterCard({
   postId,
   siteType,
+  link,
   title,
   image,
   year,
@@ -110,6 +113,19 @@ export function GamePosterCard({
               </div>
             )}
             
+            {/* View Original Post */}
+            {link && (
+              <a
+                href={link}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm font-medium"
+              >
+                <ExternalLinkIcon className="w-3.5 h-3.5" /> View Original Post
+              </a>
+            )}
+
             {/* Track/Untrack Button */}
             {(onTrack || onUntrack) && (
               <button
