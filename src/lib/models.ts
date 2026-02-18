@@ -75,14 +75,22 @@ const userSchema = new mongoose.Schema({
       default: 'system'
     },
     notifications: {
+      email: {
+        type: Boolean,
+        default: true
+      },
       provider: {
         type: String,
-        enum: ['webpush', 'telegram'],
+        enum: ['email', 'webpush', 'telegram'],
         default: 'webpush'
       },
       webpushEnabled: {
         type: Boolean,
         default: true
+      },
+      telegramEnabled: {
+        type: Boolean,
+        default: false
       },
       telegramUsername: {
         type: String,
@@ -145,11 +153,11 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: false
       },
-      avoidRepacks: {
+      prefer0xdeadcodeForOnlineFixes: {
         type: Boolean,
-        default: false
+        default: true
       },
-      preferRepacks: {
+      avoidRepacks: {
         type: Boolean,
         default: false
       }
@@ -564,12 +572,6 @@ const trackedGameSchema = new mongoose.Schema({
       }
     }]
   }],
-  priority: {
-    type: Number,
-    default: 2, // 1=DLC/Complete editions, 2=Regular, 3=Repacks
-    min: 1,
-    max: 3
-  },
   isActive: {
     type: Boolean,
     default: true
@@ -601,52 +603,7 @@ const trackedGameSchema = new mongoose.Schema({
     sequelType: {
       type: String
     }
-  },
-  pendingRelatedGames: [{
-    gameId: {
-      type: String,
-      required: true
-    },
-    title: {
-      type: String,
-      required: true
-    },
-    originalTitle: {
-      type: String
-    },
-    similarity: {
-      type: Number,
-      required: true
-    },
-    relationshipType: {
-      type: String,
-      enum: ['potential_sequel', 'potential_edition', 'potential_dlc'],
-      default: 'potential_sequel'
-    },
-    link: {
-      type: String
-    },
-    image: {
-      type: String
-    },
-    description: {
-      type: String
-    },
-    source: {
-      type: String
-    },
-    detectedDate: {
-      type: Date,
-      default: Date.now
-    },
-    version: {
-      type: String
-    },
-    dismissed: {
-      type: Boolean,
-      default: false
-    }
-  }]
+  }
 }, {
   timestamps: true
 });

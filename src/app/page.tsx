@@ -169,10 +169,10 @@ function DashboardInner() {
   }, [status]);
 
   // Load recent games (default view) with client-side caching
-  const loadRecentGames = useCallback(async () => {
-    // Check client-side cache first
+  const loadRecentGames = useCallback(async (forceRefresh = false) => {
+    // Check client-side cache first (skip if force refresh)
     const now = Date.now();
-    if (recentGamesCache && (now - recentGamesCache.timestamp) < CLIENT_CACHE_TTL) {
+    if (!forceRefresh && recentGamesCache && (now - recentGamesCache.timestamp) < CLIENT_CACHE_TTL) {
       setGames(recentGamesCache.data);
       return;
     }
@@ -180,7 +180,9 @@ function DashboardInner() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/games/recent');
+      const params = new URLSearchParams();
+      if (forceRefresh) params.set('refresh', 'true');
+      const response = await fetch(`/api/games/recent?${params}`);
       if (!response.ok) {
         throw new Error('Failed to fetch recent games');
       }
@@ -578,15 +580,22 @@ function DashboardInner() {
           </div>
         )}
         
-        {/* Cache Status Indicator */}
-        {recentGamesCache && games.length > 0 && !searchQuery && (
+        {/* Cache Status Indicator + Result Count */}
+        {games.length > 0 && (
           <div className="mb-3 p-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300 rounded text-xs flex items-center justify-between">
             <span>
-              📦 Cached data (loaded {Math.round((Date.now() - recentGamesCache.timestamp) / 1000 / 60)} min ago)
+              🎮 {games.length} games{searchQuery ? ` found for "${searchQuery}"` : ' loaded'}
+              {recentGamesCache && !searchQuery && ` (cached ${Math.round((Date.now() - recentGamesCache.timestamp) / 1000 / 60)} min ago)`}
             </span>
-            <span className="text-blue-500">
-              Refreshes automatically every 10 min
-            </span>
+            {!searchQuery && (
+              <button
+                onClick={() => loadRecentGames(true)}
+                disabled={loading}
+                className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 font-medium disabled:opacity-50"
+              >
+                {loading ? '⏳ Refreshing...' : '🔄 Refresh'}
+              </button>
+            )}
           </div>
         )}
         

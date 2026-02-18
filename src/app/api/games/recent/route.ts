@@ -3,7 +3,7 @@ import { cleanGameTitle } from '../../../../utils/steamApi';
 
 // Simple in-memory cache (per server instance). For multi-instance you'd need Redis or KV.
 let cachedRecent: { data: unknown; timestamp: number; siteKey: string } | null = null;
-const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours (extended from 1 hour)
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 // Internal function to clear cache
 function clearRecentGamesCache() {
@@ -23,17 +23,19 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const site = searchParams.get('site') || 'all';
+    const forceRefresh = searchParams.get('refresh') === 'true';
 
     const now = Date.now();
     const cacheKey = 'all'; // we fetch all then filter locally
-  let data: unknown;
+    let data: unknown;
     let isFromCache = false;
 
-    if (cachedRecent && (now - cachedRecent.timestamp) < CACHE_TTL_MS && cachedRecent.siteKey === cacheKey) {
+    if (!forceRefresh && cachedRecent && (now - cachedRecent.timestamp) < CACHE_TTL_MS && cachedRecent.siteKey === cacheKey) {
       data = cachedRecent.data;
       isFromCache = true;
     } else {
-      const apiUrl = process.env.GAME_API_URL + '/recent' || 'https://gameapi.a7a8524.workers.dev/recent';
+      const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
+      const apiUrl = `${baseUrl}/recent`;
       const response = await fetch(apiUrl, { next: { revalidate: 0 }, cache: 'no-store' });
       if (!response.ok) {
         // Clear cache on API failure to prevent caching error responses

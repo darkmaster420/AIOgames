@@ -4,7 +4,7 @@ import connectDB from '../../../../lib/db';
 import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel } from '../../../../utils/sequelDetection';
-import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, resolveVersionFromDate } from '../../../../utils/steamApi';
+import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
 import { detectUpdatesWithAI, isAIDetectionAvailable, prepareCandidatesForAI } from '../../../../utils/aiUpdateDetection';
@@ -214,14 +214,14 @@ function extractVersionInfo(title: string): VersionInfo {
   
   // Extract version patterns (from ORIGINAL title first, then cleaned)
   const versionPatterns = [
-    // v1.2.3.1234 - Full version with small 4th component (avoid if 5+ digits which is likely a build)
-    /v(\d+\.\d+\.\d+\.\d{1,4})\b/i,
-    // Date-based versions like v2025-09-22, v2025.09.22 (with separators)
-    /v(\d{4}[-.]\d{2}[-.]\d{2})/i,
-    // Date-based versions - 8 digits like v20250922 (YYYYMMDD)
-    /v(\d{8})\b/i,
+    // v1.2.3.45678 - Full version with build (most specific first)
+    /v(\d+\.\d+\.\d+\.\d+)/i,
+    // Date-based versions like v20250922, v2025.09.22
+    /v(\d{4}[-.]?\d{2}[-.]?\d{2})/i,
     // Date-based versions - DD.MM.YY format like v30.09.25 (check for day <= 31, month <= 12)
     /v(\d{2}\.\d{2}\.\d{2})\b/i,
+    // Date-based versions - 8 digits like v20250922
+    /v(\d{8})/i,
     // v1.2.3a, v1.2.3.a, v1.2.3c, v1.2.3b, v1.2.3-beta, v1.2.3-alpha, etc. (version with suffix)
     /v(\d+(?:\.\d+)+(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,
     // Version 1.2.3a, Version 1.2.3.a, Version 1.2.3c, Version 1.2.3-beta, etc.
@@ -302,36 +302,17 @@ function extractVersionInfo(title: string): VersionInfo {
     }
   }
   
-  // Detect if this is a date-based version
+  // Detect if this is a date-based version (DD.MM.YY format)
   let isDateVersion = false;
   if (version) {
-    // Check for YYYYMMDD format (8 digits)
-    if (/^\d{8}$/.test(version)) {
-      const year = parseInt(version.slice(0, 4), 10);
-      const month = parseInt(version.slice(4, 6), 10);
-      const day = parseInt(version.slice(6, 8), 10);
-      // Valid date check: year 2000-2030, month 1-12, day 1-31
-      if (year >= 2000 && year <= 2030 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+    const dateMatch = version.match(/^(\d{2})\.(\d{2})\.(\d{2})$/);
+    if (dateMatch) {
+      const day = parseInt(dateMatch[1], 10);
+      const month = parseInt(dateMatch[2], 10);
+      // Valid date check: day 1-31, month 1-12
+      if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
         isDateVersion = true;
-        logger.debug(`✅ Detected date-based version: ${version} (YYYYMMDD format)`);
-      }
-    }
-    // Check for YYYY-MM-DD or YYYY.MM.DD format
-    else if (/^\d{4}[-.]\d{2}[-.]\d{2}$/.test(version)) {
-      isDateVersion = true;
-      logger.debug(`✅ Detected date-based version: ${version} (YYYY-MM-DD format)`);
-    }
-    // Check for DD.MM.YY format
-    else {
-      const dateMatch = version.match(/^(\d{2})\.(\d{2})\.(\d{2})$/);
-      if (dateMatch) {
-        const day = parseInt(dateMatch[1], 10);
-        const month = parseInt(dateMatch[2], 10);
-        // Valid date check: day 1-31, month 1-12
-        if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
-          isDateVersion = true;
-          logger.debug(`✅ Detected date-based version: ${version} (DD.MM.YY format)`);
-        }
+        logger.debug(`✅ Detected date-based version: ${version} (DD.MM.YY format)`);
       }
     }
   }
@@ -577,34 +558,6 @@ export async function POST(request: Request) {
     
     logger.debug(`📊 Search returned ${games.length} results`);
 
-    // Also search for potential sequels (Game Name 2, Game Name 3, Game Name II, etc.)
-    const sequelVariations = [
-      `${searchTitle} 2`,
-      `${searchTitle} 3`,
-      `${searchTitle} 4`,
-      `${searchTitle} II`,
-      `${searchTitle} III`,
-      `${searchTitle} IV`,
-    ];
-
-    for (const sequelSearch of sequelVariations) {
-      try {
-        const sequelResponse = await fetch(`${baseUrl}/?search=${encodeURIComponent(sequelSearch)}`);
-        if (sequelResponse.ok) {
-          const sequelData = await sequelResponse.json();
-          if (sequelData.success && sequelData.results && Array.isArray(sequelData.results)) {
-            logger.debug(`📊 Sequel search "${sequelSearch}" returned ${sequelData.results.length} results`);
-            games.push(...sequelData.results);
-          }
-        }
-      } catch (error) {
-        logger.debug(`Sequel search failed for "${sequelSearch}":`, error instanceof Error ? error.message : 'unknown');
-        // Continue with other searches even if one fails
-      }
-    }
-    
-    logger.debug(`📊 Total results including sequel searches: ${games.length}`);
-
     // Remove duplicate posts by link (same post can appear multiple times)
     try {
       const seenLinks = new Map<string, GameSearchResult>();
@@ -693,27 +646,7 @@ export async function POST(request: Request) {
         // Enrich version/build via SteamDB Worker if one side is missing and we know the appId
         if (game.steamAppId) {
           try {
-            // If this is a date-based version, try to resolve the actual version/build from SteamDB
-            if (newVersionInfo.isDateVersion && newVersionInfo.version) {
-              logger.debug(`🗓️ Date-based version detected: ${newVersionInfo.version}, resolving from SteamDB...`);
-              const resolved = await resolveVersionFromDate(game.steamAppId, newVersionInfo.version);
-              if (resolved) {
-                if (resolved.version) {
-                  logger.debug(`🔗 Resolved version ${resolved.version} from date ${newVersionInfo.version} via SteamDB`);
-                  // Keep the date version for reference, but use the resolved version for comparison
-                  newVersionInfo.version = resolved.version;
-                  newVersionInfo.isDateVersion = false; // Mark as regular version now
-                }
-                if (resolved.build && !newVersionInfo.build) {
-                  logger.debug(`🔗 Resolved build ${resolved.build} from date ${newVersionInfo.version} via SteamDB`);
-                  newVersionInfo.build = resolved.build;
-                }
-              } else {
-                logger.debug(`⚠️ Could not resolve version from date ${newVersionInfo.version}, using date as-is`);
-              }
-            }
-            // Otherwise, resolve missing parts normally
-            else if (newVersionInfo.version && !newVersionInfo.build) {
+            if (newVersionInfo.version && !newVersionInfo.build) {
               const build = await resolveBuildFromVersion(game.steamAppId, newVersionInfo.version);
               if (build) {
                 newVersionInfo.build = build;
