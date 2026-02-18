@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getCurrentUser } from '../../../../lib/auth';
 
 // GET: Get download links for any game using the gameapi
 export async function GET(req: NextRequest) {
   try {
-    // Allow both authenticated and anonymous users to access download links
-    // This enables download links on the public homepage and search
-    
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const postId = searchParams.get('postId');
     const siteType = searchParams.get('siteType');
@@ -19,8 +25,18 @@ export async function GET(req: NextRequest) {
     }
 
     try {
+      // Extract the actual post ID from compound IDs like "fitgirl_12345"
+      let actualPostId = postId;
+      const compoundMatch = postId.match(/^([a-z]+)_(.+)$/);
+      if (compoundMatch) {
+        // If the prefix matches the siteType, use just the numeric part
+        if (compoundMatch[1] === siteType) {
+          actualPostId = compoundMatch[2];
+        }
+      }
+      
       // Fetch download links from the gameapi using the /post endpoint
-      const apiUrl = `https://gameapi.a7a8524.workers.dev/post?id=${encodeURIComponent(postId)}&site=${encodeURIComponent(siteType)}`;
+      const apiUrl = `https://gameapi.a7a8524.workers.dev/post?id=${encodeURIComponent(actualPostId)}&site=${encodeURIComponent(siteType)}`;
       
       console.log(`Fetching download links from: ${apiUrl}`);
       

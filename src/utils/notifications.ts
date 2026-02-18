@@ -16,9 +16,6 @@ const telegramRateLimit = new Map<string, number>(); // userId -> lastSentTime
 const notificationCache = new Map<string, number>(); // cacheKey -> timestamp
 const DEDUP_WINDOW_MS = 60000; // 1 minute deduplication window
 
-// Promise locks to prevent parallel notifications for the same cache key
-const notificationLocks = new Map<string, Promise<NotificationResult>>(); // cacheKey -> Promise
-
 /**
  * Generate a cache key for deduplication
  */
@@ -149,15 +146,6 @@ export async function sendUpdateNotification(
 
   // Check for duplicate notification
   const cacheKey = getNotificationCacheKey(userId, updateData.gameTitle, updateData.version, updateData.updateType);
-  
-  // Check if there's already a notification in progress for this key (prevents race conditions)
-  const existingLock = notificationLocks.get(cacheKey);
-  if (existingLock) {
-    console.log(`[Notifications] Notification already in progress for ${cacheKey}, waiting...`);
-    return existingLock;
-  }
-  
-  // Check if this notification was recently sent
   if (wasRecentlySent(cacheKey)) {
     console.log(`[Notifications] Skipping duplicate notification for ${updateData.gameTitle}`);
     return {
@@ -172,20 +160,18 @@ export async function sendUpdateNotification(
     };
   }
 
-  // Create a promise for this notification and store it as a lock
-  const notificationPromise = (async (): Promise<NotificationResult> => {
-    const result: NotificationResult = {
-      userId,
-      success: false,
-      sentCount: 0,
-      failedCount: 0,
-      errors: [],
-      methods: {
-        telegram: { sent: 0, failed: 0, errors: [] }
-      }
-    };
+  const result: NotificationResult = {
+    userId,
+    success: false,
+    sentCount: 0,
+    failedCount: 0,
+    errors: [],
+    methods: {
+      telegram: { sent: 0, failed: 0, errors: [] }
+    }
+  };
 
-    try {
+  try {
     // Get user data
     const user = await User.findById(userId);
     if (!user) {
@@ -276,17 +262,7 @@ export async function sendUpdateNotification(
     result.errors.push(`Notification error: ${errorMessage}`);
     console.error('Notification error:', error);
     return result;
-  } finally {
-    // Clean up the lock
-    notificationLocks.delete(cacheKey);
   }
-  })();
-  
-  // Store the promise as a lock
-  notificationLocks.set(cacheKey, notificationPromise);
-  
-  // Return the promise
-  return notificationPromise;
 }
 
 /**

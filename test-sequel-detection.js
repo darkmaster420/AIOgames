@@ -9,7 +9,7 @@
  * Run with: node test-sequel-detection.js
  */
 
-// Simulate the areTitlesRelated function
+// Simulate the areTitlesRelated function (updated: requires min 2 words)
 function areTitlesRelated(title1, title2) {
   const clean1 = title1.toLowerCase().trim();
   const clean2 = title2.toLowerCase().trim();
@@ -20,6 +20,23 @@ function areTitlesRelated(title1, title2) {
   
   const words1 = clean1.split(/\s+/);
   const words2 = clean2.split(/\s+/);
+  
+  // Both titles must have at least 2 words
+  if (words1.length < 2 || words2.length < 2) {
+    return false;
+  }
+  
+  const shorter = words1.length <= words2.length ? words1 : words2;
+  const longer = words1.length <= words2.length ? words2 : words1;
+  
+  // Don't trigger if same length
+  if (shorter.length === longer.length) {
+    return false;
+  }
+  
+  if (shorter.length < 2) {
+    return false;
+  }
   
   const isSubset = (shorter, longer) => {
     let longerIndex = 0;
@@ -39,13 +56,7 @@ function areTitlesRelated(title1, title2) {
     return true;
   };
   
-  if (words1.length < words2.length) {
-    return isSubset(words1, words2);
-  } else if (words2.length < words1.length) {
-    return isSubset(words2, words1);
-  }
-  
-  return false;
+  return isSubset(shorter, longer);
 }
 
 // Test cases
@@ -65,6 +76,11 @@ const testCases = [
   // Edge cases
   { title1: "The Witcher 3", title2: "The Witcher 3", expected: false }, // Same game
   { title1: "GTA V", title2: "GTA Vice City", expected: false }, // Different words
+  
+  // Single-word games should NEVER trigger false matches
+  { title1: "Dusk", title2: "Before Dusk", expected: false },
+  { title1: "Dusk", title2: "Dusk Chronicles", expected: false },
+  { title1: "Portal", title2: "Portal 2", expected: false }, // Single word vs 2 words
 ];
 
 console.log("🔍 Sequel/Variant Detection Test\n");

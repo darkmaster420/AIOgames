@@ -34,14 +34,15 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     const id = Math.random().toString(36).substr(2, 9);
     const newNotification = { ...notification, id };
     
-    setNotifications(prev => [...prev, newNotification]);
+    // Deduplicate: don't add if a notification with the same title+type already exists
+    setNotifications(prev => {
+      const isDuplicate = prev.some(n => n.title === notification.title && n.type === notification.type);
+      if (isDuplicate) return prev;
+      return [...prev, newNotification];
+    });
 
-    // Auto-remove after duration (default 5 seconds)
-    const duration = notification.duration || 5000;
-    setTimeout(() => {
-      removeNotification(id);
-    }, duration);
-  }, [removeNotification]);
+    // Auto-removal is handled by the NotificationItem component
+  }, []);
 
   const showSuccess = useCallback((title: string, message?: string) => {
     addNotification({ type: 'success', title, message });

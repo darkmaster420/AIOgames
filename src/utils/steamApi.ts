@@ -1042,18 +1042,31 @@ export function areTitlesRelated(title1: string, title2: string): boolean {
     return false;
   }
   
-  const words1 = clean1.split(/\s+/).filter(w => w.length > 0);
-  const words2 = clean2.split(/\s+/).filter(w => w.length > 0);
+  const words1 = clean1.split(/\s+/);
+  const words2 = clean2.split(/\s+/);
   
-  // Require minimum title length (at least 2 words for shorter title)
-  // This prevents single-word games like "Dusk" from matching everything
-  const minWords = Math.min(words1.length, words2.length);
-  if (minWords < 2) {
+  // Both titles must have at least 2 words to be considered related
+  // This prevents single-word games like "Dusk" from matching "Before Dusk", "Dusk Chronicles", etc.
+  if (words1.length < 2 || words2.length < 2) {
+    return false;
+  }
+  
+  // The shorter title must be at least 2 words for subset matching
+  const shorter = words1.length <= words2.length ? words1 : words2;
+  const longer = words1.length <= words2.length ? words2 : words1;
+  
+  // Don't trigger if lengths are equal (they'd need to be exactly the same words, already caught above)
+  if (shorter.length === longer.length) {
+    return false;
+  }
+  
+  // Require the shorter title to match at least 2 words in the longer title
+  if (shorter.length < 2) {
     return false;
   }
   
   // Check if one set of words is a subset of the other
-  // This handles cases like "hollow knight" vs "hollow knight silksong"
+  // This handles cases like "Assetto Corsa" vs "Assetto Corsa Evo"
   const isSubset = (shorter: string[], longer: string[]): boolean => {
     // All words from shorter must appear in order in longer
     let longerIndex = 0;
@@ -1073,20 +1086,8 @@ export function areTitlesRelated(title1: string, title2: string): boolean {
     return true;
   };
   
-  // Check both directions
-  if (words1.length < words2.length) {
-    const isMatch = isSubset(words1, words2);
-    // Also check that the shorter title is a significant portion (at least 50%)
-    const significance = words1.length / words2.length;
-    return isMatch && significance >= 0.5;
-  } else if (words2.length < words1.length) {
-    const isMatch = isSubset(words2, words1);
-    // Also check that the shorter title is a significant portion (at least 50%)
-    const significance = words2.length / words1.length;
-    return isMatch && significance >= 0.5;
-  }
-  
-  return false;
+  // Check: shorter must be a subset of longer
+  return isSubset(shorter, longer);
 }
 
 /**
