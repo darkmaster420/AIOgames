@@ -14,6 +14,7 @@ export async function middleware(request: NextRequest) {
     '/api/steam', // Steam API endpoints (appid, search)
     '/api/telegram', // Telegram webhook endpoint must be public
     '/api/games/search', // Allow anonymous users to search for games
+    '/api/games/links', // Allow anonymous users to view download links
     '/api/updates/recent', // Allow anonymous users to see recent game uploads
     '/icon.svg',
   ];

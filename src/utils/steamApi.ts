@@ -1042,8 +1042,15 @@ export function areTitlesRelated(title1: string, title2: string): boolean {
     return false;
   }
   
-  const words1 = clean1.split(/\s+/);
-  const words2 = clean2.split(/\s+/);
+  const words1 = clean1.split(/\s+/).filter(w => w.length > 0);
+  const words2 = clean2.split(/\s+/).filter(w => w.length > 0);
+  
+  // Require minimum title length (at least 2 words for shorter title)
+  // This prevents single-word games like "Dusk" from matching everything
+  const minWords = Math.min(words1.length, words2.length);
+  if (minWords < 2) {
+    return false;
+  }
   
   // Check if one set of words is a subset of the other
   // This handles cases like "hollow knight" vs "hollow knight silksong"
@@ -1068,9 +1075,15 @@ export function areTitlesRelated(title1: string, title2: string): boolean {
   
   // Check both directions
   if (words1.length < words2.length) {
-    return isSubset(words1, words2);
+    const isMatch = isSubset(words1, words2);
+    // Also check that the shorter title is a significant portion (at least 50%)
+    const significance = words1.length / words2.length;
+    return isMatch && significance >= 0.5;
   } else if (words2.length < words1.length) {
-    return isSubset(words2, words1);
+    const isMatch = isSubset(words2, words1);
+    // Also check that the shorter title is a significant portion (at least 50%)
+    const significance = words2.length / words1.length;
+    return isMatch && significance >= 0.5;
   }
   
   return false;
