@@ -641,6 +641,8 @@ export default function AdminDashboard() {
                         <option value="FreeGOGPCGames">FreeGOGPCGames</option>
                         <option value="GameDrive">GameDrive</option>
                         <option value="SteamRip">SteamRip</option>
+                        <option value="ReloadedSteam">ReloadedSteam</option>
+                        <option value="SteamUnderground">SteamUnderground</option>
                       </select>
                     </div>
                     <div>

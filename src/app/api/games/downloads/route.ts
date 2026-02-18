@@ -173,6 +173,8 @@ export async function GET(req: NextRequest) {
               else if (domain.includes('skidrowreloaded')) siteType = 'skidrow';
               else if (domain.includes('freegogpcgames')) siteType = 'freegog';
               else if (domain.includes('steamrip')) siteType = 'steamrip';
+              else if (domain.includes('reloadedsteam')) siteType = 'reloadedsteam';
+              else if (domain.includes('steamunderground')) siteType = 'steamunderground';
             }
           }
         }

@@ -60,7 +60,6 @@ export async function GET(request: NextRequest) {
       // Add original titles and clean existing titles
       results = results.map((game: Game) => ({
         ...game,
-        originalId: game.id, // Map id to originalId for download links
         originalTitle: game.title, // Store the original title
         title: cleanGameTitle(game.title) // Clean the title
       }));
