@@ -42,14 +42,14 @@ class UpdateScheduler {
     this.isRunning = true;
     logger.info('🚀 Starting automatic update scheduler...');
 
-    // Check for due updates every 5 minutes
+    // Check for due updates every hour
     this.checkInterval = setInterval(async () => {
       try {
         await this.checkForDueUpdates();
       } catch (error) {
         logger.error('❌ Error in scheduled update check:', error);
       }
-    }, 5 * 60 * 1000); // 5 minutes
+    }, 60 * 60 * 1000); // 1 hour
 
     // Warm cache every hour to keep data fresh (aligned with 2-hour cache TTL)
     this.cacheWarmInterval = setInterval(async () => {
