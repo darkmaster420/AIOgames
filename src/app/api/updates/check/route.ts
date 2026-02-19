@@ -1299,19 +1299,22 @@ export async function POST(request: Request) {
           if (isDifferentLink || isActuallyNewer) {
             logger.info(`Update found: ${decodedTitle} (different link: ${isDifferentLink}, newer: ${isActuallyNewer})`);
             
-            // Check if we already have this update
-            const existingUpdate = game.updateHistory?.find((update: { gameLink: string }) => 
+            // Check if we already have this update (use fresh DB query to avoid race conditions)
+            const freshGame = await TrackedGame.findById(game._id).lean();
+            const existingUpdate = (freshGame as any)?.updateHistory?.find((update: { gameLink: string }) => 
               update.gameLink === bestMatch.link
             );
             
-            const existingPending = game.pendingUpdates?.some((pending: { newLink: string }) => 
-              pending.newLink === bestMatch.link
+            const existingPending = (freshGame as any)?.pendingUpdates?.some((pending: { newLink?: string; gameLink?: string }) => 
+              pending.newLink === bestMatch.link || pending.gameLink === bestMatch.link
             );
             
             // If update exists and notification was already sent, skip it
             if (existingUpdate && existingUpdate.notificationSent) {
               logger.info(`Skipping update that already had notification sent: ${bestMatch.link}`);
-            } else if (!existingUpdate && !existingPending) {
+            } else if (existingUpdate || existingPending) {
+              logger.info(`Skipping duplicate update (already in ${existingUpdate ? 'updateHistory' : 'pendingUpdates'}): ${bestMatch.link}`);
+            } else {
               // Create version string
               let versionString = decodedTitle;
               if (newVersionInfo.version) {
@@ -1397,7 +1400,22 @@ export async function POST(request: Request) {
                   logger.info(`Updated build number to: ${newVersionInfo.build}`);
                 }
 
-                await TrackedGame.findByIdAndUpdate(game._id, updateFields);
+                // Atomic conditional update to prevent duplicate auto-approvals
+                const autoApproveWriteResult = await TrackedGame.findOneAndUpdate(
+                  {
+                    _id: game._id,
+                    'updateHistory.gameLink': { $ne: bestMatch.link },
+                    'pendingUpdates.newLink': { $ne: bestMatch.link },
+                    'pendingUpdates.gameLink': { $ne: bestMatch.link }
+                  },
+                  updateFields,
+                  { new: true }
+                );
+
+                if (!autoApproveWriteResult) {
+                  logger.info(`Skipping duplicate auto-approval (atomic check): ${bestMatch.link}`);
+                  continue;
+                }
 
                 logger.info(`Auto-approved update for ${game.title}: ${versionString}`);
                 updatesFound++;
@@ -1481,14 +1499,25 @@ export async function POST(request: Request) {
                   ...aiData  // Include AI detection data if available
                 };
 
-                const updatedGame = await TrackedGame.findByIdAndUpdate(
-                  game._id,
+                // Use atomic conditional update to prevent race-condition duplicates
+                const updatedGame = await TrackedGame.findOneAndUpdate(
+                  {
+                    _id: game._id,
+                    'pendingUpdates.newLink': { $ne: bestMatch.link },
+                    'pendingUpdates.gameLink': { $ne: bestMatch.link },
+                    'updateHistory.gameLink': { $ne: bestMatch.link }
+                  },
                   {
                     $push: { pendingUpdates: pendingUpdate },
                     lastChecked: new Date()
                   },
                   { new: true }
                 );
+
+                if (!updatedGame) {
+                  logger.info(`Skipping duplicate pending update (atomic check): ${bestMatch.link}`);
+                  continue;
+                }
 
                 logger.info(`Added pending update for ${game.title}: ${versionString}`);
                 updatesFound++;

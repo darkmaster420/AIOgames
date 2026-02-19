@@ -782,12 +782,18 @@ export async function POST(request: Request) {
         if (isUpdateCandidate && (newVersionInfo.version || newVersionInfo.build)) {
           logger.debug(`🔗 Download links in result:`, result.downloadLinks);
           
-          // Check if we already have this update in pending
-          const existingPending = game.pendingUpdates?.some((pending: PendingUpdate) => 
-            pending.version === decodedTitle && pending.gameLink === result.link
+          // Check if we already have this update in pending or history (fresh DB query to avoid race conditions)
+          const freshGame = await TrackedGame.findById(game._id).lean();
+          const existingPending = (freshGame as any)?.pendingUpdates?.some((pending: { version?: string; gameLink?: string; newLink?: string }) => 
+            pending.gameLink === result.link || pending.newLink === result.link
+          );
+          const existingInHistory = (freshGame as any)?.updateHistory?.some((update: { gameLink: string }) => 
+            update.gameLink === result.link
           );
           
-          if (!existingPending) {
+          if (existingPending || existingInHistory) {
+            logger.info(`⏩ Skipping duplicate update (already in ${existingInHistory ? 'updateHistory' : 'pendingUpdates'}): ${result.link}`);
+          } else {
             // Check if we can auto-approve based on verified version/build numbers
             const autoApproveResult = await canAutoApprove(game, newVersionInfo, comparison);
             logger.debug(`\n🤖 Auto-approval decision:`, autoApproveResult);
@@ -880,7 +886,22 @@ export async function POST(request: Request) {
                 logger.debug(`✅ Updated build number to: ${newVersionInfo.build}`);
               }
 
-              await TrackedGame.findByIdAndUpdate(game._id, updateFields);
+              // Atomic conditional update to prevent duplicate auto-approvals
+              const autoApproveResult2 = await TrackedGame.findOneAndUpdate(
+                {
+                  _id: game._id,
+                  'updateHistory.gameLink': { $ne: result.link },
+                  'pendingUpdates.gameLink': { $ne: result.link },
+                  'pendingUpdates.newLink': { $ne: result.link }
+                },
+                updateFields,
+                { new: true }
+              );
+
+              if (!autoApproveResult2) {
+                logger.info(`⏩ Skipping duplicate auto-approval (atomic check): ${result.link}`);
+                continue;
+              }
               
             } else {
               // Only add to pending if version or build is present
@@ -889,11 +910,25 @@ export async function POST(request: Request) {
                 continue; // Don't return here, continue checking other results
               }
               
-              // Add to pending updates if can't auto-approve
-              await TrackedGame.findByIdAndUpdate(game._id, {
-                $push: { pendingUpdates: updateData },
-                lastChecked: new Date()
-              });
+              // Add to pending updates if can't auto-approve (atomic conditional to prevent duplicates)
+              const pendingResult = await TrackedGame.findOneAndUpdate(
+                {
+                  _id: game._id,
+                  'pendingUpdates.gameLink': { $ne: result.link },
+                  'pendingUpdates.newLink': { $ne: result.link },
+                  'updateHistory.gameLink': { $ne: result.link }
+                },
+                {
+                  $push: { pendingUpdates: updateData },
+                  lastChecked: new Date()
+                },
+                { new: true }
+              );
+
+              if (!pendingResult) {
+                logger.info(`⏩ Skipping duplicate pending update (atomic check): ${result.link}`);
+                continue;
+              }
             }
 
             // Send notification for the update only if enabled for this game

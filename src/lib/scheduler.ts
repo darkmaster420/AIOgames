@@ -174,6 +174,13 @@ class UpdateScheduler {
    * Check for users whose update checks are due
    */
   private async checkForDueUpdates(): Promise<void> {
+    // Prevent overlapping check runs
+    if (this.isCheckRunning) {
+      logger.info('⏳ Update check already in progress, skipping this cycle');
+      return;
+    }
+    this.isCheckRunning = true;
+
     const now = new Date();
     const dueChecks: string[] = [];
 
@@ -185,6 +192,7 @@ class UpdateScheduler {
     }
 
     if (dueChecks.length === 0) {
+      this.isCheckRunning = false;
       return; // No checks due
     }
 
@@ -211,6 +219,8 @@ class UpdateScheduler {
         logger.error(`❌ Error performing update check for user ${userId}:`, error);
       }
     }
+
+    this.isCheckRunning = false;
   }
 
   /**
