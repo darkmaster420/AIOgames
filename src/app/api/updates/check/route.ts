@@ -1294,9 +1294,15 @@ export async function POST(request: Request) {
           // Check if it's different content (different link) or actually newer
           const isDifferentLink = game.gameLink !== bestMatch.link;
           
-          logger.debug(`Update analysis: Different link=${isDifferentLink}, Newer=${isActuallyNewer}, Reason=${comparisonReason}`);
+          // Only treat a different link as an update if the version is actually newer
+          // This prevents the same version from another site being flagged as an update
+          const isVersionSame = newVersionInfo.version && currentVersionInfo?.version && 
+            newVersionInfo.version === currentVersionInfo.version &&
+            (!newVersionInfo.build || !currentVersionInfo?.build || newVersionInfo.build === currentVersionInfo.build);
           
-          if (isDifferentLink || isActuallyNewer) {
+          logger.debug(`Update analysis: Different link=${isDifferentLink}, Newer=${isActuallyNewer}, VersionSame=${isVersionSame}, Reason=${comparisonReason}`);
+          
+          if (isActuallyNewer || (isDifferentLink && !isVersionSame)) {
             logger.info(`Update found: ${decodedTitle} (different link: ${isDifferentLink}, newer: ${isActuallyNewer})`);
             
             // Check if we already have this update (use fresh DB query to avoid race conditions)
