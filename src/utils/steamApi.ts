@@ -1199,12 +1199,20 @@ export async function detectAndResolveGameConflicts(
             resolvedSteamAppId: differentiation.game1?.appId,
             resolvedSteamName: differentiation.game1?.name
           };
-        } else {
-          // Can't differentiate or they're the same game
+        } else if (differentiation && !differentiation.areDistinct) {
+          // Steam confirmed they're the same game
           return {
             hasConflict: true,
             conflictingGame: existingGame,
-            needsSteamVerification: true
+            needsSteamVerification: false
+          };
+        } else {
+          // Steam API failed - allow tracking (don't block just because Steam is unavailable)
+          console.log(`⚠️ Steam differentiation unavailable, allowing tracking for "${newGameTitle}"`);
+          return {
+            hasConflict: false,
+            needsSteamVerification: true,
+            conflictingGame: existingGame
           };
         }
       }

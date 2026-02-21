@@ -335,25 +335,14 @@ function DashboardInner() {
         return '';
       }
       
-      // Fuzzy title match - find all tracked titles that this game's title starts with
-      // or that start with this game's title (for DLC/edition matching)
+      // Exact cleaned title match - only match if titles are identical after cleaning
+      // This prevents sequels (e.g., "Hollow Knight Silksong") from matching base games ("Hollow Knight")
       if (!cleaned) return null;
       
-      let bestMatch: TrackedGameInfo | null = null;
-      
-      for (const [trackedTitle, infos] of trackedTitles.entries()) {
-        // Check if the game title starts with a tracked title (e.g., "cuphead the delicious last course" starts with "cuphead")
-        // OR if a tracked title starts with the game title (e.g., tracking "cuphead deluxe" finds "cuphead")
-        if (cleaned.startsWith(trackedTitle) || trackedTitle.startsWith(cleaned)) {
-          // Get highest priority from this tracked title's versions
-          const sorted = [...infos].sort((a, b) => a.priority - b.priority);
-          const candidate = sorted[0];
-          
-          // Keep the highest priority match overall
-          if (!bestMatch || candidate.priority < bestMatch.priority) {
-            bestMatch = candidate;
-          }
-        }
+      const exactMatches = trackedTitles.get(cleaned);
+      if (exactMatches && exactMatches.length > 0) {
+        const sorted = [...exactMatches].sort((a, b) => a.priority - b.priority);
+        return sorted[0].version;
       }
       
       return bestMatch ? bestMatch.version : null;
