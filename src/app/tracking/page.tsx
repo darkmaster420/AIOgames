@@ -1477,7 +1477,7 @@ export default function TrackingDashboard() {
                                 )}
                               </div>
                               <SearchGameButton 
-                                gameTitle={game.title} 
+                                gameTitle={getDisplayTitle(game)} 
                                 size="sm"
                                 className="flex-shrink-0"
                               />
