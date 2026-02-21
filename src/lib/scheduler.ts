@@ -15,6 +15,7 @@ interface ScheduledCheck {
 
 class UpdateScheduler {
   private isRunning = false;
+  private isCheckRunning = false;
   private checkInterval: NodeJS.Timeout | null = null;
   private cacheWarmInterval: NodeJS.Timeout | null = null;
   private titleMigrationInterval: NodeJS.Timeout | null = null;

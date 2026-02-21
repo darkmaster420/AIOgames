@@ -345,7 +345,7 @@ function DashboardInner() {
         return sorted[0].version;
       }
       
-      return bestMatch ? bestMatch.version : null;
+      return null;
     }, [trackedGames, trackedTitles]);
 
     // Track/untrack handlers

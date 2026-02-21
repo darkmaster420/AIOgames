@@ -1306,12 +1306,12 @@ export async function POST(request: Request) {
             logger.info(`Update found: ${decodedTitle} (different link: ${isDifferentLink}, newer: ${isActuallyNewer})`);
             
             // Check if we already have this update (use fresh DB query to avoid race conditions)
-            const freshGame = await TrackedGame.findById(game._id).lean();
-            const existingUpdate = (freshGame as any)?.updateHistory?.find((update: { gameLink: string }) => 
+            const freshGame = await TrackedGame.findById(game._id).lean() as { updateHistory?: Array<{ gameLink: string; notificationSent?: boolean }>; pendingUpdates?: Array<{ newLink?: string; gameLink?: string }> } | null;
+            const existingUpdate = freshGame?.updateHistory?.find((update: { gameLink: string }) => 
               update.gameLink === bestMatch.link
             );
             
-            const existingPending = (freshGame as any)?.pendingUpdates?.some((pending: { newLink?: string; gameLink?: string }) => 
+            const existingPending = freshGame?.pendingUpdates?.some((pending: { newLink?: string; gameLink?: string }) => 
               pending.newLink === bestMatch.link || pending.gameLink === bestMatch.link
             );
             

@@ -783,11 +783,11 @@ export async function POST(request: Request) {
           logger.debug(`🔗 Download links in result:`, result.downloadLinks);
           
           // Check if we already have this update in pending or history (fresh DB query to avoid race conditions)
-          const freshGame = await TrackedGame.findById(game._id).lean();
-          const existingPending = (freshGame as any)?.pendingUpdates?.some((pending: { version?: string; gameLink?: string; newLink?: string }) => 
+          const freshGame = await TrackedGame.findById(game._id).lean() as { pendingUpdates?: Array<{ version?: string; gameLink?: string; newLink?: string }>; updateHistory?: Array<{ gameLink: string }> } | null;
+          const existingPending = freshGame?.pendingUpdates?.some((pending: { version?: string; gameLink?: string; newLink?: string }) => 
             pending.gameLink === result.link || pending.newLink === result.link
           );
-          const existingInHistory = (freshGame as any)?.updateHistory?.some((update: { gameLink: string }) => 
+          const existingInHistory = freshGame?.updateHistory?.some((update: { gameLink: string }) => 
             update.gameLink === result.link
           );
           
