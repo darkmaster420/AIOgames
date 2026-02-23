@@ -259,114 +259,64 @@ export function formatGameUpdateMessage(gameData: {
   downloadLinks?: Array<{ service: string; url: string; type?: string }>;
   imageUrl?: string;
 }): TelegramMessage | TelegramPhotoMessage {
-  const { title, version, previousVersion, gameLink, source, changeType, downloadLinks, imageUrl } = gameData;
+  const { title, version, gameLink, source, changeType, downloadLinks, imageUrl } = gameData;
   
-  // Set message header and icon based on type
+  // Simple clean header
   let text = '';
-  
-  // Set header based on update status
-  if (changeType === 'user_approved' || changeType === 'automatic') {
-    text = `✅ <b>Update Approved!</b>\n\n`;
-  } else if (changeType === 'pending') {
+  if (changeType === 'pending') {
     text = `🔔 <b>New Pending Update!</b>\n\n`;
   } else {
-    text = `🎮 <b>New Update Found!</b>\n\n`;
+    text = `✅ <b>New Update!</b>\n\n`;
   }
 
-  // Game title and version info
+  // Game title
   text += `📍 <b>${title}</b>\n`;
+  
+  // Version/build
   if (version) {
-    // Extract clean version/build information from the full post title
+    // Extract clean version/build
     let cleanVersion = version;
-    
-    // Try to extract build number (e.g., "Build 20440670" or "Build #12345")
     const buildMatch = version.match(/(?:Build|build)\s*[#:]?\s*(\d+)/i);
     if (buildMatch) {
       cleanVersion = `Build #${buildMatch[1]}`;
     } else {
-      // Try to extract version number (e.g., "v1.2.3" or "1.2.3")
       const versionMatch = version.match(/v?(\d+\.\d+(?:\.\d+)*(?:[a-z])?)/i);
       if (versionMatch) {
         cleanVersion = `v${versionMatch[1]}`;
       } else {
-        // If no clear build/version found, try to clean up the title
-        // Remove common prefixes and suffixes
-        cleanVersion = version
-          .replace(/^.*?:\s*/i, '') // Remove "Game Name: " prefix
-          .replace(/\s*[\[\(].*?[\]\)]\s*/g, ' ') // Remove bracketed content
-          .replace(/\s*-\s*update/i, '') // Remove " - Update"
-          .replace(/\s+/g, ' ')
-          .trim();
-        
-        // If result is too long, just take first part
-        if (cleanVersion.length > 50) {
-          cleanVersion = cleanVersion.substring(0, 47) + '...';
+        // Try date-based version (e.g., v20260222)
+        const dateMatch = version.match(/v?(\d{8})/);
+        if (dateMatch) {
+          cleanVersion = `v${dateMatch[1]}`;
+        } else {
+          cleanVersion = version.length > 50 ? version.substring(0, 47) + '...' : version;
         }
       }
     }
-    
-    if (previousVersion && previousVersion !== version) {
-      text += `🆕 <b>New Version:</b> ${cleanVersion}\n`;
-      if (previousVersion) {
-        // Also try to clean the previous version
-        const prevBuildMatch = previousVersion.match(/(?:Build|build)\s*[#:]?\s*(\d+)/i);
-        const prevVersionMatch = previousVersion.match(/v?(\d+\.\d+(?:\.\d+)*(?:[a-z])?)/i);
-        const cleanPrevious = prevBuildMatch 
-          ? `Build #${prevBuildMatch[1]}`
-          : prevVersionMatch
-            ? `v${prevVersionMatch[1]}`
-            : previousVersion;
-        text += `🔄 <b>Previous:</b> ${cleanPrevious}\n`;
-      }
-    } else {
-      text += `🆕 <b>Version:</b> ${cleanVersion}\n`;
-    }
+    text += `🆕 <b>Version:</b> ${cleanVersion}\n`;
   }
   
-  // Source and status
-  text += `🌐 <b>Source:</b> ${source || 'Game Tracker'}\n`;
-  if (changeType === 'user_approved' || changeType === 'automatic') {
-    text += `📥 <b>Status:</b> Ready to Download\n`;
-    if (changeType === 'automatic') {
-      text += `🤖 <b>Note:</b> Auto-approved update\n`;
-    }
-  } else if (changeType === 'pending') {
-    text += `⏳ <b>Status:</b> Pending Approval\n`;
-    text += `📝 <b>Action Required:</b> Review and approve in your tracking page\n`;
-  } else if (changeType && changeType !== 'unknown') {
-    text += `📝 <b>Type:</b> ${changeType === 'update' ? 'Version Update' : changeType.replace('_', ' ')}\n`;
-  }
-  
-  // Customize link text based on update type
-  if (changeType === 'user_approved' || changeType === 'automatic') {
-    text += `\n🔗 <a href="${gameLink || '/tracking'}">Download Now</a>`;
-  } else if (changeType === 'pending') {
-    text += `\n🔗 <a href="${gameLink || '/tracking'}">Review & Approve Update</a>`;
+  // Source as a clickable link to the original post
+  const sourceName = source || 'Unknown';
+  if (gameLink && gameLink !== '/tracking') {
+    text += `🔗 <b>Source:</b> <a href="${gameLink}">${sourceName}</a>\n`;
   } else {
-    text += `\n🔗 <a href="${gameLink || '/tracking'}">View Update</a>`;
+    text += `🔗 <b>Source:</b> ${sourceName}\n`;
+  }
+
+  // Pending action note
+  if (changeType === 'pending') {
+    text += `\n⏳ <b>Action Required:</b> Review and approve in your tracking page\n`;
   }
   
-  console.log(`📥 Processing download links in Telegram formatter:`, downloadLinks);
-  // Only show download links for approved updates
-  if ((changeType === 'user_approved' || changeType === 'automatic') && downloadLinks && downloadLinks.length > 0) {
-    text += `\n\n📥 <b>Download Links:</b>\n`;
+  // Download links for approved updates
+  if (changeType !== 'pending' && downloadLinks && downloadLinks.length > 0) {
+    text += `\n📥 <b>Download Links:</b>\n`;
     downloadLinks.forEach(link => {
-      // Format based on link type
       const typeLabel = link.type === 'magnet' ? 'torrent' : link.type || 'hosting';
-      // Make each link clickable with service name
       text += `• <a href="${link.url}">${link.service}</a> (${typeLabel})\n`;
     });
   }
-  
-  // Add timestamp
-  text += `\n\n⏰ ${new Date().toLocaleString('en-US', { 
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true
-  })}`;
   
   // Return photo message if image URL is provided, otherwise text message
   if (imageUrl) {

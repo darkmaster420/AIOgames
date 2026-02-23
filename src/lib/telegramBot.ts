@@ -200,34 +200,46 @@ async function handleUpdateCommand(chatId: number, user: any, botClient: Telegra
   await botClient.sendMessage(chatId, '🔄 Checking for updates...');
 
   try {
-    const response = await fetch(`${process.env.NEXTAUTH_URL}/api/tracking/check-updates`, {
+    // Call the real batch update check route (same one the scheduler uses)
+    const baseUrl = process.env.NODE_ENV === 'production'
+      ? process.env.NEXT_PUBLIC_APP_URL || 'http://127.0.0.1:3000'
+      : `http://127.0.0.1:${process.env.PORT || 3000}`;
+
+    const response = await fetch(`${baseUrl}/api/updates/check`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-User-ID': user._id.toString(),
+        'User-Id': user._id.toString(),
       },
     });
 
     if (response.ok) {
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('Non-JSON response from update check');
+      }
+
       const result = await response.json();
-      const { updatesFound, totalChecked } = result;
+      const checked = result.checked || 0;
+      const updatesFound = result.updatesFound || 0;
 
       if (updatesFound > 0) {
         await botClient.sendMessage(
           chatId,
-          `✅ Update check complete!\n\n🎯 Found ${updatesFound} update(s) out of ${totalChecked} games checked.\n\nCheck your dashboard for details: ${process.env.NEXTAUTH_URL}/tracking`,
+          `✅ Update check complete!\n\n🎯 Found ${updatesFound} update(s) out of ${checked} games checked.\n\nCheck your dashboard for details: ${process.env.NEXTAUTH_URL || baseUrl}/tracking`,
           { disable_web_page_preview: true }
         );
       } else {
         await botClient.sendMessage(
           chatId,
-          `✅ Update check complete!\n\n📋 No new updates found for your ${totalChecked} tracked games.`
+          `✅ Update check complete!\n\n📋 No new updates found for your ${checked} tracked games.`
         );
       }
     } else {
-      throw new Error('Update check failed');
+      throw new Error(`Update check returned ${response.status}`);
     }
-  } catch {
+  } catch (error) {
+    console.error('Telegram /update command error:', error);
     await botClient.sendMessage(
       chatId,
       '❌ Failed to check for updates. Please try again later.'
