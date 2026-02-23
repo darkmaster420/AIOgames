@@ -668,18 +668,62 @@ export async function POST(request: Request) {
         
         logger.debug(`📊 Comparison: isNewer=${comparison.isNewer}, current="${currentVersionInfo.version || currentVersionInfo.build}", new="${newVersionInfo.version || newVersionInfo.build}"`);
         
-        // AI-First Enhanced Update Detection
+        // Regex-First Detection — AI only used as tiebreaker for uncertain cases
         let isUpdateCandidate = false;
         let aiConfidence = 0;
         let aiReason = '';
         let enhancedScore = similarity;
         
-        // Try AI detection first if available
+        // Step 1: Regex/version comparison is the primary detection method
+        isUpdateCandidate = comparison.isNewer || newVersionInfo.needsUserConfirmation;
+        
+        // Enhanced regex scoring
+        const titleLower = decodedTitle.toLowerCase();
+        const gameTitle = game.title.toLowerCase();
+        
+        const updateKeywords = [
+          'update', 'patch', 'hotfix', 'build', 'version', 'v\\d', 'rev', 'fixed',
+          'bugfix', 'new version', 'latest', 'improved', 'enhanced', 'repack',
+          'director.*cut', 'goty', 'complete.*edition', 'final.*cut'
+        ];
+        
+        let updateIndicators = 0;
+        for (const keyword of updateKeywords) {
+          const regex = new RegExp(keyword, 'i');
+          if (regex.test(titleLower) && !regex.test(gameTitle)) {
+            updateIndicators++;
+            enhancedScore += 0.1;
+          }
+        }
+        
+        const versionPatterns = [
+          /v\d+\.\d+\.\d+/i, /\d+\.\d+\.\d+/, /build\s*\d+/i, /patch\s*\d+/i,
+          /update\s*\d+/i, /rev\s*\d+/i, /r\d+/i, /v\d{8}/i, /\d{4}[-\.]\d{2}[-\.]\d{2}/
+        ];
+        
+        for (const pattern of versionPatterns) {
+          if (pattern.test(decodedTitle)) {
+            updateIndicators++;
+            enhancedScore += 0.15;
+          }
+        }
+        
+        enhancedScore = Math.min(enhancedScore, 1.0);
+        aiReason = `Regex analysis: ${updateIndicators} update indicators`;
+        
+        // Boost confidence if we have strong indicators
+        if (updateIndicators >= 2 && similarity >= 0.85) {
+          isUpdateCandidate = true;
+        }
+        
+        // Step 2: Only use AI as tiebreaker when regex is uncertain
+        // Uncertain = version comparison says not newer but we have update keywords/patterns
+        const regexUncertain = !comparison.isNewer && updateIndicators > 0 && similarity >= 0.75;
         const aiAvailable = await isAIDetectionAvailable();
         
-        if (aiAvailable && similarity >= 0.75) {
+        if (regexUncertain && aiAvailable) {
           try {
-            logger.debug(`🤖 Using AI-first detection for: "${decodedTitle}" (similarity: ${similarity.toFixed(2)})`);
+            logger.debug(`🤖 Regex uncertain (isNewer=${comparison.isNewer}, indicators=${updateIndicators}), using AI as tiebreaker`);
             
             const candidates = prepareCandidatesForAI(
               [{ title: decodedTitle, link: result.link, date: result.date, similarity }],
@@ -696,8 +740,8 @@ export async function POST(request: Request) {
                 gameLink: game.gameLink
               },
               {
-                minConfidence: 0.4,  // Lower threshold for single game check
-                requireVersionPattern: false,  // Let AI decide
+                minConfidence: 0.5,
+                requireVersionPattern: false,
                 debugLogging: true,
                 maxCandidates: 1
               }
@@ -706,74 +750,22 @@ export async function POST(request: Request) {
             if (aiResults.length > 0) {
               const aiResult = aiResults[0];
               aiConfidence = aiResult.confidence;
-              aiReason = aiResult.reason;
+              aiReason = `AI tiebreaker: ${aiResult.reason}`;
               
-              // Enhanced scoring: 40% similarity, 60% AI confidence
-              enhancedScore = similarity * 0.4 + aiResult.confidence * 0.6;
-              
-              // AI decides if it's an update
-              isUpdateCandidate = aiResult.isUpdate && aiResult.confidence >= 0.5;
-              
-              logger.debug(`🤖 AI analysis: Update=${aiResult.isUpdate}, Confidence=${aiConfidence.toFixed(2)}, Enhanced Score=${enhancedScore.toFixed(2)}, Reason=${aiReason}`);
-            } else {
-              logger.debug(`🤖 AI analysis: No results returned`);
-              // Fallback to regex if AI returns no results
-              isUpdateCandidate = comparison.isNewer || newVersionInfo.needsUserConfirmation;
-              aiReason = 'AI provided no analysis, using regex fallback';
+              // AI breaks the tie — if it says it's an update with high confidence, accept it
+              if (aiResult.isUpdate && aiResult.confidence >= 0.6) {
+                isUpdateCandidate = true;
+                logger.debug(`🤖 AI tiebreaker: YES update (confidence=${aiConfidence.toFixed(2)})`);
+              } else {
+                logger.debug(`🤖 AI tiebreaker: NOT update (confidence=${aiConfidence.toFixed(2)})`);
+              }
             }
-            
           } catch (aiError) {
-            logger.debug(`⚠️ AI detection failed: ${aiError instanceof Error ? aiError.message : 'unknown error'}`);
-            // Fallback to enhanced regex detection
-            isUpdateCandidate = comparison.isNewer || newVersionInfo.needsUserConfirmation;
-            
-            // Enhanced regex scoring when AI fails
-            const titleLower = decodedTitle.toLowerCase();
-            const gameTitle = game.title.toLowerCase();
-            
-            // Enhanced update keyword detection
-            const updateKeywords = [
-              'update', 'patch', 'hotfix', 'build', 'version', 'v\\d', 'rev', 'fixed',
-              'bugfix', 'new version', 'latest', 'improved', 'enhanced', 'repack',
-              'director.*cut', 'goty', 'complete.*edition', 'final.*cut'
-            ];
-            
-            let updateIndicators = 0;
-            for (const keyword of updateKeywords) {
-              const regex = new RegExp(keyword, 'i');
-              if (regex.test(titleLower) && !regex.test(gameTitle)) {
-                updateIndicators++;
-                enhancedScore += 0.1;
-              }
-            }
-            
-            // Enhanced version pattern detection
-            const versionPatterns = [
-              /v\d+\.\d+\.\d+/i, /\d+\.\d+\.\d+/, /build\s*\d+/i, /patch\s*\d+/i,
-              /update\s*\d+/i, /rev\s*\d+/i, /r\d+/i, /v\d{8}/i, /\d{4}[-\.]\d{2}[-\.]\d{2}/
-            ];
-            
-            for (const pattern of versionPatterns) {
-              if (pattern.test(decodedTitle)) {
-                updateIndicators++;
-                enhancedScore += 0.15;
-              }
-            }
-            
-            enhancedScore = Math.min(enhancedScore, 1.0);
-            aiReason = `Enhanced regex analysis: ${updateIndicators} update indicators (AI unavailable)`;
-            
-            // Boost confidence if we have strong indicators
-            if (updateIndicators >= 2 && similarity >= 0.85) {
-              isUpdateCandidate = true;
-            }
+            logger.debug(`⚠️ AI tiebreaker failed: ${aiError instanceof Error ? aiError.message : 'unknown error'}`);
+            // Keep regex decision
           }
-        } else {
-          // AI not available or similarity too low - use enhanced regex only
-          isUpdateCandidate = comparison.isNewer || newVersionInfo.needsUserConfirmation;
-          aiReason = aiAvailable ? 'Similarity below AI threshold (0.75)' : 'AI detection not available';
-          
-          logger.debug(`🤖 ${aiReason}, using regex detection: ${isUpdateCandidate}`);
+        } else if (!regexUncertain) {
+          logger.debug(`✅ Regex decisive (isNewer=${comparison.isNewer}, indicators=${updateIndicators}), no AI needed`);
         }
         
         logger.debug(`🎯 Final decision: isUpdateCandidate=${isUpdateCandidate}, hasVersion=${!!newVersionInfo.version}, hasBuild=${!!newVersionInfo.build}`);

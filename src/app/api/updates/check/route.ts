@@ -875,143 +875,136 @@ export async function POST(request: Request) {
         let selectedMatch: EnhancedMatch | null = null;
 
         if (potentialMatches.length > 0) {
-          let sortedMatches: EnhancedMatch[] = [...potentialMatches];
+          const sortedMatches: EnhancedMatch[] = [...potentialMatches];
           const hasVerifiedVersion = game.versionNumberVerified && game.currentVersionNumber;
           const hasVerifiedBuild = game.buildNumberVerified && game.currentBuildNumber;
           logger.debug(`Game verification status: Version=${hasVerifiedVersion ? game.currentVersionNumber : 'No'}, Build=${hasVerifiedBuild ? game.currentBuildNumber : 'No'}`);
           
-          // AI-First Enhanced Detection Strategy
+          // Regex-First Detection Strategy — AI is only used as a tiebreaker for conflicts
           const aiAvailable = await isAIDetectionAvailable();
           
-          if (aiAvailable && aiPreferences.enabled && sortedMatches.length > 0) {
-            try {
-              logger.debug(`🤖 Using AI-first detection for ${sortedMatches.length} candidates`);
-              
-              // Prepare ALL matches for AI analysis, not just uncertain ones
-              const candidates = prepareCandidatesForAI(
-                sortedMatches.map(m => ({
-                  title: m.game.title,
-                  link: m.game.link,
-                  date: m.game.date,
-                  similarity: m.similarity
-                })),
-                game.title,
-                { 
-                  maxCandidates: Math.min(10, sortedMatches.length), 
-                  minSimilarity: 0.75,  // Lower threshold for AI analysis
-                  includeDate: true 
-                }
-              );
-
-              const aiResults = await detectUpdatesWithAI(
-                game.title,
-                candidates,
-                {
-                  lastKnownVersion: game.lastKnownVersion,
-                  releaseGroup: game.releaseGroup,
-                  gameLink: game.gameLink
-                },
-                {
-                  minConfidence: 0.5,  // Lower AI confidence threshold
-                  requireVersionPattern: false,  // Let AI decide what constitutes an update
-                  debugLogging: aiPreferences.debugLogging,
-                  maxCandidates: 10
-                }
-              );
-
-              // Create AI-enhanced matches with much higher AI weighting
-              const aiEnhancedMatches: EnhancedMatch[] = [];
-              
-              for (const match of sortedMatches) {
-                const aiResult = aiResults.find(ai => ai.title === match.game.title);
-                if (aiResult) {
-                  // High AI weighting: 60% AI confidence, 40% similarity
-                  const enhancedScore = match.similarity * 0.4 + aiResult.confidence * 0.6;
-                  
-                  aiEnhancedMatches.push({
-                    ...match,
-                    aiConfidence: aiResult.confidence,
-                    aiReason: aiResult.reason,
-                    enhancedScore: aiResult.isUpdate ? enhancedScore : match.similarity * 0.3 // Penalize non-updates
-                  });
-                  
-                  logger.debug(`🤖 AI analysis: "${match.game.title}" - Update: ${aiResult.isUpdate}, Confidence: ${aiResult.confidence.toFixed(2)}, Reason: ${aiResult.reason}`);
-                } else {
-                  // No AI result, lower the score significantly
-                  aiEnhancedMatches.push({
-                    ...match,
-                    aiConfidence: 0,
-                    aiReason: 'No AI analysis available',
-                    enhancedScore: match.similarity * 0.5
-                  });
-                }
-              }
-
-              // Replace matches with AI-enhanced ones
-              sortedMatches = aiEnhancedMatches;
-              logger.info(`🤖✨ AI-enhanced ${sortedMatches.length} matches using AI-first strategy`);
-
-            } catch (aiError) {
-              logger.warn(`⚠️ AI enhancement failed: ${aiError instanceof Error ? aiError.message : 'unknown error'}`);
-              // Fallback to regex-only if AI fails
-              if (!aiPreferences.fallbackToRegex) {
-                logger.warn('AI fallback disabled, using reduced confidence scores');
-                sortedMatches = sortedMatches.map(m => ({
-                  ...m,
-                  enhancedScore: m.similarity * 0.6  // Reduce confidence without AI
-                }));
+          // Step 1: Always score all matches with enhanced regex detection first
+          for (const match of sortedMatches) {
+            let regexScore = match.similarity;
+            let updateIndicators = 0;
+            
+            // Enhanced update detection keywords
+            const updateKeywords = [
+              'update', 'patch', 'hotfix', 'build', 'version', 'v\\d', 'rev', 'fixed',
+              'bugfix', 'new version', 'latest', 'improved', 'enhanced', 'repack',
+              'director.*cut', 'goty', 'complete.*edition', 'final.*cut'
+            ];
+            
+            // Enhanced version pattern detection
+            const versionPatterns = [
+              /v\d+\.\d+\.\d+/i,      // v1.2.3
+              /\d+\.\d+\.\d+/,        // 1.2.3
+              /build\s*\d+/i,         // build 1234
+              /patch\s*\d+/i,         // patch 12
+              /update\s*\d+/i,        // update 5
+              /rev\s*\d+/i,           // rev 123
+              /r\d+/i,                // r123
+              /v\d{8}/i,              // v20241007 (date version)
+              /\d{4}[-\.]\d{2}[-\.]\d{2}/  // 2024-10-07
+            ];
+            
+            const titleLower = match.game.title.toLowerCase();
+            const gameTitle = game.title.toLowerCase();
+            
+            // Check for update keywords not in original
+            for (const keyword of updateKeywords) {
+              const regex = new RegExp(keyword, 'i');
+              if (regex.test(titleLower) && !regex.test(gameTitle)) {
+                updateIndicators++;
+                regexScore += 0.1; // Boost score for update keywords
               }
             }
-          } else {
-            logger.debug('🤖 AI detection not available or disabled, using enhanced regex detection');
             
-            // Enhanced regex-only detection with better patterns
-            for (const match of sortedMatches) {
-              let regexScore = match.similarity;
-              let updateIndicators = 0;
-              
-              // Enhanced update detection keywords
-              const updateKeywords = [
-                'update', 'patch', 'hotfix', 'build', 'version', 'v\\d', 'rev', 'fixed',
-                'bugfix', 'new version', 'latest', 'improved', 'enhanced', 'repack',
-                'director.*cut', 'goty', 'complete.*edition', 'final.*cut'
-              ];
-              
-              // Enhanced version pattern detection
-              const versionPatterns = [
-                /v\d+\.\d+\.\d+/i,      // v1.2.3
-                /\d+\.\d+\.\d+/,        // 1.2.3
-                /build\s*\d+/i,         // build 1234
-                /patch\s*\d+/i,         // patch 12
-                /update\s*\d+/i,        // update 5
-                /rev\s*\d+/i,           // rev 123
-                /r\d+/i,                // r123
-                /v\d{8}/i,              // v20241007 (date version)
-                /\d{4}[-\.]\d{2}[-\.]\d{2}/  // 2024-10-07
-              ];
-              
-              const titleLower = match.game.title.toLowerCase();
-              const gameTitle = game.title.toLowerCase();
-              
-              // Check for update keywords not in original
-              for (const keyword of updateKeywords) {
-                const regex = new RegExp(keyword, 'i');
-                if (regex.test(titleLower) && !regex.test(gameTitle)) {
-                  updateIndicators++;
-                  regexScore += 0.1; // Boost score for update keywords
-                }
+            // Check for version patterns
+            for (const pattern of versionPatterns) {
+              if (pattern.test(match.game.title)) {
+                updateIndicators++;
+                regexScore += 0.15; // Higher boost for version patterns
               }
-              
-              // Check for version patterns
-              for (const pattern of versionPatterns) {
-                if (pattern.test(match.game.title)) {
-                  updateIndicators++;
-                  regexScore += 0.15; // Higher boost for version patterns
+            }
+            
+            match.enhancedScore = Math.min(regexScore, 1.0);
+            match.aiReason = `Regex analysis: ${updateIndicators} update indicators`;
+          }
+          
+          // Step 2: Only use AI as tiebreaker when top matches are too close to call
+          if (aiAvailable && aiPreferences.enabled && sortedMatches.length > 1) {
+            // Sort by regex score first
+            sortedMatches.sort((a, b) => (b.enhancedScore || b.similarity) - (a.enhancedScore || a.similarity));
+            
+            const topScore = sortedMatches[0]?.enhancedScore || sortedMatches[0]?.similarity || 0;
+            const secondScore = sortedMatches[1]?.enhancedScore || sortedMatches[1]?.similarity || 0;
+            const scoreDiff = topScore - secondScore;
+            
+            // Only call AI if the top two matches are within 0.1 of each other (conflict)
+            if (scoreDiff < 0.1) {
+              try {
+                logger.debug(`🤖 Regex conflict detected (diff=${scoreDiff.toFixed(3)}), using AI as tiebreaker for top ${Math.min(5, sortedMatches.length)} candidates`);
+                
+                // Only send the conflicting candidates to AI
+                const conflictingMatches = sortedMatches.filter(m => 
+                  (topScore - (m.enhancedScore || m.similarity)) < 0.1
+                );
+                
+                const candidates = prepareCandidatesForAI(
+                  conflictingMatches.map(m => ({
+                    title: m.game.title,
+                    link: m.game.link,
+                    date: m.game.date,
+                    similarity: m.similarity
+                  })),
+                  game.title,
+                  { 
+                    maxCandidates: Math.min(5, conflictingMatches.length), 
+                    minSimilarity: 0.75,
+                    includeDate: true 
+                  }
+                );
+
+                const aiResults = await detectUpdatesWithAI(
+                  game.title,
+                  candidates,
+                  {
+                    lastKnownVersion: game.lastKnownVersion,
+                    releaseGroup: game.releaseGroup,
+                    gameLink: game.gameLink
+                  },
+                  {
+                    minConfidence: 0.5,
+                    requireVersionPattern: false,
+                    debugLogging: aiPreferences.debugLogging,
+                    maxCandidates: 5
+                  }
+                );
+
+                // Use AI results to break the tie — boost the AI-preferred match
+                for (const match of conflictingMatches) {
+                  const aiResult = aiResults.find(ai => ai.title === match.game.title);
+                  if (aiResult && aiResult.isUpdate) {
+                    // AI tiebreaker: add a small boost based on AI confidence
+                    match.enhancedScore = (match.enhancedScore || match.similarity) + aiResult.confidence * 0.15;
+                    match.aiConfidence = aiResult.confidence;
+                    match.aiReason = `AI tiebreaker: ${aiResult.reason}`;
+                    logger.debug(`🤖 AI tiebreaker boost for "${match.game.title}": +${(aiResult.confidence * 0.15).toFixed(3)}`);
+                  } else if (aiResult && !aiResult.isUpdate) {
+                    // AI says it's NOT an update — slight penalty
+                    match.enhancedScore = (match.enhancedScore || match.similarity) * 0.9;
+                    match.aiConfidence = aiResult.confidence;
+                    match.aiReason = `AI tiebreaker (not update): ${aiResult.reason}`;
+                  }
                 }
+                
+                logger.info(`🤖 AI tiebreaker resolved conflict among ${conflictingMatches.length} candidates`);
+              } catch (aiError) {
+                logger.warn(`⚠️ AI tiebreaker failed, using regex scores only: ${aiError instanceof Error ? aiError.message : 'unknown error'}`);
               }
-              
-              match.enhancedScore = Math.min(regexScore, 1.0);
-              match.aiReason = `Regex analysis: ${updateIndicators} update indicators`;
+            } else {
+              logger.debug(`✅ Clear regex winner (diff=${scoreDiff.toFixed(3)}), no AI needed`);
             }
           }
 
@@ -1342,13 +1335,12 @@ export async function POST(request: Request) {
 
               // Auto-approve if:
               // - We have verified info and it's clearly higher, or
-              // - Similarity is 100% and significance >= 2 (robust match), or
-              // - AI has high confidence (>= user threshold) for the update
+              // - Similarity is 100% and significance >= 2 (robust match)
               // - AND version is NOT suspicious
+              // NOTE: AI alone cannot auto-approve — it's only used as a tiebreaker
               const shouldAutoApprove = !hasSuspiciousVersion && (
                 ((hasVerifiedVersion || hasVerifiedBuild) && isActuallyNewer && bestSimilarity >= 0.85) ||
-                (bestSimilarity === 1.0 && isActuallyNewer) ||
-                (selectedMatch?.aiConfidence && selectedMatch.aiConfidence >= aiPreferences.autoApprovalThreshold)
+                (bestSimilarity === 1.0 && isActuallyNewer)
               );
 
               // Detect if this is an Online-Fix release
