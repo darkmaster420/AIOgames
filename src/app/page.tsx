@@ -531,17 +531,6 @@ function DashboardInner() {
                 >
                   Apply Filter
                 </button>
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setRecentGamesCache(null); // Clear client cache
-                    loadRecentGames(); // Force fresh fetch
-                  }}
-                  className="px-4 py-2 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded-lg hover:bg-green-200 dark:hover:bg-green-800 transition-colors text-sm font-medium"
-                  title="Refresh games data from server"
-                >
-                  🔄 Refresh
-                </button>
                 {(searchQuery || siteFilter !== 'all' || refineText) && (
                   <button
                     onClick={(e) => {
