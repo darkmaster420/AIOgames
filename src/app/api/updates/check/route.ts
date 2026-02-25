@@ -683,9 +683,25 @@ export async function POST(request: Request) {
         const gateChecks = gates;
         for (const gate of gateChecks) {
           for (const recentGame of recentGames) {
+            // Skip if this is the exact same post we're already tracking
+            if (recentGame.link === game.gameLink) {
+              continue;
+            }
+            
             const decodedTitle = decodeHtmlEntities(recentGame.title);
             const similarity = calculateGameSimilarity(gate.value, decodedTitle);
             if (similarity >= 0.8) {
+              // If 100% similarity, the title is identical to what we're tracking.
+              // Only consider it if it has a version/build/update pattern that differs.
+              if (similarity === 1.0) {
+                const hasVersionPattern = /\b(v?\d+\.\d+|build\s*\d+|update\s*\d+|patch\s*\d+|\d{4}[-.]\d{2}[-.]\d{2})\b/i.test(decodedTitle);
+                const hasUpdateKeywords = /\b(update|patch|hotfix|fixed|repack|latest|improved|enhanced)\b/i.test(decodedTitle);
+                if (!hasVersionPattern && !hasUpdateKeywords) {
+                  logger.debug(`⏩ Skipping 100% similarity match with no version/update pattern: "${decodedTitle}"`);
+                  continue;
+                }
+              }
+              
               const versionInfo = extractVersionInfo(decodedTitle);
               potentialMatches.push({ game: recentGame, similarity, versionInfo, gate: gate.label });
             }
