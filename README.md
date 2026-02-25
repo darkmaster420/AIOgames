@@ -614,7 +614,7 @@ All of these projects are open source and free to use:
 
 ## ☑️ To-Do
 
-- [ ] Anonymous user search functions
+- [x] Anonymous user search functions
 - [ ] Email Notifications
 - [ ] Telegram Bot Management
 - [x] Anti-Repack Settings
@@ -626,14 +626,14 @@ All of these projects are open source and free to use:
 - [x] Owner/Admin role system
 - [x] Shared Telegram bot for notifications
 - [ ] Migrate notifs to Apprise
-- [ ] Quick add in background
-- [ ] Fix double notif bug
-- [ ] fix user manage page tg bot form bug
-- [ ] fix steam ui missing features
-- [ ] add search game button to game cards
+- [x] Quick add in background
+- [x] Fix double notif bug
+- [x] fix user manage page tg bot form bug
+- [x] fix steam ui missing features
+- [x] add search game button to game cards
 - [ ] remove show recent uploads button/make configurable
 - [ ] add non paid/pirated game updates (steamdb like)
-- [ ] improve UX
+- [x] improve UX
 
 ---
 
