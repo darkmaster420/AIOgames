@@ -148,6 +148,12 @@ const userSchema = new mongoose.Schema({
         default: false
       }
     },
+    homepage: {
+      showRecentUploads: {
+        type: Boolean,
+        default: false
+      }
+    },
     releaseGroups: {
       prioritize0xdeadcode: {
         type: Boolean,

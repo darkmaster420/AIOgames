@@ -26,7 +26,8 @@ export async function PATCH(req: Request) {
     telegramBotManagementEnabled,
     prioritize0xdeadcode,
     avoidRepacks,
-    preferRepacks
+    preferRepacks,
+    showRecentUploads
   } = body;
 
     await connectDB();
@@ -138,6 +139,13 @@ export async function PATCH(req: Request) {
       user.preferences = user.preferences || {};
       user.preferences.releaseGroups = user.preferences.releaseGroups || {};
       user.preferences.releaseGroups.preferRepacks = preferRepacks;
+    }
+
+    // Update homepage preferences
+    if (typeof showRecentUploads === 'boolean') {
+      user.preferences = user.preferences || {};
+      user.preferences.homepage = user.preferences.homepage || {};
+      user.preferences.homepage.showRecentUploads = showRecentUploads;
     }
 
     await user.save();

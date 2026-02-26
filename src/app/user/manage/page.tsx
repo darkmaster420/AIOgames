@@ -29,7 +29,9 @@ export default function UserManagePage() {
     // release group preferences
     prioritize0xdeadcode: false,
     avoidRepacks: false,
-    preferRepacks: false
+    preferRepacks: false,
+    // homepage preferences
+    showRecentUploads: false
   });
 
   const router = useRouter();
@@ -63,6 +65,14 @@ export default function UserManagePage() {
             prioritize0xdeadcode: data.preferences.releaseGroups.prioritize0xdeadcode || false,
             avoidRepacks: data.preferences.releaseGroups.avoidRepacks || false,
             preferRepacks: data.preferences.releaseGroups.preferRepacks || false
+          }));
+        }
+        
+        // Load homepage preferences
+        if (data.preferences?.homepage) {
+          setForm((f) => ({
+            ...f,
+            showRecentUploads: data.preferences.homepage.showRecentUploads || false
           }));
         }
       } catch (err: unknown) {
@@ -124,6 +134,7 @@ export default function UserManagePage() {
         prioritize0xdeadcode?: boolean;
         avoidRepacks?: boolean;
         preferRepacks?: boolean;
+        showRecentUploads?: boolean;
       } = { email: form.email };
 
       if (form.username) {
@@ -146,7 +157,8 @@ export default function UserManagePage() {
       payload.prioritize0xdeadcode = form.prioritize0xdeadcode;
       payload.avoidRepacks = form.avoidRepacks;
       payload.preferRepacks = form.preferRepacks;
-      payload.preferRepacks = form.preferRepacks;
+      // Homepage preferences
+      payload.showRecentUploads = form.showRecentUploads;
 
       const res = await fetch('/api/user/update', {
         method: 'PATCH',
@@ -341,6 +353,32 @@ export default function UserManagePage() {
                         </p>
                       </div>
                 </div>
+            </div>
+          </div>
+
+          {/* Homepage Preferences */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+              Homepage Preferences
+            </label>
+            <div className="space-y-4 bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+              <div className="flex items-start space-x-3">
+                <input
+                  type="checkbox"
+                  name="showRecentUploads"
+                  checked={form.showRecentUploads}
+                  onChange={handleChange}
+                  className="mt-1 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <div>
+                  <label className="text-sm font-medium text-gray-900 dark:text-white">
+                    Always show recent uploads
+                  </label>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                    Show game posts immediately on the homepage instead of requiring you to click &quot;Show Recent Uploads&quot;
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 

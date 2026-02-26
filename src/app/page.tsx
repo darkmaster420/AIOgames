@@ -258,7 +258,7 @@ function DashboardInner() {
     }
   }, [searchQuery, siteFilter, refineText, loadRecentGames, updateURL, searchCache, SEARCH_CACHE_TTL]);
 
-  // Load recent games on mount and check cookie for visibility
+  // Load recent games on mount and check cookie/user preference for visibility
   useEffect(() => {
     const recentGamesVisible = document.cookie
       .split('; ')
@@ -267,7 +267,19 @@ function DashboardInner() {
     
     setShowRecentGames(recentGamesVisible);
     loadRecentGames(); // Always load games, but visibility is controlled by state
-  }, [loadRecentGames]);
+    
+    // Fetch user preference for always showing recent uploads
+    if (status === 'authenticated') {
+      fetch('/api/user/me')
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data?.preferences?.homepage?.showRecentUploads) {
+            setShowRecentGames(true);
+          }
+        })
+        .catch(() => {}); // Silently ignore errors
+    }
+  }, [loadRecentGames, status]);
 
   // Load tracked games when authentication status changes
   useEffect(() => {
