@@ -23,7 +23,7 @@ services:
     environment:
       - NODE_ENV=production
     env_file: 
-      - .env  # Standard production environment file
+      - stack.env  # stack.env or .env
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
