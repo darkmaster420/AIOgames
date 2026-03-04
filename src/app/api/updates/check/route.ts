@@ -352,6 +352,20 @@ function detectSuspiciousVersion(oldVersion: string, newVersion: string): { isSu
   return { isSuspicious: false };
 }
 
+// Proper semantic version comparison: returns 1 if a > b, -1 if a < b, 0 if equal
+function compareSemanticVersions(a: string, b: string): number {
+  const aParts = a.split('.').map(Number);
+  const bParts = b.split('.').map(Number);
+  const maxLength = Math.max(aParts.length, bParts.length);
+  for (let i = 0; i < maxLength; i++) {
+    const aPart = aParts[i] || 0;
+    const bPart = bParts[i] || 0;
+    if (aPart > bPart) return 1;
+    if (aPart < bPart) return -1;
+  }
+  return 0;
+}
+
 function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { isNewer: boolean; changeType: string; significance: number; shouldWaitForRegular?: boolean; suspiciousVersion?: { isSuspicious: boolean; reason?: string }; skipDueToHierarchy?: boolean } {
   let isNewer = false;
   let changeType = 'unknown';
@@ -1043,16 +1057,13 @@ export async function POST(request: Request) {
             
             // Secondary sort by verification-specific criteria
             if (hasVerifiedVersion && hasVerifiedBuild) {
-              const aVersion = parseFloat(a.versionInfo.version || '0');
-              const bVersion = parseFloat(b.versionInfo.version || '0');
-              if (bVersion !== aVersion) return bVersion - aVersion;
+              const vCmp = compareSemanticVersions(b.versionInfo.version || '0', a.versionInfo.version || '0');
+              if (vCmp !== 0) return vCmp;
               const aBuild = parseInt(a.versionInfo.build || '0');
               const bBuild = parseInt(b.versionInfo.build || '0');
               return bBuild - aBuild;
             } else if (hasVerifiedVersion) {
-              const aVersion = parseFloat(a.versionInfo.version || '0');
-              const bVersion = parseFloat(b.versionInfo.version || '0');
-              return bVersion - aVersion;
+              return compareSemanticVersions(b.versionInfo.version || '0', a.versionInfo.version || '0');
             } else if (hasVerifiedBuild) {
               const aBuild = parseInt(a.versionInfo.build || '0');
               const bBuild = parseInt(b.versionInfo.build || '0');
@@ -1175,23 +1186,21 @@ export async function POST(request: Request) {
             logger.info(`0xdeadcode release detected: ${decodedTitle}`);
           } else if (hasVerifiedVersion && hasVerifiedBuild && hasVersionInfo) {
             // Compare both version and build when we have verified data
-            const currentVersion = parseFloat(currentVersionInfo.version || '0');
-            const newVersion = parseFloat(newVersionInfo.version || '0');
+            const versionCmp = compareSemanticVersions(newVersionInfo.version || '0', currentVersionInfo.version || '0');
             const currentBuild = parseInt(currentVersionInfo.build || '0');
             const newBuild = parseInt(newVersionInfo.build || '0');
             
-            if (newVersion > currentVersion || (newVersion === currentVersion && newBuild > currentBuild)) {
+            if (versionCmp > 0 || (versionCmp === 0 && newBuild > currentBuild)) {
               isActuallyNewer = true;
               comparisonReason = `Version/Build: ${currentVersionInfo.version || '0'}/${currentVersionInfo.build || '0'} → ${newVersionInfo.version || '0'}/${newVersionInfo.build || '0'}`;
             }
           } else if (hasVerifiedVersion) {
             // Only compare versions
-            const currentVersion = parseFloat(game.currentVersionNumber || '0');
-            const newVersion = parseFloat(newVersionInfo.version || '0');
+            const versionCmp = compareSemanticVersions(newVersionInfo.version || '0', game.currentVersionNumber || '0');
             
-            if (newVersion > currentVersion) {
+            if (versionCmp > 0) {
               isActuallyNewer = true;
-              comparisonReason = `Version: ${currentVersion} → ${newVersion}`;
+              comparisonReason = `Version: ${game.currentVersionNumber || '0'} → ${newVersionInfo.version || '0'}`;
             }
           } else if (hasVerifiedBuild) {
             // Only compare builds
