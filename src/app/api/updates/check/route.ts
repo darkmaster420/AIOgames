@@ -4,7 +4,7 @@ import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel } from '../../../../utils/sequelDetection';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
-import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, extractReleaseGroup, is0xdeadcodeRelease, isOnlineFixRelease } from '../../../../utils/steamApi';
+import { cleanGameTitle, decodeHtmlEntities, extractReleaseGroup, is0xdeadcodeRelease, isOnlineFixRelease, resolveComparableVersionData } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
 import { detectUpdatesWithAI, isAIDetectionAvailable, prepareCandidatesForAI } from '../../../../utils/aiUpdateDetection';
 import { calculateGameSimilarity } from '../../../../utils/titleMatching';
@@ -523,6 +523,32 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
   }
 
   return { isNewer, changeType, significance, shouldWaitForRegular, suspiciousVersion };
+}
+
+async function enrichVersionInfoWithSteamDb(appId: number | undefined, versionInfo: VersionInfo): Promise<VersionInfo> {
+  if (!appId || (!versionInfo.version && !versionInfo.build)) {
+    return versionInfo;
+  }
+
+  const resolved = await resolveComparableVersionData(appId, {
+    version: versionInfo.version,
+    build: versionInfo.build,
+    isDateVersion: versionInfo.isDateVersion,
+  });
+
+  if (!resolved.version && !resolved.build) {
+    return versionInfo;
+  }
+
+  return {
+    ...versionInfo,
+    version: resolved.version || versionInfo.version,
+    build: resolved.build || versionInfo.build,
+    isDateVersion: resolved.resolvedFromDate ? false : versionInfo.isDateVersion,
+    versionDate: resolved.resolvedFromDate ? undefined : versionInfo.versionDate,
+    hasRegularVersion: resolved.version ? /^\d+\.\d+/.test(resolved.version) : versionInfo.hasRegularVersion,
+    fullVersionString: `${resolved.version || versionInfo.version}${resolved.build || versionInfo.build ? ` Build ${resolved.build || versionInfo.build}` : ''}${versionInfo.releaseType ? ` ${versionInfo.releaseType}` : ''}`,
+  };
 }
 
 // Main update check using recent feed approach
@@ -1136,26 +1162,14 @@ export async function POST(request: Request) {
             }
           }
 
-          const newVersionInfo = extractVersionInfo(decodedTitle);
+          let newVersionInfo = extractVersionInfo(decodedTitle);
 
-          // If we detected only version or only build, try to resolve the missing one via SteamDB Worker when appId is known
           if (game.steamAppId) {
             try {
-              if (newVersionInfo.version && !newVersionInfo.build) {
-                const build = await resolveBuildFromVersion(game.steamAppId, newVersionInfo.version);
-                if (build) {
-                  newVersionInfo.build = build;
-                  logger.info(`Resolved build ${build} from version ${newVersionInfo.version} via SteamDB`);
-                }
-              } else if (!newVersionInfo.version && newVersionInfo.build) {
-                const version = await resolveVersionFromBuild(game.steamAppId, newVersionInfo.build);
-                if (version) {
-                  newVersionInfo.version = version;
-                  logger.info(`Resolved version ${version} from build ${newVersionInfo.build} via SteamDB`);
-                }
-              }
+              currentVersionInfo = await enrichVersionInfoWithSteamDb(game.steamAppId, currentVersionInfo);
+              newVersionInfo = await enrichVersionInfoWithSteamDb(game.steamAppId, newVersionInfo);
             } catch (e) {
-              logger.debug('Version↔build resolution skipped:', e instanceof Error ? e.message : 'unknown');
+              logger.debug('SteamDB enrichment skipped:', e instanceof Error ? e.message : 'unknown');
             }
           }
           
@@ -1184,23 +1198,28 @@ export async function POST(request: Request) {
             isActuallyNewer = true;
             comparisonReason = '0xdeadcode online fix release';
             logger.info(`0xdeadcode release detected: ${decodedTitle}`);
-          } else if (hasVerifiedVersion && hasVerifiedBuild && hasVersionInfo) {
-            // Compare both version and build when we have verified data
-            const versionCmp = compareSemanticVersions(newVersionInfo.version || '0', currentVersionInfo.version || '0');
+          } else if ((hasVerifiedVersion || hasVerifiedBuild) && hasVersionInfo) {
+            const hasComparableVersion = !!(newVersionInfo.version && currentVersionInfo.version);
+            const versionCmp = hasComparableVersion
+              ? compareSemanticVersions(newVersionInfo.version, currentVersionInfo.version)
+              : 0;
             const currentBuild = parseInt(currentVersionInfo.build || '0');
             const newBuild = parseInt(newVersionInfo.build || '0');
+            const canCompareBuilds = !isNaN(currentBuild) && !isNaN(newBuild) && currentBuild > 0 && newBuild > 0;
             
-            if (versionCmp > 0 || (versionCmp === 0 && newBuild > currentBuild)) {
+            if ((hasComparableVersion && versionCmp > 0) ||
+                (hasComparableVersion && canCompareBuilds && versionCmp === 0 && newBuild > currentBuild) ||
+                (!hasComparableVersion && canCompareBuilds && newBuild > currentBuild)) {
               isActuallyNewer = true;
               comparisonReason = `Version/Build: ${currentVersionInfo.version || '0'}/${currentVersionInfo.build || '0'} → ${newVersionInfo.version || '0'}/${newVersionInfo.build || '0'}`;
             }
           } else if (hasVerifiedVersion) {
             // Only compare versions
-            const versionCmp = compareSemanticVersions(newVersionInfo.version || '0', game.currentVersionNumber || '0');
+            const versionCmp = compareSemanticVersions(newVersionInfo.version || '0', currentVersionInfo.version || game.currentVersionNumber || '0');
             
             if (versionCmp > 0) {
               isActuallyNewer = true;
-              comparisonReason = `Version: ${game.currentVersionNumber || '0'} → ${newVersionInfo.version || '0'}`;
+              comparisonReason = `Version: ${currentVersionInfo.version || game.currentVersionNumber || '0'} → ${newVersionInfo.version || '0'}`;
             }
           } else if (hasVerifiedBuild) {
             // Only compare builds
@@ -1314,9 +1333,12 @@ export async function POST(request: Request) {
           
           // Only treat a different link as an update if the version is actually newer
           // This prevents the same version from another site being flagged as an update
-          const isVersionSame = newVersionInfo.version && currentVersionInfo?.version && 
-            newVersionInfo.version === currentVersionInfo.version &&
-            (!newVersionInfo.build || !currentVersionInfo?.build || newVersionInfo.build === currentVersionInfo.build);
+          const isVersionSame = !!(
+            currentVersionInfo &&
+            ((newVersionInfo.version && currentVersionInfo.version && newVersionInfo.version === currentVersionInfo.version) ||
+             (newVersionInfo.build && currentVersionInfo.build && newVersionInfo.build === currentVersionInfo.build)) &&
+            (!newVersionInfo.build || !currentVersionInfo.build || newVersionInfo.build === currentVersionInfo.build)
+          );
           
           logger.debug(`Update analysis: Different link=${isDifferentLink}, Newer=${isActuallyNewer}, VersionSame=${isVersionSame}, Reason=${comparisonReason}`);
           

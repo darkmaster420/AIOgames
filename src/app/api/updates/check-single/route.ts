@@ -4,7 +4,7 @@ import connectDB from '../../../../lib/db';
 import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel } from '../../../../utils/sequelDetection';
-import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild } from '../../../../utils/steamApi';
+import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities, resolveComparableVersionData } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
 import { detectUpdatesWithAI, isAIDetectionAvailable, prepareCandidatesForAI } from '../../../../utils/aiUpdateDetection';
@@ -52,6 +52,30 @@ interface VersionInfo {
   isDateVersion?: boolean;
 }
 
+async function enrichVersionInfoWithSteamDb(appId: number | undefined, versionInfo: VersionInfo): Promise<VersionInfo> {
+  if (!appId || (!versionInfo.version && !versionInfo.build)) {
+    return versionInfo;
+  }
+
+  const resolved = await resolveComparableVersionData(appId, {
+    version: versionInfo.version,
+    build: versionInfo.build,
+    isDateVersion: versionInfo.isDateVersion,
+  });
+
+  if (!resolved.version && !resolved.build) {
+    return versionInfo;
+  }
+
+  return {
+    ...versionInfo,
+    version: resolved.version || versionInfo.version,
+    build: resolved.build || versionInfo.build,
+    isDateVersion: resolved.resolvedFromDate ? false : versionInfo.isDateVersion,
+    fullVersionString: `${resolved.version || versionInfo.version}${resolved.build || versionInfo.build ? ` Build ${resolved.build || versionInfo.build}` : ''}${versionInfo.releaseType ? ` ${versionInfo.releaseType}` : ''}`,
+  };
+}
+
 interface TrackedGameDocument {
   _id: string;
   title: string;
@@ -81,6 +105,10 @@ async function canAutoApprove(game: TrackedGameDocument, newVersionInfo: Version
   };
   
   logger.debug('Checking auto-approval conditions');
+
+  if (game.steamAppId) {
+    newVersionInfo = await enrichVersionInfoWithSteamDb(game.steamAppId, newVersionInfo);
+  }
   
   // Check if version is suspicious - if so, require user confirmation
   if (versionComparison?.suspiciousVersion?.isSuspicious) {
@@ -93,6 +121,9 @@ async function canAutoApprove(game: TrackedGameDocument, newVersionInfo: Version
   // First try verified version number
   if (game.versionNumberVerified && game.currentVersionNumber) {
     currentInfo = extractVersionInfo(game.currentVersionNumber);
+    if (game.steamAppId) {
+      currentInfo = await enrichVersionInfoWithSteamDb(game.steamAppId, currentInfo);
+    }
   logger.debug(`Checking verified version number: ${game.currentVersionNumber}`);
     
     const comparison = compareVersions(currentInfo, newVersionInfo);
@@ -145,6 +176,9 @@ async function canAutoApprove(game: TrackedGameDocument, newVersionInfo: Version
     if (!source.title) continue;
 
     currentInfo = extractVersionInfo(source.title);
+    if (game.steamAppId) {
+      currentInfo = await enrichVersionInfoWithSteamDb(game.steamAppId, currentInfo);
+    }
     
     // If we found any version or build info, use this source
     if (currentInfo.version || currentInfo.build) {
@@ -641,26 +675,15 @@ export async function POST(request: Request) {
           currentVersionInfo = extractVersionInfo(titleSources[titleSources.length - 1].title);
         }
 
-        const newVersionInfo = extractVersionInfo(decodedTitle);
+        let newVersionInfo = extractVersionInfo(decodedTitle);
 
         // Enrich version/build via SteamDB Worker if one side is missing and we know the appId
         if (game.steamAppId) {
           try {
-            if (newVersionInfo.version && !newVersionInfo.build) {
-              const build = await resolveBuildFromVersion(game.steamAppId, newVersionInfo.version);
-              if (build) {
-                newVersionInfo.build = build;
-                logger.debug(`🔗 Resolved build ${build} from version ${newVersionInfo.version} via SteamDB`);
-              }
-            } else if (!newVersionInfo.version && newVersionInfo.build) {
-              const version = await resolveVersionFromBuild(game.steamAppId, newVersionInfo.build);
-              if (version) {
-                newVersionInfo.version = version;
-                logger.debug(`🔗 Resolved version ${version} from build ${newVersionInfo.build} via SteamDB`);
-              }
-            }
+            currentVersionInfo = await enrichVersionInfoWithSteamDb(game.steamAppId, currentVersionInfo);
+            newVersionInfo = await enrichVersionInfoWithSteamDb(game.steamAppId, newVersionInfo);
           } catch (e) {
-            logger.debug('ℹ️ Version↔build resolution skipped due to error:', e instanceof Error ? e.message : 'unknown');
+            logger.debug('ℹ️ SteamDB enrichment skipped due to error:', e instanceof Error ? e.message : 'unknown');
           }
         }
         

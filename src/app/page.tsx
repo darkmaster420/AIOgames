@@ -6,14 +6,23 @@ import { useSession } from 'next-auth/react';
 import { GamePosterCard } from '../components/GamePosterCard';
 import { AddCustomGame } from '../components/AddCustomGame';
 import { useNotification } from '../contexts/NotificationContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import { SITES } from '../lib/sites';
 import { cleanGameTitle } from '../utils/steamApi';
 
 type TrackedGameInfo = {
+  trackedId: string;
   gameId: string;
   version: string;
   priority: number;
   fullTitle: string;
+};
+
+type TrackState = {
+  isExactTracked: boolean;
+  hasTrackedVariant: boolean;
+  trackedVersion?: string;
+  trackedLabel?: string;
 };
 
 type Game = {
@@ -35,9 +44,11 @@ function DashboardInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [trackedGames, setTrackedGames] = useState<Set<string>>(new Set());
+  const [trackedGamesById, setTrackedGamesById] = useState<Map<string, TrackedGameInfo>>(new Map());
   const [trackedTitles, setTrackedTitles] = useState<Map<string, TrackedGameInfo[]>>(new Map());
   const { status } = useSession();
   const notify = useNotification();
+  const { confirm } = useConfirm();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [refineText, setRefineText] = useState('');
@@ -141,6 +152,7 @@ function DashboardInner() {
           const data = await response.json();
           const trackedGameIds = new Set<string>(data.games.map((game: { gameId: string }) => String(game.gameId)));
           setTrackedGames(trackedGameIds);
+          const idMap = new Map<string, TrackedGameInfo>();
           
           // Store cleaned titles -> array of tracked game info for cross-version matching with priority
           const titleMap = new Map<string, TrackedGameInfo[]>();
@@ -148,11 +160,13 @@ function DashboardInner() {
             const cleaned = cleanGameTitle(game.title || game.originalTitle || '');
             if (cleaned) {
               const info: TrackedGameInfo = {
+                trackedId: game._id,
                 gameId: game.gameId,
                 version: game.lastKnownVersion || '',
                 priority: game.priority || 2,
                 fullTitle: game.title || game.originalTitle || ''
               };
+              idMap.set(String(game.gameId), info);
               
               if (!titleMap.has(cleaned)) {
                 titleMap.set(cleaned, []);
@@ -160,6 +174,7 @@ function DashboardInner() {
               titleMap.get(cleaned)!.push(info);
             }
           }
+          setTrackedGamesById(idMap);
           setTrackedTitles(titleMap);
         }
       } catch (error) {
@@ -331,37 +346,41 @@ function DashboardInner() {
       }
     }, [searchQuery, siteFilter, searchGames, recentGamesCache, CLIENT_CACHE_TTL, updateURL]);
 
-    // Check if a game is tracked by ID or by fuzzy cleaned title match with priority
-    // Returns the tracked version string from highest priority match if found, or null if not tracked
-    const getTrackedVersion = useCallback((game: Game): string | null => {
+    const getTrackState = useCallback((game: Game): TrackState => {
       const cleaned = cleanGameTitle(game.title);
+      const exactTracked = trackedGamesById.get(game.id);
       
       // Exact ID match
-      if (trackedGames.has(game.id)) {
-        const matches = cleaned && trackedTitles.get(cleaned);
-        if (matches && matches.length > 0) {
-          // Sort by priority (lower number = higher priority) and return best match
-          const sorted = [...matches].sort((a, b) => a.priority - b.priority);
-          return sorted[0].version;
-        }
-        return '';
+      if (trackedGames.has(game.id) && exactTracked) {
+        return {
+          isExactTracked: true,
+          hasTrackedVariant: false,
+          trackedVersion: exactTracked.version || undefined,
+          trackedLabel: exactTracked.version ? `Tracking ${exactTracked.version}` : 'Tracked'
+        };
       }
       
-      // Exact cleaned title match - only match if titles are identical after cleaning
-      // This prevents sequels (e.g., "Hollow Knight Silksong") from matching base games ("Hollow Knight")
-      if (!cleaned) return null;
+      if (!cleaned) {
+        return { isExactTracked: false, hasTrackedVariant: false };
+      }
       
       const exactMatches = trackedTitles.get(cleaned);
       if (exactMatches && exactMatches.length > 0) {
         const sorted = [...exactMatches].sort((a, b) => a.priority - b.priority);
-        return sorted[0].version;
+        const best = sorted[0];
+        return {
+          isExactTracked: false,
+          hasTrackedVariant: true,
+          trackedVersion: best.version || undefined,
+          trackedLabel: best.version ? `Tracking another version (${best.version})` : 'Tracking another version'
+        };
       }
       
-      return null;
-    }, [trackedGames, trackedTitles]);
+      return { isExactTracked: false, hasTrackedVariant: false };
+    }, [trackedGames, trackedGamesById, trackedTitles]);
 
     // Track/untrack handlers
-    const handleTrackGame = useCallback(async (game: Game) => {
+    const handleTrackGame = useCallback(async (game: Game, forceReplace = false) => {
       if (status !== 'authenticated') {
         router.push('/auth/signin');
         return;
@@ -382,28 +401,32 @@ function DashboardInner() {
             image: game.image,
             description: game.description,
             gameLink: game.link,
+            forceReplace,
           }),
         });
 
         if (response.ok) {
-          setTrackedGames(prev => new Set(prev).add(game.id));
-          // Also add cleaned title for cross-version matching
-          const cleaned = cleanGameTitle(game.title);
-          if (cleaned) {
-            setTrackedTitles(prev => {
-              const next = new Map(prev);
-              const existing = next.get(cleaned) || [];
-              existing.push({
-                gameId: game.id,
-                version: '', // Version will be populated on next load
-                priority: 2, // Default priority until loaded from server
-                fullTitle: game.title
-              });
-              next.set(cleaned, existing);
-              return next;
-            });
+          const data = await response.json();
+          await loadTrackedGames();
+          notify?.showSuccess(data.message || 'Game added to tracking!');
+        } else if (response.status === 409) {
+          const error = await response.json();
+          if (error.confirmationRequired) {
+            const confirmed = await confirm(
+              'Replace Tracked Game?',
+              `${error.reason || 'A tracked version already exists.'}\n\nCurrent: ${error.existingGame?.title || 'Unknown'} (${error.existingGame?.version || 'Unknown'})\nSelected: ${error.replacement?.title || game.title} (${error.replacement?.version || 'Unknown'})`,
+              { confirmText: 'Replace', cancelText: 'Cancel', type: 'warning' }
+            );
+
+            if (!confirmed) {
+              return;
+            }
+
+            await handleTrackGame(game, true);
+            return;
           }
-          notify?.showSuccess('Game added to tracking!');
+
+          notify?.showError(error.error || 'Failed to track game');
         } else {
           const error = await response.json();
           notify?.showError(error.error || 'Failed to track game');
@@ -412,7 +435,7 @@ function DashboardInner() {
         console.error('Track game error:', error);
         notify?.showError('Failed to track game');
       }
-    }, [status, router, notify]);
+    }, [status, router, notify, confirm, loadTrackedGames]);
 
     const handleUntrackGame = useCallback(async (game: Game) => {
       try {
@@ -421,11 +444,7 @@ function DashboardInner() {
         });
 
         if (response.ok) {
-          setTrackedGames(prev => {
-            const next = new Set(prev);
-            next.delete(game.id);
-            return next;
-          });
+          await loadTrackedGames();
           notify?.showInfo('Game removed from tracking.');
         } else {
           const error = await response.json();
@@ -435,7 +454,7 @@ function DashboardInner() {
         console.error('Untrack game error:', error);
         notify?.showError('Failed to untrack game');
       }
-    }, [notify]);
+    }, [notify, loadTrackedGames]);
 
     return (
       <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8">
@@ -635,8 +654,7 @@ function DashboardInner() {
                   return true;
                 })
                 .map((game: Game) => {
-                  const trackedVersion = getTrackedVersion(game);
-                  const tracked = trackedVersion !== null;
+                  const trackState = getTrackState(game);
                   return (
                     <GamePosterCard
                       key={game.id}
@@ -646,12 +664,15 @@ function DashboardInner() {
                       title={game.originalTitle || game.title}
                       image={game.image}
                       badge={game.source}
-                      badgeColor={tracked ? 'green' : 'blue'}
+                      badgeColor={trackState.isExactTracked ? 'green' : trackState.hasTrackedVariant ? 'yellow' : 'blue'}
                       hasUpdate={false}
-                      isTracked={tracked}
-                      trackedVersion={trackedVersion || undefined}
-                      onTrack={status === 'authenticated' ? () => handleTrackGame(game) : undefined}
-                      onUntrack={status === 'authenticated' ? () => handleUntrackGame(game) : undefined}
+                      isTracked={trackState.isExactTracked}
+                      hasTrackedVariant={trackState.hasTrackedVariant}
+                      trackedVersion={trackState.trackedVersion}
+                      trackedLabel={trackState.trackedLabel}
+                      onTrack={status === 'authenticated' && !trackState.isExactTracked ? () => handleTrackGame(game) : undefined}
+                      onUntrack={status === 'authenticated' && trackState.isExactTracked ? () => handleUntrackGame(game) : undefined}
+                      trackButtonText={trackState.hasTrackedVariant ? '↻ Track This Version' : '➕ Track Game'}
                       className=""
                     />
                   );

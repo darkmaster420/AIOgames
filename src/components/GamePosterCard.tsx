@@ -15,10 +15,13 @@ interface GamePosterCardProps {
   badgeColor?: 'blue' | 'green' | 'red' | 'yellow';
   hasUpdate?: boolean;
   isTracked?: boolean;
+  hasTrackedVariant?: boolean;
   trackedVersion?: string;
+  trackedLabel?: string;
   onTrack?: () => void;
   onUntrack?: () => void;
   className?: string;
+  trackButtonText?: string;
 }
 
 export function GamePosterCard({
@@ -32,10 +35,13 @@ export function GamePosterCard({
   badgeColor = 'blue',
   hasUpdate = false,
   isTracked = false,
+  hasTrackedVariant = false,
   trackedVersion,
+  trackedLabel,
   onTrack,
   onUntrack,
   className = '',
+  trackButtonText,
 }: GamePosterCardProps) {
   const badgeColors = {
     blue: 'bg-blue-600',
@@ -49,7 +55,7 @@ export function GamePosterCard({
       {/* Poster Image Container */}
       <div 
         className={`relative rounded-lg overflow-hidden bg-gray-800 shadow-lg transition-all duration-300 group-hover:shadow-2xl group-hover:scale-105 max-h-[400px] flex items-center ${
-          isTracked ? 'ring-2 ring-green-500/70' : ''
+          isTracked ? 'ring-2 ring-green-500/70' : hasTrackedVariant ? 'ring-2 ring-amber-400/70' : ''
         }`}
       >
         {/* Image */}
@@ -76,7 +82,12 @@ export function GamePosterCard({
           <div className="flex items-center gap-1">
             {isTracked && (
               <span className="bg-green-500/90 text-white text-xs font-bold px-2 py-1 rounded flex items-center gap-1 shadow-lg">
-                ✓ {trackedVersion ? `Tracking ${trackedVersion}` : 'Tracked'}
+                ✓ {trackedLabel || (trackedVersion ? `Tracking ${trackedVersion}` : 'Tracked')}
+              </span>
+            )}
+            {!isTracked && hasTrackedVariant && (
+              <span className="bg-amber-500/90 text-white text-xs font-bold px-2 py-1 rounded flex items-center gap-1 shadow-lg">
+                ↻ {trackedLabel || (trackedVersion ? `Tracking another version (${trackedVersion})` : 'Tracking another version')}
               </span>
             )}
             {hasUpdate && (
@@ -143,7 +154,7 @@ export function GamePosterCard({
                     : 'bg-green-600 hover:bg-green-700'
                 } text-white rounded-lg transition-colors text-sm font-medium`}
               >
-                {isTracked ? '🗑️ Stop Tracking' : '➕ Track Game'}
+                {isTracked ? '🗑️ Stop Tracking' : (trackButtonText || '➕ Track Game')}
               </button>
             )}
           </div>

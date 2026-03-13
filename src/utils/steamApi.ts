@@ -337,6 +337,62 @@ export async function resolveVersionFromDate(appId: string | number, dateVersion
   }
 }
 
+export interface ComparableVersionDataInput {
+  version?: string | null;
+  build?: string | null;
+  isDateVersion?: boolean;
+}
+
+export interface ComparableVersionDataResult {
+  version: string;
+  build: string;
+  resolvedFromDate: boolean;
+}
+
+export async function resolveComparableVersionData(
+  appId: string | number | null | undefined,
+  input: ComparableVersionDataInput
+): Promise<ComparableVersionDataResult> {
+  let version = input.version ? normalizeVersionString(input.version) : '';
+  let build = input.build ? String(input.build).trim() : '';
+  let resolvedFromDate = false;
+
+  if (!appId) {
+    return { version, build, resolvedFromDate };
+  }
+
+  try {
+    if (version && input.isDateVersion) {
+      const resolved = await resolveVersionFromDate(appId, version);
+      if (resolved?.version) {
+        version = normalizeVersionString(resolved.version);
+        resolvedFromDate = true;
+      }
+      if (resolved?.build && !build) {
+        build = String(resolved.build).trim();
+      }
+    }
+
+    if (version && !build) {
+      const resolvedBuild = await resolveBuildFromVersion(appId, version);
+      if (resolvedBuild) {
+        build = String(resolvedBuild).trim();
+      }
+    }
+
+    if (!version && build) {
+      const resolvedVersion = await resolveVersionFromBuild(appId, build);
+      if (resolvedVersion) {
+        version = normalizeVersionString(resolvedVersion);
+      }
+    }
+  } catch {
+    // Best-effort enrichment only.
+  }
+
+  return { version, build, resolvedFromDate };
+}
+
 /**
  * Search for games by name using Steam API Worker
  * @param query - Game name to search for

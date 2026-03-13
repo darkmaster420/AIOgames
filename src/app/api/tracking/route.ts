@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../lib/db';
 import { TrackedGame } from '../../../lib/models';
 import { getCurrentUser } from '../../../lib/auth';
-import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, resolveVersionFromDate, calculateGamePriority, detectAndResolveGameConflicts } from '../../../utils/steamApi';
+import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, resolveVersionFromDate, resolveComparableVersionData, calculateGamePriority, detectAndResolveGameConflicts } from '../../../utils/steamApi';
 import logger from '../../../utils/logger';
 import { autoVerifyWithSteam } from '../../../utils/autoSteamVerification';
 import { updateScheduler } from '../../../lib/scheduler';
@@ -47,7 +47,7 @@ export async function GET() {
       userId: user.id,
       isActive: true 
     })
-    .select('gameId title originalTitle source image description gameLink lastKnownVersion steamAppId steamName steamVerified gogVerified gogProductId gogName gogVersion gogBuildId gogLastChecked buildNumberVerified currentBuildNumber buildNumberSource versionNumberVerified currentVersionNumber versionNumberSource lastVersionDate dateAdded lastChecked notificationsEnabled checkFrequency updateHistory pendingUpdates isActive')
+    .select('gameId title originalTitle cleanedTitle priority source image description gameLink lastKnownVersion steamAppId steamName steamVerified gogVerified gogProductId gogName gogVersion gogBuildId gogLastChecked buildNumberVerified currentBuildNumber buildNumberSource versionNumberVerified currentVersionNumber versionNumberSource lastVersionDate dateAdded lastChecked notificationsEnabled checkFrequency updateHistory pendingUpdates isActive')
     .sort({ dateAdded: -1 });
     
     return NextResponse.json({
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { gameId, title, originalTitle, cleanedTitle, source, image, description, gameLink } = await request.json();
+    const { gameId, title, originalTitle, cleanedTitle, source, image, description, gameLink, forceReplace } = await request.json();
 
     if (!gameId || !title || !source || !gameLink) {
       return NextResponse.json(
@@ -130,127 +130,161 @@ export async function POST(request: NextRequest) {
       logger.info(`   Steam App ID: ${autoSteamAppId} - ${autoSteamName}`);
     }
 
-    // Check if game is already tracked by this user (check by gameId OR similar title)
-    const existingGame = await TrackedGame.findOne({ 
+    const normalizedCleanedTitle = cleanedTitle || cleanGameTitle(title);
+
+    const existingGame = await TrackedGame.findOne({
       userId: user.id,
       gameId,
       isActive: true
     });
 
-    if (existingGame) {
-      // Game already tracked - compare versions
+    const existingTitleMatch = existingGame ? null : await TrackedGame.findOne({
+      userId: user.id,
+      cleanedTitle: normalizedCleanedTitle,
+      isActive: true
+    });
+
+    const replacementTarget = existingGame || existingTitleMatch;
+
+    if (replacementTarget) {
       const newTitleAnalysis = analyzeGameTitle(title);
-      const existingTitleAnalysis = analyzeGameTitle(existingGame.originalTitle || existingGame.title);
-      
-      const newVersion = newTitleAnalysis.detectedVersion || '';
-      const existingVersion = existingTitleAnalysis.detectedVersion || 
-                              existingGame.currentVersionNumber || '';
-      
-      const newBuild = newTitleAnalysis.detectedBuild || '';
-      const existingBuild = existingTitleAnalysis.detectedBuild || 
-                            existingGame.currentBuildNumber || '';
-      
+      const existingTitleAnalysis = analyzeGameTitle(replacementTarget.originalTitle || replacementTarget.title);
+
+      let newVersion = newTitleAnalysis.detectedVersion || '';
+      let existingVersion = existingTitleAnalysis.detectedVersion || replacementTarget.currentVersionNumber || '';
+      let newBuild = newTitleAnalysis.detectedBuild || '';
+      let existingBuild = existingTitleAnalysis.detectedBuild || replacementTarget.currentBuildNumber || '';
+
+      if (replacementTarget.steamAppId) {
+        const existingComparable = await resolveComparableVersionData(replacementTarget.steamAppId, {
+          version: existingVersion,
+          build: existingBuild,
+          isDateVersion: replacementTarget.isDateVersion,
+        });
+        existingVersion = existingComparable.version || existingVersion;
+        existingBuild = existingComparable.build || existingBuild;
+
+        const newComparable = await resolveComparableVersionData(replacementTarget.steamAppId, {
+          version: newVersion,
+          build: newBuild,
+          isDateVersion: /^\d{8}$/.test(newVersion) || /^\d{4}[-.]\d{2}[-.]\d{2}$/.test(newVersion),
+        });
+        newVersion = newComparable.version || newVersion;
+        newBuild = newComparable.build || newBuild;
+      }
+
       logger.info(`Duplicate tracking attempt for "${title}"`);
       logger.info(`Existing: v${existingVersion} build ${existingBuild}`);
       logger.info(`New: v${newVersion} build ${newBuild}`);
-      
-      // Compare versions to determine if we should replace
+
       let shouldReplace = false;
-      let comparisonReason = '';
-      
+      let comparisonReason = existingGame
+        ? 'This exact result is already tracked.'
+        : 'A tracked variant of this game already exists.';
+
       if (newVersion && existingVersion) {
         const versionComparison = compareVersionStrings(newVersion, existingVersion);
         if (versionComparison > 0) {
           shouldReplace = true;
           comparisonReason = `Higher version detected: ${newVersion} > ${existingVersion}`;
         } else if (versionComparison < 0) {
-          return NextResponse.json(
-            { error: `Cannot track older version. Current: v${existingVersion}, Attempted: v${newVersion}` },
-            { status: 400 }
-          );
+          comparisonReason = `Tracked version appears newer (${existingVersion} vs ${newVersion})`;
         } else if (newBuild && existingBuild) {
-          // Same version, compare builds
           const newBuildNum = parseInt(newBuild.replace(/[^\d]/g, ''));
           const existingBuildNum = parseInt(existingBuild.replace(/[^\d]/g, ''));
-          if (!isNaN(newBuildNum) && !isNaN(existingBuildNum)) {
-            if (newBuildNum > existingBuildNum) {
-              shouldReplace = true;
-              comparisonReason = `Higher build number: ${newBuild} > ${existingBuild}`;
-            } else {
-              return NextResponse.json(
-                { error: `Cannot track older or same build. Current: ${existingBuild}, Attempted: ${newBuild}` },
-                { status: 400 }
-              );
-            }
-          }
-        } else {
-          // Same version, no build comparison possible
-          return NextResponse.json(
-            { error: 'Game is already being tracked with the same version' },
-            { status: 400 }
-          );
-        }
-      } else if (newBuild && existingBuild) {
-        // No version numbers, compare builds only
-        const newBuildNum = parseInt(newBuild.replace(/[^\d]/g, ''));
-        const existingBuildNum = parseInt(existingBuild.replace(/[^\d]/g, ''));
-        if (!isNaN(newBuildNum) && !isNaN(existingBuildNum)) {
-          if (newBuildNum > existingBuildNum) {
+          if (!isNaN(newBuildNum) && !isNaN(existingBuildNum) && newBuildNum > existingBuildNum) {
             shouldReplace = true;
             comparisonReason = `Higher build number: ${newBuild} > ${existingBuild}`;
           } else {
-            return NextResponse.json(
-              { error: `Cannot track older or same build. Current: ${existingBuild}, Attempted: ${newBuild}` },
-              { status: 400 }
-            );
+            comparisonReason = `Tracked build appears newer or equal (${existingBuild} vs ${newBuild || existingBuild})`;
           }
+        } else {
+          comparisonReason = 'Same version detected';
         }
-      } else {
-        // No version info to compare, reject duplicate
-        return NextResponse.json(
-          { error: 'Game is already being tracked. Cannot determine if this is a newer version.' },
-          { status: 400 }
-        );
+      } else if (newBuild && existingBuild) {
+        const newBuildNum = parseInt(newBuild.replace(/[^\d]/g, ''));
+        const existingBuildNum = parseInt(existingBuild.replace(/[^\d]/g, ''));
+        if (!isNaN(newBuildNum) && !isNaN(existingBuildNum) && newBuildNum > existingBuildNum) {
+          shouldReplace = true;
+          comparisonReason = `Higher build number: ${newBuild} > ${existingBuild}`;
+        } else {
+          comparisonReason = `Tracked build appears newer or equal (${existingBuild} vs ${newBuild || existingBuild})`;
+        }
       }
-      
-      // If we should replace, update the existing game instead of creating new
-      if (shouldReplace) {
-        logger.info(`Replacing existing tracked game with newer version: ${comparisonReason}`);
-        
-        existingGame.title = cleanedTitle || cleanGameTitle(title);
-        existingGame.originalTitle = originalTitle || title;
-        existingGame.cleanedTitle = cleanedTitle || cleanGameTitle(title);
-        existingGame.gameLink = gameLink;
-        existingGame.image = image;
-        existingGame.description = decodeHtmlEntities(description || '');
-        existingGame.currentVersionNumber = newVersion || existingGame.currentVersionNumber;
-        existingGame.currentBuildNumber = newBuild || existingGame.currentBuildNumber;
-        existingGame.lastKnownVersion = newVersion || newBuild ? 
-          [newVersion, newBuild ? `Build ${newBuild}` : ''].filter(Boolean).join(' · ') :
-          existingGame.lastKnownVersion;
-        existingGame.priority = calculateGamePriority(title, preferRepacks);
-        
-        await existingGame.save();
-        
+
+      if (!forceReplace) {
         return NextResponse.json({
-          message: `Tracked game updated to newer version: ${comparisonReason}`,
-          game: existingGame,
-          replaced: true
-        }, { status: 200 });
+          error: shouldReplace
+            ? 'A tracked version already exists. Replace it with this newer result?'
+            : 'A tracked version already exists for this game. Replace it with the selected result?',
+          confirmationRequired: true,
+          reason: comparisonReason,
+          existingGame: {
+            gameId: replacementTarget.gameId,
+            title: replacementTarget.originalTitle || replacementTarget.title,
+            version: replacementTarget.lastKnownVersion || existingVersion || existingBuild || 'Unknown',
+          },
+          replacement: {
+            gameId,
+            title: originalTitle || title,
+            version: [newVersion, newBuild ? `Build ${newBuild}` : ''].filter(Boolean).join(' · ') || 'Unknown',
+          }
+        }, { status: 409 });
       }
+
+      logger.info(`Replacing tracked game after confirmation: ${comparisonReason}`);
+
+      replacementTarget.gameId = gameId;
+      replacementTarget.title = normalizedCleanedTitle;
+      replacementTarget.originalTitle = originalTitle || title;
+      replacementTarget.cleanedTitle = normalizedCleanedTitle;
+      replacementTarget.source = source;
+      replacementTarget.gameLink = gameLink;
+      replacementTarget.image = image;
+      replacementTarget.description = decodeHtmlEntities(description || '');
+      replacementTarget.priority = calculateGamePriority(title, preferRepacks);
+      replacementTarget.dateAdded = new Date();
+
+      if (newVersion) {
+        replacementTarget.currentVersionNumber = newVersion;
+        replacementTarget.versionNumberVerified = true;
+        replacementTarget.versionNumberSource = replacementTarget.steamAppId ? 'steamdb:manual-replace' : 'manual-replace';
+        replacementTarget.versionNumberLastUpdated = new Date();
+      }
+
+      if (newBuild) {
+        replacementTarget.currentBuildNumber = newBuild;
+        replacementTarget.buildNumberVerified = true;
+        replacementTarget.buildNumberSource = replacementTarget.steamAppId ? 'steamdb:manual-replace' : 'manual-replace';
+        replacementTarget.buildNumberLastUpdated = new Date();
+      }
+
+      if (newVersion || newBuild) {
+        replacementTarget.lastKnownVersion = [newVersion, newBuild ? `Build ${newBuild}` : ''].filter(Boolean).join(' · ');
+      }
+
+      await replacementTarget.save();
+
+      return NextResponse.json({
+        message: shouldReplace
+          ? `Tracked game updated to the selected result: ${comparisonReason}`
+          : 'Tracked game relinked to the selected result.',
+        game: replacementTarget,
+        replaced: true
+      }, { status: 200 });
     }
 
     // Create new tracked game
     const trackedGame = new TrackedGame({
       userId: user.id,
       gameId,
-      title: cleanedTitle || cleanGameTitle(title), // Use provided cleaned title or clean the title
+      title: normalizedCleanedTitle, // Use provided cleaned title or clean the title
       source,
       image,
       description: decodeHtmlEntities(description || ''),
       gameLink,
       originalTitle: originalTitle || title, // Use original title for Steam verification and advanced view
-      cleanedTitle: cleanedTitle || cleanGameTitle(title), // Ensure we have a cleaned title
+      cleanedTitle: normalizedCleanedTitle, // Ensure we have a cleaned title
       priority: calculateGamePriority(title, preferRepacks) // Calculate priority based on title and user preference
     });
 
