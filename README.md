@@ -617,23 +617,10 @@ All of these projects are open source and free to use:
 - [x] Anonymous user search functions
 - [ ] Email Notifications
 - [ ] Telegram Bot Management
-- [x] Anti-Repack Settings
 - [ ] Merge GameAPI with AIOGames
-- [x] Merge SteamAPI with AIOGames
-- [ ] Flaresolverrless GameAPI 
 - [ ] Add Custom themes
 - [x] Approve updates via telegram
-- [x] Owner/Admin role system
-- [x] Shared Telegram bot for notifications
-- [ ] Migrate notifs to Apprise
-- [x] Quick add in background
-- [x] Fix double notif bug
-- [x] fix user manage page tg bot form bug
-- [x] fix steam ui missing features
-- [x] add search game button to game cards
-- [ ] remove show recent uploads button/make configurable
-- [ ] add non paid/pirated game updates (steamdb like)
-- [x] improve UX
+- [ ] big update 2.0 add game pages and rework how games are shown by appid using /appid/ route and using APIs to build pages and show results using one truth game post and taking users to game pages to track games and view posts
 
 ---
 
