@@ -54,6 +54,8 @@ interface TrackedGamePosterCardProps {
     buildNumber?: string;
     date?: string;
   };
+  ofmeLink?: string;
+  isResolvingOfme?: boolean;
   updateHistory?: UpdateHistoryItem[];
   pendingUpdates?: PendingUpdate[];
   onUntrack: () => void;
@@ -89,6 +91,8 @@ export function TrackedGamePosterCard({
   gogLatestBuildId: gogLatestBuildIdProp,
   gogLatestDate: gogLatestDateProp,
   steamdbUpdate,
+  ofmeLink,
+  isResolvingOfme = false,
   updateHistory = [],
   pendingUpdates = [],
   onUntrack,
@@ -276,6 +280,16 @@ export function TrackedGamePosterCard({
                 >
                   <ExternalLinkIcon className="w-3 h-3" /> Source Page
                 </a>
+                {ofmeLink && (
+                  <a
+                    href={ofmeLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 text-sm text-purple-600 dark:text-purple-400 hover:underline"
+                  >
+                    <ExternalLinkIcon className="w-3 h-3" /> OFME Match
+                  </a>
+                )}
               </div>
             </div>
           </div>
@@ -470,6 +484,29 @@ export function TrackedGamePosterCard({
             >
               <ExternalLinkIcon className="w-3 h-3" /> Open Source Page
             </a>
+
+            {ofmeLink ? (
+              <a
+                href={ofmeLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="block w-full px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-1"
+                title="Open Online-Fix match"
+              >
+                <ExternalLinkIcon className="w-3 h-3" /> Open OFME Page
+              </a>
+            ) : (
+              <button
+                type="button"
+                disabled
+                onClick={(e) => e.stopPropagation()}
+                className="block w-full px-3 py-2 bg-indigo-400/60 text-white rounded-lg transition-colors text-sm font-medium cursor-not-allowed"
+                title={isResolvingOfme ? 'Resolving Online-Fix match...' : 'No Online-Fix match found'}
+              >
+                {isResolvingOfme ? 'Finding OFME Match...' : 'No OFME Match'}
+              </button>
+            )}
             
             <div onClick={(e) => e.stopPropagation()}>
               <GameDownloadLinks 

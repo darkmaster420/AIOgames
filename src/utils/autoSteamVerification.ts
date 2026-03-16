@@ -112,7 +112,7 @@ function calculateConfidence(searchTitle: string, steamGame: SteamGameResult): n
   const normalize = (str: string) => {
     return str
       .toLowerCase()
-      .replace(/[']/g, '')           // Remove apostrophes: "Marvel's" -> "Marvels"
+      .replace(/[\u2018\u2019\u2032'"`]/g, '') // Remove apostrophes/quotes: "Marvel's" -> "Marvels"
       .replace(/[-:]/g, ' ')         // Convert dashes/colons to spaces: "Spider-Man" -> "Spider Man"
       .replace(/\s+/g, ' ')          // Normalize whitespace
       .trim();

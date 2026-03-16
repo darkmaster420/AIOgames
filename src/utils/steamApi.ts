@@ -648,8 +648,8 @@ export function cleanGameTitle(title: string): string {
     .replace(/\bvs\.?\b/gi, 'vs')
     .replace(/\bof the\b/gi, 'of')
     
-    // Normalize apostrophes and dashes
-    .replace(/[']/g, '')           // Remove apostrophes (Assassin's -> Assassins)
+    // Normalize apostrophes/quotes and dashes
+    .replace(/[\u2018\u2019\u2032'"`]/g, '') // Remove apostrophes/quotes (No Man's -> No Mans)
     .replace(/[-:]/g, ' ')         // Convert dashes/colons to spaces
     
     // Remove special characters and normalize
@@ -860,7 +860,7 @@ export function cleanGameTitlePreserveEdition(title: string): string {
     .replace(/\bof the\b/gi, 'of')
     
     // Normalize apostrophes and dashes
-    .replace(/[']/g, '')
+    .replace(/[\u2018\u2019\u2032'"`]/g, '')
     .replace(/[-:]/g, ' ')
     
     // Remove special characters and normalize
@@ -919,7 +919,7 @@ export function calculateGameSimilarity(title1: string, title2: string): number 
   const normalize = (str: string) => {
     return str
       .toLowerCase()
-      .replace(/[']/g, '')           // Remove apostrophes: "Marvel's" -> "Marvels"
+      .replace(/[\u2018\u2019\u2032'"`]/g, '') // Remove apostrophes/quotes: "Marvel's" -> "Marvels"
       .replace(/[-:]/g, ' ')         // Convert dashes/colons to spaces: "Spider-Man" -> "Spider Man"
       .replace(/\s+/g, ' ')          // Normalize whitespace
       .trim();

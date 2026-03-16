@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search');
     const site = searchParams.get('site') || 'all';
+    const noCache = ['1', 'true', 'yes'].includes((searchParams.get('nocache') || '').toLowerCase());
 
     if (!search) {
       return NextResponse.json({ error: 'Search query required' }, { status: 400 });
@@ -42,13 +43,17 @@ export async function GET(request: NextRequest) {
     const cacheKey = `${search.toLowerCase().trim()}:${site}`;
     
     // Check cache first
-    const cached = searchCache.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+    const cached = noCache ? undefined : searchCache.get(cacheKey);
+    if (!noCache && cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
       console.log(`[Search] Cache HIT for "${search}" (site: ${site})`);
       return NextResponse.json(cached.data);
     }
 
-    console.log(`[Search] Cache MISS for "${search}" (site: ${site}) - fetching from API`);
+    if (noCache) {
+      console.log(`[Search] Cache BYPASS for "${search}" (site: ${site}) - fetching fresh from API`);
+    } else {
+      console.log(`[Search] Cache MISS for "${search}" (site: ${site}) - fetching from API`);
+    }
 
     // Build query parameters for the external API - it supports site filtering for search
     const queryParams = new URLSearchParams({ search });

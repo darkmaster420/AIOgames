@@ -5,6 +5,7 @@ export const SITES = [
   { value: 'freegog', label: 'FreeGog' },
   { value: 'reloadedsteam', label: 'ReloadedSteam' },
   { value: 'steamunderground', label: 'SteamUnderground' },
+  { value: 'onlinefix', label: 'Online-Fix' },
   { value: 'goggames', label: 'GOG-Games' },
 ];
 
