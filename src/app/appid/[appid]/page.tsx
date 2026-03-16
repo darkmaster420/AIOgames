@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { GameDownloadLinks } from '../../../components/GameDownloadLinks';
+import { cleanGameTitle } from '../../../utils/steamApi';
 
 interface GameDetailsResponse {
   appid: number;
@@ -82,6 +84,7 @@ function stripHtmlTags(value: string): string {
 }
 
 export default function AppIdDetailPage() {
+  const { status } = useSession();
   const params = useParams<{ appid: string }>();
   const rawAppId = params?.appid;
   const appid = Array.isArray(rawAppId) ? rawAppId[0] : rawAppId;
@@ -93,6 +96,8 @@ export default function AppIdDetailPage() {
   const [resultsError, setResultsError] = useState('');
   const [resultsQuery, setResultsQuery] = useState('');
   const [gameResults, setGameResults] = useState<GameApiSearchResult[]>([]);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const [trackingError, setTrackingError] = useState('');
 
   useEffect(() => {
     let isMounted = true;
@@ -142,6 +147,52 @@ export default function AppIdDetailPage() {
   const developerText = game?.developers?.length ? game.developers.join(', ') : 'Unknown';
   const publisherText = game?.publishers?.length ? game.publishers.join(', ') : 'Unknown';
   const genreText = game?.genres?.length ? game.genres.map(g => g.description).join(', ') : 'Unknown';
+
+  const handleTrackGame = async () => {
+    if (!game?.appid) return;
+
+    if (status === 'unauthenticated') {
+      window.location.href = `/auth/signin?callbackUrl=/appid/${game.appid}`;
+      return;
+    }
+
+    setTrackingLoading(true);
+    setTrackingError('');
+
+    try {
+      const bestResult = gameResults[0];
+      const trackPayload = {
+        gameId: String(game.appid),
+        title: game.name,
+        originalTitle: game.name,
+        cleanedTitle: cleanGameTitle(game.name),
+        source: bestResult?.source || 'Steam',
+        image: bestResult?.image || game.header_image || '',
+        description: summary || game.short_description || game.description || '',
+        gameLink: bestResult?.link || `https://store.steampowered.com/app/${game.appid}`,
+      };
+
+      const response = await fetch('/api/tracking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(trackPayload),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || 'Failed to track game.');
+      }
+
+      setGame(prev => prev ? {
+        ...prev,
+        isTracked: true,
+      } : prev);
+    } catch (err) {
+      setTrackingError(err instanceof Error ? err.message : 'Failed to track game.');
+    } finally {
+      setTrackingLoading(false);
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -222,17 +273,40 @@ export default function AppIdDetailPage() {
             Back to Tracking
           </Link>
 
-          {appid && (
-            <a
-              href={`https://store.steampowered.com/app/${appid}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-500"
-            >
-              Open Steam Store
-            </a>
-          )}
+          <div className="flex items-center gap-2">
+            {game && (
+              <button
+                type="button"
+                onClick={handleTrackGame}
+                disabled={trackingLoading || Boolean(game.isTracked)}
+                className={`inline-flex items-center rounded-md px-3 py-2 text-sm font-medium text-white transition-colors ${
+                  game.isTracked
+                    ? 'bg-emerald-700/80 cursor-default'
+                    : 'bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed'
+                }`}
+              >
+                {game.isTracked ? 'Tracked' : trackingLoading ? 'Tracking...' : 'Track Game'}
+              </button>
+            )}
+
+            {appid && (
+              <a
+                href={`https://store.steampowered.com/app/${appid}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-500"
+              >
+                Open Steam Store
+              </a>
+            )}
+          </div>
         </div>
+
+        {trackingError && (
+          <div className="mb-4 rounded-md border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
+            {trackingError}
+          </div>
+        )}
 
         {loading && (
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-8 text-center text-slate-300">

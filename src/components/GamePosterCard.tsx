@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { ImageWithFallback } from '../utils/imageProxy';
 import { GameDownloadLinks } from './GameDownloadLinks';
 import { ExternalLinkIcon } from './ExternalLinkIcon';
@@ -43,6 +44,19 @@ export function GamePosterCard({
   className = '',
   trackButtonText,
 }: GamePosterCardProps) {
+  const router = useRouter();
+
+  const handleOpenLink = () => {
+    if (!link) return;
+
+    if (link.startsWith('/')) {
+      router.push(link);
+      return;
+    }
+
+    window.open(link, '_blank', 'noopener,noreferrer');
+  };
+
   const badgeColors = {
     blue: 'bg-blue-600',
     green: 'bg-green-600',
@@ -56,7 +70,8 @@ export function GamePosterCard({
       <div 
         className={`relative rounded-lg overflow-hidden bg-gray-800 shadow-lg transition-all duration-300 group-hover:shadow-2xl group-hover:scale-105 max-h-[400px] flex items-center ${
           isTracked ? 'ring-2 ring-green-500/70' : hasTrackedVariant ? 'ring-2 ring-amber-400/70' : ''
-        }`}
+        } ${link ? 'cursor-pointer' : ''}`}
+        onClick={handleOpenLink}
       >
         {/* Image */}
         <ImageWithFallback
