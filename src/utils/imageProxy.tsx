@@ -11,6 +11,7 @@ export const ImageWithFallback = ({
   width = 300, 
   height = 400, 
   className = '',
+  responsive = false,
   ...props 
 }: {
   src: string | undefined;
@@ -18,6 +19,7 @@ export const ImageWithFallback = ({
   width?: number;
   height?: number;
   className?: string;
+  responsive?: boolean;
 } & React.ImgHTMLAttributes<HTMLImageElement>) => {
   const [imageSrc, setImageSrc] = useState<string>(
     getProxiedImageUrl(src)
@@ -54,7 +56,10 @@ export const ImageWithFallback = ({
   };
 
   return (
-    <div className={`relative overflow-hidden rounded-lg ${className}`} style={{ width, height }}>
+    <div
+      className={`relative overflow-hidden rounded-lg ${className}`}
+      style={responsive ? { width: '100%', aspectRatio: `${width} / ${height}` } : { width, height }}
+    >
       {isLoading && (
         <div className="absolute inset-0 bg-gradient-to-br from-gray-200 to-gray-300 dark:from-gray-700 dark:to-gray-800 animate-pulse flex items-center justify-center">
           <div className="text-gray-500 dark:text-gray-400 text-sm">Loading...</div>

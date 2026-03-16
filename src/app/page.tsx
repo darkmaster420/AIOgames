@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, Suspense } from 'react';
+import { useState, useCallback, useEffect, useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { GamePosterCard } from '../components/GamePosterCard';
@@ -9,6 +9,7 @@ import { useNotification } from '../contexts/NotificationContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { SITES } from '../lib/sites';
 import { cleanGameTitle } from '../utils/steamApi';
+import { calculateGameSimilarity } from '../utils/titleMatching';
 
 type TrackedGameInfo = {
   trackedId: string;
@@ -35,6 +36,21 @@ type Game = {
   siteType: string;
   link: string;
   image: string;
+  date?: string;
+  appid?: number | string;
+  appId?: number | string;
+  steamAppId?: number | string;
+  steam_appid?: number | string;
+};
+
+type DisplayGame = Game & {
+  displayKey: string;
+  postCount: number;
+};
+
+type SteamSearchResult = {
+  appid: string;
+  name: string;
 };
 
 function DashboardInner() {
@@ -54,6 +70,8 @@ function DashboardInner() {
   const [refineText, setRefineText] = useState('');
   const [showRefine, setShowRefine] = useState(false);
   const [showRecentGames, setShowRecentGames] = useState(false);
+  const [resolvedAppIds, setResolvedAppIds] = useState<Record<string, string | null>>({});
+  const [steamAppIdByTitleCache, setSteamAppIdByTitleCache] = useState<Record<string, string | null>>({});
   
   // Client-side cache for recent games (10 minutes)
   const [recentGamesCache, setRecentGamesCache] = useState<{
@@ -379,6 +397,173 @@ function DashboardInner() {
       return { isExactTracked: false, hasTrackedVariant: false };
     }, [trackedGames, trackedGamesById, trackedTitles]);
 
+    const extractAppId = useCallback((game: Game): string | null => {
+      const candidates = [game.appid, game.appId, game.steamAppId, game.steam_appid];
+      for (const candidate of candidates) {
+        if (candidate === undefined || candidate === null) continue;
+        const value = String(candidate).trim();
+        if (/^\d+$/.test(value)) return value;
+      }
+      return null;
+    }, []);
+
+    const resolveAppIdFromCleanTitle = useCallback(async (cleanTitle: string): Promise<string | null> => {
+      if (!cleanTitle || cleanTitle.length < 2) {
+        return null;
+      }
+
+      try {
+        const params = new URLSearchParams({ action: 'search', q: cleanTitle });
+        const response = await fetch(`/api/steam?${params.toString()}`);
+        if (!response.ok) {
+          return null;
+        }
+
+        const payload = await response.json();
+        const results: SteamSearchResult[] = Array.isArray(payload?.results) ? payload.results : [];
+        if (results.length === 0) {
+          return null;
+        }
+
+        const best = results
+          .slice(0, 8)
+          .map((result) => {
+            const score = calculateGameSimilarity(cleanTitle, result.name || '');
+            const exactBonus = cleanGameTitle(result.name || '') === cleanTitle ? 0.2 : 0;
+            return {
+              appid: String(result.appid),
+              score: score + exactBonus,
+            };
+          })
+          .sort((a, b) => b.score - a.score)[0];
+
+        if (best && best.score >= 0.45) {
+          return best.appid;
+        }
+
+        return null;
+      } catch {
+        return null;
+      }
+    }, []);
+
+    const displayGames = useMemo(() => {
+      const refinedGames = games.filter((game) => {
+        if (refineText.trim()) {
+          const searchText = refineText.toLowerCase();
+          return game.title.toLowerCase().includes(searchText) ||
+                 game.description.toLowerCase().includes(searchText);
+        }
+        return true;
+      });
+
+      const grouped = new Map<string, DisplayGame>();
+
+      for (const game of refinedGames) {
+        const appId = extractAppId(game);
+        const cleanedTitle = cleanGameTitle(game.originalTitle || game.title || '').toLowerCase();
+        const groupKey = appId ? `appid:${appId}` : `title:${cleanedTitle || game.id}`;
+
+        const existing = grouped.get(groupKey);
+        const candidateDate = game.date ? new Date(game.date).getTime() : 0;
+        const existingDate = existing?.date ? new Date(existing.date).getTime() : 0;
+        const candidateHasImage = Boolean(game.image);
+        const existingHasImage = Boolean(existing?.image);
+
+        if (!existing) {
+          grouped.set(groupKey, { ...game, displayKey: groupKey, postCount: 1 });
+          continue;
+        }
+
+        const shouldReplace =
+          (candidateDate > existingDate) ||
+          (candidateDate === existingDate && candidateHasImage && !existingHasImage);
+
+        if (shouldReplace) {
+          grouped.set(groupKey, {
+            ...game,
+            displayKey: groupKey,
+            postCount: existing.postCount + 1,
+          });
+        } else {
+          grouped.set(groupKey, {
+            ...existing,
+            postCount: existing.postCount + 1,
+          });
+        }
+      }
+
+      return Array.from(grouped.values()).sort((a, b) => {
+        const dateA = a.date ? new Date(a.date).getTime() : 0;
+        const dateB = b.date ? new Date(b.date).getTime() : 0;
+        return dateB - dateA;
+      });
+    }, [games, refineText, extractAppId]);
+
+    useEffect(() => {
+      if (displayGames.length === 0) {
+        setResolvedAppIds(prev => (Object.keys(prev).length === 0 ? prev : {}));
+        return;
+      }
+
+      const activeDisplayKeys = new Set(displayGames.map(game => game.displayKey));
+      setResolvedAppIds(prev => {
+        const next: Record<string, string | null> = {};
+        for (const [key, value] of Object.entries(prev)) {
+          if (activeDisplayKeys.has(key)) {
+            next[key] = value;
+          }
+        }
+        const sameSize = Object.keys(next).length === Object.keys(prev).length;
+        const unchanged = sameSize && Object.entries(next).every(([key, value]) => prev[key] === value);
+        return unchanged ? prev : next;
+      });
+
+      let cancelled = false;
+
+      const resolveMissingAppIds = async () => {
+        for (const game of displayGames) {
+          const nativeAppId = extractAppId(game);
+          if (nativeAppId) {
+            setResolvedAppIds(prev => (prev[game.displayKey] === nativeAppId ? prev : { ...prev, [game.displayKey]: nativeAppId }));
+            continue;
+          }
+
+          if (resolvedAppIds[game.displayKey] !== undefined) {
+            continue;
+          }
+
+          const cleanTitle = cleanGameTitle(game.originalTitle || game.title || '').trim();
+          if (!cleanTitle) {
+            setResolvedAppIds(prev => (prev[game.displayKey] === null ? prev : { ...prev, [game.displayKey]: null }));
+            continue;
+          }
+
+          if (steamAppIdByTitleCache[cleanTitle] !== undefined) {
+            const cachedValue = steamAppIdByTitleCache[cleanTitle];
+            setResolvedAppIds(prev => (prev[game.displayKey] === cachedValue ? prev : { ...prev, [game.displayKey]: cachedValue }));
+            continue;
+          }
+
+          const appId = await resolveAppIdFromCleanTitle(cleanTitle);
+          if (cancelled) {
+            return;
+          }
+
+          setSteamAppIdByTitleCache(prev => (prev[cleanTitle] === appId ? prev : { ...prev, [cleanTitle]: appId }));
+          setResolvedAppIds(prev => (prev[game.displayKey] === appId ? prev : { ...prev, [game.displayKey]: appId }));
+
+          await new Promise(resolve => setTimeout(resolve, 60));
+        }
+      };
+
+      resolveMissingAppIds();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [displayGames, resolvedAppIds, steamAppIdByTitleCache, extractAppId, resolveAppIdFromCleanTitle]);
+
     // Track/untrack handlers
     const handleTrackGame = useCallback(async (game: Game, forceReplace = false) => {
       if (status !== 'authenticated') {
@@ -593,7 +778,7 @@ function DashboardInner() {
         {games.length > 0 && (
           <div className="mb-3 p-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300 rounded text-xs flex items-center justify-between">
             <span>
-              🎮 {games.length} games{searchQuery ? ` found for "${searchQuery}"` : ' loaded'}
+              🎮 {displayGames.length} posters from {games.length} posts{searchQuery ? ` for "${searchQuery}"` : ''}
               {recentGamesCache && !searchQuery && ` (cached ${Math.round((Date.now() - recentGamesCache.timestamp) / 1000 / 60)} min ago)`}
             </span>
             {!searchQuery && (
@@ -638,29 +823,22 @@ function DashboardInner() {
                   Please wait while we fetch the results
                 </p>
               </div>
-            ) : games.length === 0 ? (
+            ) : displayGames.length === 0 ? (
               <div className="col-span-full text-center py-8 text-gray-500 dark:text-gray-400">
                 {error ? 'Failed to load games' : 'No games found'}
               </div>
             ) : (
-              games
-                .filter(game => {
-                  // Apply refine text filter if present
-                  if (refineText.trim()) {
-                    const searchText = refineText.toLowerCase();
-                    return game.title.toLowerCase().includes(searchText) ||
-                           game.description.toLowerCase().includes(searchText);
-                  }
-                  return true;
-                })
-                .map((game: Game) => {
+              displayGames
+                .map((game: DisplayGame) => {
                   const trackState = getTrackState(game);
+                  const resolvedAppId = extractAppId(game) || resolvedAppIds[game.displayKey] || undefined;
+                  const cardLink = resolvedAppId ? `/appid/${resolvedAppId}` : game.link;
                   return (
                     <GamePosterCard
-                      key={game.id}
+                      key={game.displayKey}
                       postId={game.originalId?.toString()}
                       siteType={game.siteType}
-                      link={game.link}
+                      link={cardLink}
                       title={game.originalTitle || game.title}
                       image={game.image}
                       badge={game.source}

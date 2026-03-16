@@ -1,12 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { ImageWithFallback } from '../utils/imageProxy';
 import { GameDownloadLinks } from './GameDownloadLinks';
 import { ExternalLinkIcon } from './ExternalLinkIcon';
-import { NotificationToggle } from './NotificationToggle';
-import { BuildNumberVerification } from './BuildNumberVerification';
-import GOGVerification from './GOGVerification';
 
 interface UpdateHistoryItem {
   version: string;
@@ -54,8 +51,6 @@ interface TrackedGamePosterCardProps {
     buildNumber?: string;
     date?: string;
   };
-  ofmeLink?: string;
-  isResolvingOfme?: boolean;
   updateHistory?: UpdateHistoryItem[];
   pendingUpdates?: PendingUpdate[];
   onUntrack: () => void;
@@ -91,8 +86,6 @@ export function TrackedGamePosterCard({
   gogLatestBuildId: gogLatestBuildIdProp,
   gogLatestDate: gogLatestDateProp,
   steamdbUpdate,
-  ofmeLink,
-  isResolvingOfme = false,
   updateHistory = [],
   pendingUpdates = [],
   onUntrack,
@@ -101,302 +94,20 @@ export function TrackedGamePosterCard({
   isCheckingUpdate = false,
   className = '',
 }: TrackedGamePosterCardProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const router = useRouter();
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const handleOpenDetails = () => {
+    if (!appid) return;
+    router.push(`/appid/${appid}`);
   };
-
-  if (isExpanded) {
-    return (
-      <div className={`col-span-full bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden ${className}`}>
-        {/* Header with image */}
-        <div className="relative h-48 bg-gray-900">
-          <ImageWithFallback
-            src={image}
-            alt={title}
-            width={800}
-            height={200}
-            className="object-cover w-full h-full opacity-50"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
-          
-          {/* Title and close button */}
-          <div className="absolute bottom-0 left-0 right-0 p-4 flex justify-between items-end">
-            <div className="flex-1">
-              <h3 className="text-white font-bold text-xl mb-1">{title}</h3>
-              {originalTitle && originalTitle !== title && (
-                <p className="text-gray-300 text-sm">Original: {originalTitle}</p>
-              )}
-            </div>
-            <button
-              onClick={() => setIsExpanded(false)}
-              className="bg-gray-800/90 hover:bg-gray-700 text-white p-2 rounded-lg transition-colors"
-              title="Collapse"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="p-6 space-y-6">
-          {/* Status Row */}
-          <div className="flex flex-wrap gap-2">
-            {hasUpdate && (
-              <span className="bg-red-500 text-white text-xs font-bold px-3 py-1 rounded-full animate-pulse">
-                NEW UPDATE
-              </span>
-            )}
-            {notificationsEnabled && (
-              <span className="bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full">
-                🔔 Notifications ON
-              </span>
-            )}
-            {steamVerified && (
-              <span className="bg-purple-600 text-white text-xs font-bold px-3 py-1 rounded-full">
-                Steam Verified
-              </span>
-            )}
-            {gogVerified && (
-              <span className="bg-pink-600 text-white text-xs font-bold px-3 py-1 rounded-full">
-                GOG Verified
-              </span>
-            )}
-          </div>
-
-          {/* Notifications Toggle */}
-          <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
-            <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-3">Notification Settings</h4>
-            <NotificationToggle 
-              gameId={gameId}
-              currentEnabled={notificationsEnabled || false}
-              onToggleChanged={onRefresh}
-            />
-          </div>
-
-          {/* Verification Section */}
-          <div className="space-y-4">
-            <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 pb-2">
-              Game Verification
-            </h4>
-            
-            {/* Steam Build Number Verification */}
-            {appid && (
-              <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
-                <div className="flex items-center gap-2 mb-3">
-                  <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16z"/>
-                  </svg>
-                  <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Steam Verification</h5>
-                </div>
-                <BuildNumberVerification
-                  gameId={gameId}
-                  gameTitle={title}
-                  steamAppId={appid}
-                  currentBuildNumber={currentBuildNumber}
-                  latestBuildNumber={steamdbUpdate?.buildNumber}
-                  latestVersion={steamdbUpdate?.version}
-                  buildNumberVerified={buildNumberVerified}
-                  onVerified={() => onRefresh?.()}
-                />
-              </div>
-            )}
-
-            {/* GOG Verification */}
-            <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg border border-purple-200 dark:border-purple-800">
-              <div className="flex items-center gap-2 mb-3">
-                <svg className="w-5 h-5 text-purple-600 dark:text-purple-400" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-                </svg>
-                <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-300">GOG Verification</h5>
-              </div>
-              <GOGVerification
-                gameId={gameId}
-                gameTitle={title}
-                currentGogId={gogProductId}
-                currentGogName={gogName}
-                isVerified={gogVerified}
-                gogLatestVersion={gogLatestVersionProp || gogVersion}
-                gogLatestBuildId={gogLatestBuildIdProp || gogBuildId}
-                gogLatestDate={gogLatestDateProp || (gogLastChecked ? new Date(gogLastChecked).toISOString() : undefined)}
-                trackedVersion={currentVersionNumber}
-                trackedBuildId={currentBuildNumber}
-                onVerificationComplete={() => onRefresh?.()}
-              />
-            </div>
-          </div>
-
-          {/* Version Info */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
-              <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Current Version</h4>
-              <p className="text-lg font-bold text-gray-900 dark:text-white">
-                {lastKnownVersion || 'Unknown'}
-              </p>
-              {currentVersionNumber && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Version: {currentVersionNumber}
-                </p>
-              )}
-              {currentBuildNumber && (
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Build: {currentBuildNumber}
-                </p>
-              )}
-            </div>
-
-            <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
-              <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Links</h4>
-              <div className="space-y-2">
-                {appid && (
-                  <a
-                    href={`https://store.steampowered.com/app/${appid}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:underline"
-                  >
-                    <ExternalLinkIcon className="w-3 h-3" /> Steam Store
-                  </a>
-                )}
-                {gogProductId && (
-                  <a
-                    href={`https://www.gog.com/game/${gogProductId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-sm text-purple-600 dark:text-purple-400 hover:underline"
-                  >
-                    <ExternalLinkIcon className="w-3 h-3" /> GOG Store
-                  </a>
-                )}
-                <a
-                  href={gameLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400 hover:underline"
-                >
-                  <ExternalLinkIcon className="w-3 h-3" /> Source Page
-                </a>
-                {ofmeLink && (
-                  <a
-                    href={ofmeLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-sm text-purple-600 dark:text-purple-400 hover:underline"
-                  >
-                    <ExternalLinkIcon className="w-3 h-3" /> OFME Match
-                  </a>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Description */}
-          {description && (
-            <div>
-              <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Description</h4>
-              <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-3">{description}</p>
-            </div>
-          )}
-
-          {/* Pending Updates */}
-          {pendingUpdates && pendingUpdates.length > 0 && (
-            <div>
-              <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">
-                Pending Updates ({pendingUpdates.length})
-              </h4>
-              <div className="space-y-2 max-h-40 overflow-y-auto">
-                {pendingUpdates.map((update) => (
-                  <div key={update._id} className="bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded border border-yellow-200 dark:border-yellow-800">
-                    <div className="font-medium text-sm text-gray-900 dark:text-white">{update.newTitle}</div>
-                    <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                      {update.reason} • {formatDate(update.dateFound)}
-                      {update.aiDetectionReason && (
-                        <div className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
-                          🤖 AI: {update.aiDetectionReason}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Update History */}
-          {updateHistory && updateHistory.length > 0 && (
-            <div>
-              <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">
-                Recent Updates ({updateHistory.length})
-              </h4>
-              <div className="space-y-2 max-h-60 overflow-y-auto">
-                {updateHistory.slice(0, 5).map((update, idx) => (
-                  <div key={idx} className="bg-gray-50 dark:bg-gray-900 p-3 rounded border border-gray-200 dark:border-gray-700">
-                    <div className="font-medium text-sm text-gray-900 dark:text-white">{update.version}</div>
-                    <div className="text-xs text-gray-600 dark:text-gray-400">
-                      {formatDate(update.dateFound)}
-                      {update.isLatest && <span className="ml-2 text-green-600 dark:text-green-400">• Latest</span>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="grid grid-cols-2 gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onCheckUpdate();
-              }}
-              disabled={isCheckingUpdate}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-medium"
-            >
-              {isCheckingUpdate ? (
-                <div className="flex items-center justify-center gap-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
-                  Checking...
-                </div>
-              ) : (
-                '🔄 Check for Updates'
-              )}
-            </button>
-            
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onUntrack();
-              }}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm font-medium"
-            >
-              🗑️ Stop Tracking
-            </button>
-          </div>
-
-          {/* Download Links */}
-          <div>
-            <GameDownloadLinks 
-              gameId={gameId}
-              gameTitle={title}
-              className="w-full"
-            />
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // Collapsed view (poster card)
   return (
-    <div className={`relative group ${className}`}>
+    <div className={`relative group self-start ${className}`}>
       {/* Poster Image Container */}
       <div 
-        className="relative rounded-lg overflow-hidden bg-gray-800 shadow-lg transition-all duration-300 group-hover:shadow-2xl group-hover:scale-105 cursor-pointer max-h-[400px] flex items-center"
-        onClick={() => setIsExpanded(true)}
+        className={`relative rounded-lg overflow-hidden bg-gray-800 shadow-lg transition-all duration-300 group-hover:shadow-2xl group-hover:scale-105 max-h-[400px] flex items-center ${appid ? 'cursor-pointer' : 'cursor-not-allowed opacity-80'}`}
+        onClick={handleOpenDetails}
       >
         {/* Image */}
         <ImageWithFallback
@@ -404,6 +115,7 @@ export function TrackedGamePosterCard({
           alt={title}
           width={460}
           height={690}
+          responsive
           className="w-full h-auto max-h-[400px] object-contain"
         />
         
@@ -467,13 +179,6 @@ export function TrackedGamePosterCard({
           <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
             <h4 className="text-white font-bold text-base mb-3 line-clamp-3">{steamVerified && steamName ? steamName : title}</h4>
             
-            <button
-              onClick={() => setIsExpanded(true)}
-              className="block w-full px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg transition-colors text-sm font-medium"
-            >
-              📋 Expand Details
-            </button>
-            
             <a
               href={gameLink}
               target="_blank"
@@ -485,29 +190,6 @@ export function TrackedGamePosterCard({
               <ExternalLinkIcon className="w-3 h-3" /> Open Source Page
             </a>
 
-            {ofmeLink ? (
-              <a
-                href={ofmeLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="block w-full px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-1"
-                title="Open Online-Fix match"
-              >
-                <ExternalLinkIcon className="w-3 h-3" /> Open OFME Page
-              </a>
-            ) : (
-              <button
-                type="button"
-                disabled
-                onClick={(e) => e.stopPropagation()}
-                className="block w-full px-3 py-2 bg-indigo-400/60 text-white rounded-lg transition-colors text-sm font-medium cursor-not-allowed"
-                title={isResolvingOfme ? 'Resolving Online-Fix match...' : 'No Online-Fix match found'}
-              >
-                {isResolvingOfme ? 'Finding OFME Match...' : 'No OFME Match'}
-              </button>
-            )}
-            
             <div onClick={(e) => e.stopPropagation()}>
               <GameDownloadLinks 
                 gameId={gameId}

@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { useSession } from 'next-auth/react';
 import { GameDownloadLinks } from '../../components/GameDownloadLinks';
 import { TrackedGamePosterCard } from '../../components/TrackedGamePosterCard';
@@ -17,7 +16,6 @@ import { SearchGameButton } from '../../components/SearchGameButton';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { ImageWithFallback } from '../../utils/imageProxy';
 import { cleanGameTitle } from '../../utils/steamApi';
-import { calculateGameSimilarity } from '../../utils/titleMatching';
 
 import { useNotification } from '../../contexts/NotificationContext';
 import { ExternalLinkIcon } from '../../components/ExternalLinkIcon';
@@ -71,7 +69,6 @@ interface TrackedGame {
     dateFound: string;
     gameLink: string;
     isLatest?: boolean;
-    isOnlineFix?: boolean;
     downloadLinks?: Array<{
       service: string;
       url: string;
@@ -82,7 +79,6 @@ interface TrackedGame {
     version: string;
     dateFound: string;
     gameLink: string;
-    isOnlineFix?: boolean;
     downloadLinks?: Array<{
       service: string;
       url: string;
@@ -107,31 +103,6 @@ interface TrackedGame {
   isActive: boolean;
 }
 
-interface SearchResult {
-  title?: string;
-  originalTitle?: string;
-  link?: string;
-  slug?: string;
-}
-
-const normalizeOFMEText = (value: string): string => {
-  return value
-    .normalize('NFKD')
-    .replace(/[\u2018\u2019\u2032'"`]+/g, '')
-    .replace(/:+/g, ' ')
-    .replace(/[^a-zA-Z0-9\s-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-};
-
-const getOFMETokens = (value: string): string[] => {
-  return normalizeOFMEText(value)
-    .toLowerCase()
-    .split(/\s+/)
-    .map(token => token.trim())
-    .filter(token => token.length >= 3);
-};
-
 export default function TrackingDashboard() {
   const { status } = useSession();
   const { showSuccess, showError, showInfo } = useNotification();
@@ -142,8 +113,6 @@ export default function TrackingDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [checkingSingleGame, setCheckingSingleGame] = useState<string | null>(null);
-  const [ofmeLinks, setOfmeLinks] = useState<Record<string, string | null>>({});
-  const [resolvingOfme, setResolvingOfme] = useState<Record<string, boolean>>({});
 
   // Steam latest version/build info fetched from SteamDB RSS
   interface SteamLatestInfo {
@@ -888,157 +857,6 @@ export default function TrackingDashboard() {
     return `${Math.floor(diffDays / 30)} months ago`;
   };
 
-  const getOFMETargetTitles = useCallback((game: TrackedGame): string[] => {
-    const steamTitle = game.steamName?.trim();
-    const cleanedTitle = cleanGameTitle(game.originalTitle || game.title).trim();
-    const variants = [steamTitle, cleanedTitle, game.title?.trim(), game.originalTitle?.trim()]
-      .filter((title): title is string => Boolean(title));
-
-    return [...new Set(variants.map(title => title.toLowerCase()))].map(
-      lower => variants.find(title => title.toLowerCase() === lower) || lower
-    );
-  }, []);
-
-  const getOFMEQueryVariants = useCallback((title: string): string[] => {
-    const normalized = normalizeOFMEText(title);
-    const basic = title.trim().replace(/\s+/g, ' ');
-    return [...new Set([normalized, basic].filter(Boolean))];
-  }, []);
-
-  const resolveOFMELinkForGame = useCallback(async (game: TrackedGame): Promise<string | null> => {
-    const targets = getOFMETargetTitles(game);
-    const searchQueries = targets
-      .slice(0, 2)
-      .flatMap(getOFMEQueryVariants)
-      .filter((query, index, arr) => arr.indexOf(query) === index)
-      .slice(0, 4);
-
-    const normalizedPrimaryTarget = normalizeOFMEText(targets[0] || '').toLowerCase();
-    let bestMatch: { link: string; score: number; strong: boolean } | null = null;
-    const primaryTokens = getOFMETokens(targets[0] || '');
-    let fallbackFirstLink: string | null = null;
-
-    for (const [queryIndex, query] of searchQueries.entries()) {
-      try {
-        const params = new URLSearchParams({ search: query, site: 'onlinefix', nocache: '1' });
-        const response = await fetch(`/api/games/search?${params.toString()}`);
-        if (!response.ok) {
-          continue;
-        }
-
-        const results: SearchResult[] = await response.json();
-        if (!Array.isArray(results) || results.length === 0) {
-          continue;
-        }
-
-        for (const result of results) {
-          if (!result?.link || !result.link.includes('online-fix.me')) {
-            continue;
-          }
-
-          if (!fallbackFirstLink) {
-            fallbackFirstLink = result.link;
-          }
-
-          const resultTitle = (result.originalTitle || result.title || '').trim();
-          if (!resultTitle) {
-            continue;
-          }
-
-          const similarity = Math.max(
-            ...targets.map(target => calculateGameSimilarity(target, resultTitle))
-          );
-          const normalizedResultTitle = normalizeOFMEText(resultTitle).toLowerCase();
-          const slugText = (result.slug || '').toLowerCase();
-          const strongTokenMatch =
-            primaryTokens.length > 0 &&
-            primaryTokens.every(token => normalizedResultTitle.includes(token) || slugText.includes(token));
-
-          const exactMatchBonus =
-            normalizedResultTitle === normalizedPrimaryTarget
-              ? 0.15
-              : 0;
-          const strongTokenBonus = strongTokenMatch ? 0.35 : 0;
-          const queryPriorityBonus = queryIndex === 0 ? 0.05 : 0;
-          const score = similarity + exactMatchBonus + strongTokenBonus + queryPriorityBonus;
-
-          if (!bestMatch || score > bestMatch.score) {
-            bestMatch = { link: result.link, score, strong: strongTokenMatch };
-          }
-        }
-      } catch {
-        // Ignore per-query errors and continue to fallback query.
-      }
-    }
-
-    if (bestMatch && (bestMatch.strong || bestMatch.score >= 0.35)) {
-      return bestMatch.link;
-    }
-
-    if (fallbackFirstLink) {
-      return fallbackFirstLink;
-    }
-
-    return null;
-  }, [getOFMETargetTitles]);
-
-  useEffect(() => {
-    if (trackedGames.length === 0) {
-      setOfmeLinks(prev => (Object.keys(prev).length === 0 ? prev : {}));
-      setResolvingOfme(prev => (Object.keys(prev).length === 0 ? prev : {}));
-      return;
-    }
-
-    const trackedIds = new Set(trackedGames.map(game => game._id));
-    setOfmeLinks(prev => {
-      const next: Record<string, string | null> = {};
-      Object.entries(prev).forEach(([id, link]) => {
-        if (trackedIds.has(id)) next[id] = link;
-      });
-      const sameSize = Object.keys(next).length === Object.keys(prev).length;
-      const unchanged = sameSize && Object.entries(next).every(([id, link]) => prev[id] === link);
-      return unchanged ? prev : next;
-    });
-
-    setResolvingOfme(prev => {
-      const next: Record<string, boolean> = {};
-      Object.entries(prev).forEach(([id, loading]) => {
-        if (trackedIds.has(id)) next[id] = loading;
-      });
-      const sameSize = Object.keys(next).length === Object.keys(prev).length;
-      const unchanged = sameSize && Object.entries(next).every(([id, loading]) => prev[id] === loading);
-      return unchanged ? prev : next;
-    });
-
-    let isCancelled = false;
-
-    const resolveMissingLinks = async () => {
-      for (const game of trackedGames) {
-        const hasResolvedValue = typeof ofmeLinks[game._id] === 'string' && (ofmeLinks[game._id] as string).length > 0;
-        const isAlreadyResolving = resolvingOfme[game._id];
-        if (hasResolvedValue || isAlreadyResolving) {
-          continue;
-        }
-
-        setResolvingOfme(prev => ({ ...prev, [game._id]: true }));
-
-        const link = await resolveOFMELinkForGame(game);
-        if (!isCancelled) {
-          setOfmeLinks(prev => ({ ...prev, [game._id]: link }));
-          setResolvingOfme(prev => ({ ...prev, [game._id]: false }));
-        }
-
-        await new Promise(resolve => setTimeout(resolve, 120));
-      }
-    };
-
-    resolveMissingLinks();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [trackedGames, ofmeLinks, resolvingOfme, resolveOFMELinkForGame]);
-
   // Show loading spinner while checking auth
 
   if (status === 'loading') {
@@ -1547,8 +1365,6 @@ export default function TrackingDashboard() {
                   steamdbUpdate={game.steamdbUpdate}
                   updateHistory={game.updateHistory}
                   pendingUpdates={game.pendingUpdates}
-                  ofmeLink={ofmeLinks[game._id] || undefined}
-                  isResolvingOfme={Boolean(resolvingOfme[game._id])}
                   onUntrack={async () => {
                     const confirmed = await confirm(
                       'Remove Game from Tracking',
@@ -1638,25 +1454,6 @@ export default function TrackingDashboard() {
                     >
                       <ExternalLinkIcon className="w-5 h-5" />
                     </a>
-                    {ofmeLinks[game._id] ? (
-                      <a
-                        href={ofmeLinks[game._id] as string}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title="Open best Online-Fix match"
-                        className="h-10 w-10 sm:h-9 sm:w-9 flex items-center justify-center rounded-lg bg-white/90 dark:bg-gray-900/80 border border-gray-300 dark:border-gray-600 text-[10px] font-bold hover:bg-purple-100 dark:hover:bg-purple-800/40 transition shadow"
-                      >
-                        OF
-                      </a>
-                    ) : (
-                      <button
-                        disabled
-                        title={resolvingOfme[game._id] ? 'Resolving Online-Fix link...' : 'No Online-Fix match found'}
-                        className="h-10 w-10 sm:h-9 sm:w-9 flex items-center justify-center rounded-lg bg-white/70 dark:bg-gray-900/60 border border-gray-300 dark:border-gray-600 text-[10px] font-bold text-gray-500 dark:text-gray-400 transition shadow disabled:opacity-70 disabled:cursor-not-allowed"
-                      >
-                        {resolvingOfme[game._id] ? '...' : 'OF'}
-                      </button>
-                    )}
                   </div>
                   
                   {/* Game Details */}
@@ -1875,16 +1672,6 @@ export default function TrackingDashboard() {
                         <h4 className="text-xs sm:text-sm font-medium text-green-700 dark:text-green-300 mb-2 flex items-center gap-2">
                           <span>✅</span>
                           Current Version
-                          {game.latestApprovedUpdate.isOnlineFix && (
-                            <Image 
-                              src="https://online-fix.me/favicon-32x32.png" 
-                              alt="Online-Fix" 
-                              width={16}
-                              height={16}
-                              className="inline-block"
-                              title="Online-Fix Release"
-                            />
-                          )}
                         </h4>
                         <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded">
                           <div className="flex flex-col gap-2">

@@ -64,6 +64,7 @@ export function GamePosterCard({
           alt={title}
           width={460}
           height={690}
+          responsive
           className="w-full h-auto max-h-[400px] object-contain"
         />
         
