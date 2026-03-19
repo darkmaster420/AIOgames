@@ -127,6 +127,7 @@ export async function POST(req: NextRequest) {
         $pull: { pendingUpdates: { _id: updateId } },
         lastKnownVersion: versionString,
         lastVersionDate: new Date(),
+        lastPubTimestamp: new Date(pendingUpdate.dateFound || new Date()).getTime(),
         gameLink: pendingUpdate.newLink,
         title: pendingUpdate.newTitle
       });

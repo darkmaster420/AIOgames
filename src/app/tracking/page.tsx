@@ -3,22 +3,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { GameDownloadLinks } from '../../components/GameDownloadLinks';
 import { TrackedGamePosterCard } from '../../components/TrackedGamePosterCard';
-import { SteamVerification } from '../../components/SteamVerification';
-import { SmartVersionVerification } from '../../components/SmartVersionVerification';
-import GOGVerification from '../../components/GOGVerification';
 
 import { SequelNotifications } from '../../components/SequelNotifications';
 import { AddCustomGame } from '../../components/AddCustomGame';
-import { NotificationToggle } from '../../components/NotificationToggle';
-import { SearchGameButton } from '../../components/SearchGameButton';
 import { useConfirm } from '../../contexts/ConfirmContext';
-import { ImageWithFallback } from '../../utils/imageProxy';
 import { cleanGameTitle } from '../../utils/steamApi';
 
 import { useNotification } from '../../contexts/NotificationContext';
-import { ExternalLinkIcon } from '../../components/ExternalLinkIcon';
 
 
 
@@ -155,10 +147,10 @@ export default function TrackingDashboard() {
     document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/`;
   };
   
-  // Layout mode: 'grid' (responsive), 'list' (1 column), 'horizontal' (1 row)
-  const [layoutMode, setLayoutMode] = useState<'grid' | 'list' | 'horizontal'>(() => {
+  // Layout mode: 'grid' (responsive), 'horizontal' (1 row)
+  const [layoutMode, setLayoutMode] = useState<'grid' | 'horizontal'>(() => {
     const saved = getCookie('trackingLayoutMode');
-    if (saved === 'grid' || saved === 'list' || saved === 'horizontal') {
+    if (saved === 'grid' || saved === 'horizontal') {
       return saved;
     }
     return 'grid';
@@ -282,34 +274,6 @@ export default function TrackingDashboard() {
   };
 
   // Note: GOG verification updates are handled via loadTrackedGames() callback
-
-  // Handle marking update as seen
-  const handleMarkUpdateSeen = async (gameId: string) => {
-    try {
-      const response = await fetch('/api/games/mark-seen', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ gameId }),
-      });
-
-      if (response.ok) {
-        // Update the local state
-        setTrackedGames(prev => prev.map(game => 
-          game._id === gameId 
-            ? { ...game, hasNewUpdate: false, newUpdateSeen: true }
-            : game
-        ));
-        showSuccess('Update marked as seen');
-      } else {
-        const error = await response.json();
-        showError(error.error || 'Failed to mark update as seen');
-      }
-    } catch {
-      showError('Failed to mark update as seen');
-    }
-  };
 
   // Handle single game update check
   // Helper function to check if tracked version is outdated compared to SteamDB
@@ -840,23 +804,6 @@ export default function TrackingDashboard() {
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString();
-  };
-
-  const getTimeSince = (dateString: string) => {
-    const now = new Date();
-    const then = new Date(dateString);
-    const diffTime = Math.abs(now.getTime() - then.getTime());
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return `${diffDays} days ago`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-    return `${Math.floor(diffDays / 30)} months ago`;
-  };
-
   // Show loading spinner while checking auth
 
   if (status === 'loading') {
@@ -963,17 +910,6 @@ export default function TrackingDashboard() {
                             title="Grid View"
                           >
                             🔲
-                          </button>
-                          <button
-                            onClick={() => setLayoutMode('list')}
-                            className={`p-2 rounded-lg transition-all duration-200 text-lg ${
-                              layoutMode === 'list'
-                                ? 'bg-primary-500 text-white shadow-md transform scale-105'
-                                : 'hover:bg-white/50 dark:hover:bg-gray-700/50 text-slate-600 dark:text-slate-400'
-                            }`}
-                            title="List View"
-                          >
-                            📋
                           </button>
                           <button
                             onClick={() => setLayoutMode('horizontal')}
@@ -1133,20 +1069,6 @@ export default function TrackingDashboard() {
                                 title="Grid View"
                               >
                                 🔲
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setLayoutMode('list');
-                                  setShowLayoutDropdown(false);
-                                }}
-                                className={`flex-1 p-2 rounded-lg text-lg ${
-                                  layoutMode === 'list'
-                                    ? 'bg-primary-500 text-white shadow-md'
-                                    : 'bg-gray-100 dark:bg-gray-800 text-slate-600 dark:text-slate-400'
-                                }`}
-                                title="List View"
-                              >
-                                📋
                               </button>
                               <button
                                 onClick={() => {
@@ -1327,446 +1249,56 @@ export default function TrackingDashboard() {
               className={`
                 ${layoutMode === 'grid' 
                   ? 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 sm:gap-6'
-                  : layoutMode === 'list'
-                  ? 'flex flex-col gap-4 max-w-4xl mx-auto w-full'
                   : 'flex flex-row gap-6 overflow-x-auto pb-4 snap-x snap-mandatory'
                 }
               `}
               style={layoutMode === 'grid' ? customGridStyle : undefined}
             >
             {filteredGames.map((game) => (
-              layoutMode === 'grid' || layoutMode === 'horizontal' ? (
-                <TrackedGamePosterCard
-                  key={game._id}
-                  gameId={game._id}
-                  appid={game.steamAppId}
-                  gogProductId={game.gogProductId}
-                  title={game.originalTitle || game.title}
-                  originalTitle={game.originalTitle}
-                  description={game.description}
-                  image={game.image || ''}
-                  hasUpdate={game.hasNewUpdate}
-                  gameLink={game.gameLink}
-                  lastKnownVersion={game.lastKnownVersion}
-                  currentBuildNumber={game.currentBuildNumber}
-                  currentVersionNumber={game.currentVersionNumber}
-                  steamVerified={game.steamVerified}
-                  steamName={game.steamName}
-                  gogVerified={game.gogVerified}
-                  buildNumberVerified={game.buildNumberVerified}
-                  notificationsEnabled={game.notificationsEnabled}
-                  gogName={game.gogName}
-                  gogVersion={game.gogVersion}
-                  gogBuildId={game.gogBuildId}
-                  gogLastChecked={game.gogLastChecked}
-                  gogLatestVersion={gogLatest[game._id]?.version}
-                  gogLatestBuildId={gogLatest[game._id]?.buildId}
-                  gogLatestDate={gogLatest[game._id]?.date}
-                  steamdbUpdate={game.steamdbUpdate}
-                  updateHistory={game.updateHistory}
-                  pendingUpdates={game.pendingUpdates}
-                  onUntrack={async () => {
-                    const confirmed = await confirm(
-                      'Remove Game from Tracking',
-                      `Are you sure you want to stop tracking "${game.title}"? This action cannot be undone.`,
-                      { confirmText: 'Remove', cancelText: 'Close', type: 'danger' }
-                    );
-                    if (!confirmed) return;
-                    handleUntrack(game.gameId);
-                  }}
-                  onCheckUpdate={() => handleSingleGameUpdate(game._id, game.title)}
-                  onRefresh={loadTrackedGames}
-                  isCheckingUpdate={checkingSingleGame === game._id}
-                  className={layoutMode === 'horizontal' ? 'min-w-[200px] snap-start' : ''}
-                />
-              ) : (
-              <div 
-                key={game._id} 
-                className={`
-                  relative game-card animate-fade-in flex flex-col rounded-lg shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden pb-16 bg-white dark:bg-gray-800
-                `}
-              >
-                {/* Blended background image */}
-                {game.image && (
-                  <div
-                    className="absolute inset-0 z-0"
-                    aria-hidden="true"
-                    style={{
-                      backgroundImage: `url('${game.image}')`,
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center',
-                      filter: 'blur(24px) brightness(0.7) saturate(1.2)',
-                      opacity: 0.25,
-                      transition: 'opacity 0.3s',
-                    }}
-                  />
-                )}
-                {/* Top-left Untrack Icon */}
-                <button
-                  onClick={async () => {
-                    const confirmed = await confirm(
-                      'Remove Game from Tracking',
-                      `Are you sure you want to stop tracking "${game.title}"? This action cannot be undone.`,
-                      { confirmText: 'Remove', cancelText: 'Close', type: 'danger' }
-                    );
-                    if (!confirmed) return;
-                    handleUntrack(game.gameId);
-                  }}
-                  title="Untrack game"
-                  className="absolute top-2 left-2 h-10 w-10 flex items-center justify-center rounded-lg bg-white/90 dark:bg-gray-900/80 border border-red-300 dark:border-red-600 text-sm hover:bg-red-100 dark:hover:bg-red-800/40 text-red-600 dark:text-red-300 transition z-20 shadow"
-                >
-                  <span role="img" aria-label="trash">🗑️</span>
-                </button>
-                <div className="flex flex-col gap-4 p-4 sm:p-6 flex-1 relative z-10">
-                  {/* Game Image */}
-                  {game.image && (
-                    <div className="relative z-10 mx-auto mt-2 mb-2 sm:mt-4 sm:mb-3 flex justify-center items-center">
-                      <ImageWithFallback
-                        src={game.image}
-                        alt={game.title}
-                        width={240}
-                        height={360}
-                        className="w-auto h-auto max-w-[240px] rounded-lg shadow-lg border border-gray-200 dark:border-gray-600"
-                      />
-                    </div>
-                  )}
-
-                  {/* Action Icons (under image) */}
-                  <div className="relative z-10 flex justify-center gap-2 mb-2 sm:mb-3">
-                    <button
-                      onClick={() => handleSingleGameUpdate(game._id, game.title)}
-                      disabled={checkingSingleGame === game._id}
-                      title="Check updates now"
-                      className="h-10 w-10 sm:h-9 sm:w-9 flex items-center justify-center rounded-lg bg-white/90 dark:bg-gray-900/80 border border-gray-300 dark:border-gray-600 text-sm hover:bg-blue-100 dark:hover:bg-blue-800/40 transition disabled:opacity-50 disabled:cursor-not-allowed shadow"
-                    >
-                      {checkingSingleGame === game._id ? (
-                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-400 border-t-transparent" />
-                      ) : (
-                        <span role="img" aria-label="refresh">🔄</span>
-                      )}
-                    </button>
-                    <a
-                      href={game.gameLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="Open latest post"
-                      className="h-10 w-10 sm:h-9 sm:w-9 flex items-center justify-center rounded-lg bg-white/90 dark:bg-gray-900/80 border border-gray-300 dark:border-gray-600 text-sm hover:bg-green-100 dark:hover:bg-green-800/40 transition shadow"
-                    >
-                      <ExternalLinkIcon className="w-5 h-5" />
-                    </a>
-                  </div>
-                  
-                  {/* Game Details */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-col gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-col gap-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                              <div className="flex flex-col gap-1 flex-1 min-w-0">
-                                <h3 className="font-bold text-base sm:text-lg text-gray-900 dark:text-white leading-tight text-center bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-200/50 dark:border-gray-700/50 shadow-sm flex-1 min-w-0 uppercase">
-                                  {getDisplayTitle(game)}
-                                </h3>
-                                {showAdvanced && (game.steamVerified || (game.gogVerified && game.gogProductId !== -1)) && game.originalTitle && game.originalTitle !== getDisplayTitle(game) && (
-                                  <div className="text-xs text-gray-500 dark:text-gray-400 text-center italic px-2">
-                                    Original: {game.originalTitle}
-                                  </div>
-                                )}
-                              </div>
-                              <SearchGameButton 
-                                gameTitle={getDisplayTitle(game)} 
-                                size="sm"
-                                className="flex-shrink-0"
-                              />
-                            </div>
-                            {game.hasNewUpdate && !game.newUpdateSeen && (
-                              <div className="flex items-center gap-2">
-                                <span className="px-2 py-1 bg-gradient-to-r from-red-500 to-pink-500 text-white text-xs font-bold rounded-full animate-pulse shadow-lg">
-                                  ✨ NEW
-                                </span>
-                                <button
-                                  onClick={() => handleMarkUpdateSeen(game._id)}
-                                  className="text-xs text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 underline transition-colors"
-                                  title="Mark as seen"
-                                >
-                                  dismiss
-                                </button>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* SteamDB Update Alert - shown inline in SteamVerification when not steam-verified */}
-                          {game.steamdbUpdate && !game.steamVerified && (
-                            <div className={`mt-2 p-3 border rounded-lg ${
-                              game.steamdbUpdate.isOutdated 
-                                ? 'bg-gradient-to-r from-orange-500/10 to-red-500/10 border-orange-300/30 dark:border-red-400/30'
-                                : 'bg-gradient-to-r from-blue-500/10 to-purple-500/10 border-blue-300/30 dark:border-purple-400/30'
-                            }`}>
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className={`text-sm font-semibold ${
-                                  game.steamdbUpdate.isOutdated
-                                    ? 'text-orange-600 dark:text-orange-400'
-                                    : 'text-blue-600 dark:text-blue-400'
-                                }`}>
-                                  {game.steamdbUpdate.isOutdated ? '⚠️ Version Behind Steam' : '🎮 Steam Update Detected'}
-                                </span>
-                                <a
-                                  href={game.steamdbUpdate.link}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className={`text-xs transition-colors ${
-                                    game.steamdbUpdate.isOutdated
-                                      ? 'text-orange-500 hover:text-orange-700 dark:hover:text-orange-300'
-                                      : 'text-blue-500 hover:text-blue-700 dark:hover:text-blue-300'
-                                  }`}
-                                  title="View on SteamDB"
-                                >
-                                  <ExternalLinkIcon className="w-3 h-3" />
-                                </a>
-                              </div>
-                              
-                              {game.steamdbUpdate.isOutdated && game.steamdbUpdate.outdatedReason && (
-                                <div className="text-xs text-orange-700 dark:text-orange-300 mb-2">
-                                  {game.steamdbUpdate.outdatedReason}
-                                </div>
-                              )}
-                              
-                              {game.steamdbUpdate.suggestion && (
-                                <div className="text-xs text-green-700 dark:text-green-300 mb-2 font-medium">
-                                  💡 {game.steamdbUpdate.suggestion}
-                                </div>
-                              )}
-                              
-                              <div className="text-xs text-gray-700 dark:text-gray-300">
-                                {!game.steamdbUpdate.isOutdated && game.steamdbUpdate.title}
-                                {(game.steamdbUpdate.version || game.steamdbUpdate.buildNumber) && (
-                                  <div className="flex gap-1 mt-1">
-                                    {game.steamdbUpdate.version && (
-                                      <span className={`px-1.5 py-0.5 text-xs rounded ${
-                                        game.steamdbUpdate.isOutdated
-                                          ? 'bg-orange-100 dark:bg-orange-900 text-orange-800 dark:text-orange-200'
-                                          : 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200'
-                                      }`}>
-                                        v{game.steamdbUpdate.version}
-                                      </span>
-                                    )}
-                                    {game.steamdbUpdate.buildNumber && (
-                                      <span className={`px-1.5 py-0.5 text-xs rounded ${
-                                        game.steamdbUpdate.isOutdated
-                                          ? 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'
-                                          : 'bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200'
-                                      }`}>
-                                        Build {game.steamdbUpdate.buildNumber}
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                  {new Date(game.steamdbUpdate.date).toLocaleDateString()}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        
-                        {/* Smart Priority: Show Steam first if GOG has no version data */}
-                        {/* Steam Verification - Show first if GOG is not verified or marked as "Not on GOG" */}
-                        {(showAdvanced || !game.gogVerified || game.gogProductId === -1) && !gogLatest[game._id]?.version && (
-                          <div className="mt-2">
-                            <SteamVerification
-                              gameId={game._id}
-                              gameTitle={game.title}
-                              steamName={game.steamName}
-                              steamVerified={game.steamVerified}
-                              steamLatestVersion={steamLatest[game._id]?.version}
-                              steamLatestBuild={steamLatest[game._id]?.build}
-                              steamLatestLink={steamLatest[game._id]?.link}
-                              steamdbUpdate={game.steamdbUpdate}
-                              onVerificationUpdate={handleVerificationUpdate}
-                            />
-                          </div>
-                        )}
-
-                        {/* GOG Verification - Show if NOT marked as "Not on GOG" OR in advanced mode */}
-                        {(showAdvanced || game.gogProductId !== -1) && (
-                          <div className="mt-2">
-                            <GOGVerification
-                              gameId={game._id}
-                              gameTitle={game.title}
-                              currentGogId={game.gogProductId}
-                              currentGogName={game.gogName}
-                              isVerified={game.gogVerified}
-                              gogLatestVersion={gogLatest[game._id]?.version}
-                              gogLatestBuildId={gogLatest[game._id]?.buildId}
-                              gogLatestDate={gogLatest[game._id]?.date}
-                              trackedVersion={game.currentVersionNumber}
-                              trackedBuildId={game.currentBuildNumber}
-                              onVerificationComplete={() => {
-                                // Refresh the game data after verification
-                                loadTrackedGames();
-                              }}
-                            />
-                          </div>
-                        )}
-
-                        {/* Steam Verification - Show in Advanced Mode OR when no GOG, after GOG if GOG has version */}
-                        {(showAdvanced || !game.gogVerified || game.gogProductId === -1) && gogLatest[game._id]?.version && (
-                          <div className="mt-2">
-                            <SteamVerification
-                              gameId={game._id}
-                              gameTitle={game.title}
-                              steamName={game.steamName}
-                              steamVerified={game.steamVerified}
-                              steamLatestVersion={steamLatest[game._id]?.version}
-                              steamLatestBuild={steamLatest[game._id]?.build}
-                              steamLatestLink={steamLatest[game._id]?.link}
-                              steamdbUpdate={game.steamdbUpdate}
-                              onVerificationUpdate={handleVerificationUpdate}
-                            />
-                          </div>
-                        )}
-                        
-                        {/* Smart Version & Build Number Verification */}
-                        <div className="mt-2">
-                          <SmartVersionVerification
-                            gameId={game.gameId}
-                            gameTitle={game.title}
-                            originalTitle={game.originalTitle || game.title}
-                            steamAppId={game.steamAppId}
-                            currentBuildNumber={game.currentBuildNumber}
-                            buildNumberVerified={game.buildNumberVerified || false}
-                            currentVersionNumber={game.currentVersionNumber}
-                            versionNumberVerified={game.versionNumberVerified || false}
-                            onVerified={loadTrackedGames}
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Tracking Info */}
-                    <div className="mt-3 sm:mt-4 grid grid-cols-1 gap-2 text-xs sm:text-sm">
-                      <div>
-                        <span className="text-gray-500 dark:text-gray-400">Added:</span>
-                        <span className="ml-1 sm:ml-2 text-gray-900 dark:text-white">
-                          {formatDate(game.dateAdded)}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-gray-500 dark:text-gray-400">Last Checked:</span>
-                        <span className="ml-1 sm:ml-2 text-gray-900 dark:text-white">
-                          {getTimeSince(game.lastChecked)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <NotificationToggle
-                          gameId={game._id}
-                          currentEnabled={game.notificationsEnabled}
-                          onToggleChanged={loadTrackedGames}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Latest Update Status */}
-                    {game.latestApprovedUpdate && (
-                      <div className="mt-3 sm:mt-4">
-                        <h4 className="text-xs sm:text-sm font-medium text-green-700 dark:text-green-300 mb-2 flex items-center gap-2">
-                          <span>✅</span>
-                          Current Version
-                        </h4>
-                        <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded">
-                          <div className="flex flex-col gap-2">
-                            <div className="flex-1">
-                              <span className="font-medium text-sm">{game.latestApprovedUpdate.version.startsWith('v') ? game.latestApprovedUpdate.version : `v${game.latestApprovedUpdate.version}`}</span>
-                              <span className="text-gray-500 dark:text-gray-400 text-xs ml-2">
-                                approved {formatDate(game.latestApprovedUpdate.dateFound)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Previous Updates */}
-                    {game.updateHistory && game.updateHistory.length > 1 && (
-                      (() => {
-                        // Exclude the latest/current version from previous updates
-                        const latestVersion = game.latestApprovedUpdate?.version || (game.updateHistory[0]?.version);
-                        const previousUpdates = game.updateHistory.filter(update => update.version !== latestVersion);
-                        if (previousUpdates.length === 0) return null;
-                        return (
-                          <div className="mt-3 sm:mt-4">
-                            <h4 className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                              Previous Updates ({previousUpdates.length})
-                            </h4>
-                            <div className="space-y-1 sm:space-y-2">
-                              {previousUpdates.slice(0, 2).map((update, updateIndex) => (
-                                <div key={updateIndex} className="text-xs sm:text-sm bg-gray-50 dark:bg-gray-900/20 p-2 rounded">
-                                  <div className="flex flex-col gap-1">
-                                    <div className="flex-1">
-                                      <span className="font-medium">
-                                        {update.version}
-                                      </span>
-                                      <span className="text-gray-500 dark:text-gray-400 ml-2">
-                                        found {formatDate(update.dateFound)}
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })()
-                    )}
-
-                    {/* Pending Updates */}
-                    {game.pendingUpdates && game.pendingUpdates.length > 0 && (
-                      <div className="mt-3 sm:mt-4">
-                        <h4 className="text-xs sm:text-sm font-medium text-yellow-700 dark:text-yellow-300 mb-2 flex items-center gap-1 sm:gap-2">
-                          <span>⏳</span>
-                          Pending Updates ({game.pendingUpdates.length})
-                        </h4>
-                        <div className="space-y-1 sm:space-y-2">
-                          {game.pendingUpdates.slice(0, 3).map((update) => (
-                            <div key={update._id} className="text-xs sm:text-sm bg-yellow-50 dark:bg-yellow-900/20 p-2 rounded">
-                              <div className="flex flex-col gap-1">
-                                <div className="flex-1">
-                                  <span className="font-medium">{update.newTitle}</span>
-                                  {update.detectedVersion && (
-                                    <span className="text-yellow-600 dark:text-yellow-400 ml-2">
-                                      {update.detectedVersion}
-                                    </span>
-                                  )}
-                                  {update.aiDetectionConfidence && (
-                                    <span className="inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs">
-                                      🤖 {Math.round(update.aiDetectionConfidence * 100)}%
-                                    </span>
-                                  )}
-                                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                    {update.reason} • Found {formatDate(update.dateFound)}
-                                    {update.aiDetectionReason && (
-                                      <div className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
-                                        🤖 AI: {update.aiDetectionReason}
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Download Links sticky at bottom */}
-                <div className="absolute left-0 right-0 bottom-0 z-10 p-4 pt-0 bg-gradient-to-t from-white/90 dark:from-gray-900/90 to-transparent">
-                  <GameDownloadLinks gameId={game._id} className="w-full" />
-                </div>
-              </div>
-            )
-          ))}
+              <TrackedGamePosterCard
+                key={game._id}
+                gameId={game._id}
+                appid={game.steamAppId}
+                gogProductId={game.gogProductId}
+                title={game.originalTitle || game.title}
+                originalTitle={game.originalTitle}
+                description={game.description}
+                image={game.image || ''}
+                hasUpdate={game.hasNewUpdate}
+                gameLink={game.gameLink}
+                lastKnownVersion={game.lastKnownVersion}
+                currentBuildNumber={game.currentBuildNumber}
+                currentVersionNumber={game.currentVersionNumber}
+                steamVerified={game.steamVerified}
+                steamName={game.steamName}
+                gogVerified={game.gogVerified}
+                buildNumberVerified={game.buildNumberVerified}
+                notificationsEnabled={game.notificationsEnabled}
+                gogName={game.gogName}
+                gogVersion={game.gogVersion}
+                gogBuildId={game.gogBuildId}
+                gogLastChecked={game.gogLastChecked}
+                gogLatestVersion={gogLatest[game._id]?.version}
+                gogLatestBuildId={gogLatest[game._id]?.buildId}
+                gogLatestDate={gogLatest[game._id]?.date}
+                steamdbUpdate={game.steamdbUpdate}
+                updateHistory={game.updateHistory}
+                pendingUpdates={game.pendingUpdates}
+                onUntrack={async () => {
+                  const confirmed = await confirm(
+                    'Remove Game from Tracking',
+                    `Are you sure you want to stop tracking "${game.title}"? This action cannot be undone.`,
+                    { confirmText: 'Remove', cancelText: 'Close', type: 'danger' }
+                  );
+                  if (!confirmed) return;
+                  handleUntrack(game.gameId);
+                }}
+                onCheckUpdate={() => handleSingleGameUpdate(game._id, game.title)}
+                onRefresh={loadTrackedGames}
+                isCheckingUpdate={checkingSingleGame === game._id}
+                className={layoutMode === 'horizontal' ? 'min-w-[200px] snap-start' : ''}
+              />
+            ))}
           </div>
           </>
         )}

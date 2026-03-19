@@ -5,6 +5,10 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { GameDownloadLinks } from '../../../components/GameDownloadLinks';
+import { SteamVerification } from '../../../components/SteamVerification';
+import GOGVerification from '../../../components/GOGVerification';
+import { SmartVersionVerification } from '../../../components/SmartVersionVerification';
+import { NotificationToggle } from '../../../components/NotificationToggle';
 import { cleanGameTitle } from '../../../utils/steamApi';
 
 interface GameDetailsResponse {
@@ -43,10 +47,29 @@ interface GameDetailsResponse {
   };
   isTracked?: boolean;
   trackedGameId?: string;
+  gameId?: string;
+  title?: string;
+  originalTitle?: string;
+  source?: string;
+  image?: string;
+  gameLink?: string;
   steamVerified?: boolean;
+  steamAppId?: number;
+  steamName?: string;
+  gogVerified?: boolean;
+  gogProductId?: number;
+  gogName?: string;
+  gogVersion?: string;
+  gogBuildId?: string;
+  gogLastChecked?: string;
   buildNumberVerified?: boolean;
   currentBuildNumber?: string;
+  versionNumberVerified?: boolean;
+  currentVersionNumber?: string;
   lastKnownVersion?: string;
+  notificationsEnabled?: boolean;
+  dateAdded?: string;
+  lastChecked?: string;
   hasNewUpdate?: boolean;
   updateHistory?: Array<{
     version?: string;
@@ -98,6 +121,10 @@ export default function AppIdDetailPage() {
   const [gameResults, setGameResults] = useState<GameApiSearchResult[]>([]);
   const [trackingLoading, setTrackingLoading] = useState(false);
   const [trackingError, setTrackingError] = useState('');
+  const [untrackingLoading, setUntrackingLoading] = useState(false);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [steamLatest, setSteamLatest] = useState<{ version?: string; build?: string; link?: string }>({});
+  const [gogLatest, setGogLatest] = useState<{ version?: string; buildId?: string; date?: string }>({});
 
   useEffect(() => {
     let isMounted = true;
@@ -147,6 +174,86 @@ export default function AppIdDetailPage() {
   const developerText = game?.developers?.length ? game.developers.join(', ') : 'Unknown';
   const publisherText = game?.publishers?.length ? game.publishers.join(', ') : 'Unknown';
   const genreText = game?.genres?.length ? game.genres.map(g => g.description).join(', ') : 'Unknown';
+
+  const loadGameByAppId = async () => {
+    if (!appid) return;
+
+    const response = await fetch(`/api/games/${appid}`);
+    const data: GameDetailsResponse = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to load game details.');
+    }
+    setGame(data);
+  };
+
+  const handleVerificationUpdate = (_trackedId: string, verified: boolean, steamAppId?: number, steamName?: string) => {
+    setGame(prev => prev ? {
+      ...prev,
+      steamVerified: verified,
+      steamAppId: steamAppId || prev.steamAppId,
+      steamName: steamName || prev.steamName,
+    } : prev);
+  };
+
+  const handleUntrackGame = async () => {
+    if (!game?.isTracked) return;
+
+    const confirmed = window.confirm(`Stop tracking "${game.name}"?`);
+    if (!confirmed) return;
+
+    setUntrackingLoading(true);
+    setTrackingError('');
+
+    try {
+      const trackedGameId = game.gameId || String(game.appid);
+      const response = await fetch(`/api/tracking?gameId=${encodeURIComponent(trackedGameId)}`, {
+        method: 'DELETE',
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.error || 'Failed to untrack game.');
+      }
+
+      setGame(prev => prev ? {
+        ...prev,
+        isTracked: false,
+        trackedGameId: undefined,
+      } : prev);
+    } catch (err) {
+      setTrackingError(err instanceof Error ? err.message : 'Failed to untrack game.');
+    } finally {
+      setUntrackingLoading(false);
+    }
+  };
+
+  const handleSingleGameUpdate = async () => {
+    if (!game?.trackedGameId) return;
+
+    setCheckingUpdates(true);
+    setTrackingError('');
+
+    try {
+      const response = await fetch('/api/updates/check-single', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ gameId: game.trackedGameId }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.error || 'Failed to check updates.');
+      }
+
+      await loadGameByAppId();
+    } catch (err) {
+      setTrackingError(err instanceof Error ? err.message : 'Failed to check updates.');
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
 
   const handleTrackGame = async () => {
     if (!game?.appid) return;
@@ -262,6 +369,60 @@ export default function AppIdDetailPage() {
     };
   }, [game?.name]);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadLatestVerificationData = async () => {
+      if (!game?.isTracked) return;
+
+      if (game.steamAppId && (game.steamVerified || game.gogVerified)) {
+        try {
+          const steamResponse = await fetch(`/api/steamdb?action=updates&appId=${game.steamAppId}&limit=1`);
+          if (steamResponse.ok && isMounted) {
+            const steamData = await steamResponse.json();
+            const latest = steamData?.data?.updates?.[0];
+            if (latest) {
+              setSteamLatest({
+                version: latest.version,
+                build: latest.changeNumber,
+                link: latest.link,
+              });
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (game.gogVerified && game.gogProductId && game.gogProductId !== -1) {
+        try {
+          const gogResponse = await fetch(`/api/gogdb?action=version&productId=${game.gogProductId}&os=windows`, {
+            cache: 'default',
+            next: { revalidate: 3600 },
+          });
+          if (gogResponse.ok && isMounted) {
+            const gogData = await gogResponse.json();
+            if (gogData?.success && (gogData?.version || gogData?.buildId)) {
+              setGogLatest({
+                version: gogData.version,
+                buildId: gogData.buildId,
+                date: gogData.date,
+              });
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    loadLatestVerificationData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [game?.isTracked, game?.steamAppId, game?.steamVerified, game?.gogVerified, game?.gogProductId]);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
@@ -274,30 +435,26 @@ export default function AppIdDetailPage() {
           </Link>
 
           <div className="flex items-center gap-2">
-            {game && (
+            {game && !game.isTracked && (
               <button
                 type="button"
                 onClick={handleTrackGame}
-                disabled={trackingLoading || Boolean(game.isTracked)}
-                className={`inline-flex items-center rounded-md px-3 py-2 text-sm font-medium text-white transition-colors ${
-                  game.isTracked
-                    ? 'bg-emerald-700/80 cursor-default'
-                    : 'bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed'
-                }`}
+                disabled={trackingLoading || untrackingLoading}
+                className="inline-flex items-center rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {game.isTracked ? 'Tracked' : trackingLoading ? 'Tracking...' : 'Track Game'}
+                {trackingLoading ? 'Tracking...' : 'Track Game'}
               </button>
             )}
 
-            {appid && (
-              <a
-                href={`https://store.steampowered.com/app/${appid}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-500"
+            {game?.isTracked && (
+              <button
+                type="button"
+                onClick={handleUntrackGame}
+                disabled={untrackingLoading || trackingLoading}
+                className="inline-flex items-center rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                Open Steam Store
-              </a>
+                {untrackingLoading ? 'Removing...' : 'Untrack'}
+              </button>
             )}
           </div>
         </div>
@@ -370,22 +527,71 @@ export default function AppIdDetailPage() {
               </div>
             </section>
 
-            <section>
-              <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Pending Updates</h2>
-                <div className="mt-3 space-y-2">
-                  {!game.pendingUpdates?.length && (
-                    <p className="text-sm text-slate-400">No pending updates.</p>
-                  )}
-                  {game.pendingUpdates?.slice(0, 5).map((update) => (
-                    <div key={update._id} className="rounded-md border border-slate-800 bg-slate-950/40 p-3 text-sm">
-                      <p className="font-medium text-slate-100">{update.newTitle || 'Untitled update'}</p>
-                      <p className="text-xs text-slate-400">{update.detectedVersion || 'No version'} • {update.reason || 'No reason'}</p>
-                    </div>
-                  ))}
+            {game.isTracked && game.trackedGameId && (
+              <section className="rounded-xl border border-slate-800 bg-slate-900 p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Tracking Management</h2>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSingleGameUpdate}
+                      disabled={checkingUpdates}
+                      className="inline-flex items-center rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-100 hover:bg-slate-700 disabled:opacity-60"
+                    >
+                      {checkingUpdates ? 'Checking...' : 'Check Updates'}
+                    </button>
+                    <GameDownloadLinks gameId={game.trackedGameId} className="w-44" />
+                  </div>
                 </div>
-              </div>
-            </section>
+
+                <div className="mt-4 space-y-3">
+                  <SteamVerification
+                    gameId={game.trackedGameId}
+                    gameTitle={game.title || game.name}
+                    steamName={game.steamName}
+                    steamVerified={game.steamVerified}
+                    steamLatestVersion={steamLatest.version}
+                    steamLatestBuild={steamLatest.build}
+                    steamLatestLink={steamLatest.link}
+                    onVerificationUpdate={handleVerificationUpdate}
+                  />
+
+                  <GOGVerification
+                    gameId={game.trackedGameId}
+                    gameTitle={game.title || game.name}
+                    currentGogId={game.gogProductId}
+                    currentGogName={game.gogName}
+                    isVerified={game.gogVerified}
+                    gogLatestVersion={gogLatest.version}
+                    gogLatestBuildId={gogLatest.buildId}
+                    gogLatestDate={gogLatest.date}
+                    trackedVersion={game.currentVersionNumber}
+                    trackedBuildId={game.currentBuildNumber}
+                    onVerificationComplete={loadGameByAppId}
+                  />
+
+                  <SmartVersionVerification
+                    gameId={game.gameId || String(game.appid)}
+                    gameTitle={game.title || game.name}
+                    originalTitle={game.originalTitle || game.title || game.name}
+                    steamAppId={game.steamAppId}
+                    currentBuildNumber={game.currentBuildNumber}
+                    buildNumberVerified={game.buildNumberVerified || false}
+                    currentVersionNumber={game.currentVersionNumber}
+                    versionNumberVerified={game.versionNumberVerified || false}
+                    onVerified={loadGameByAppId}
+                  />
+
+                  <div className="rounded-md border border-slate-800 bg-slate-950/40 p-3">
+                    <NotificationToggle
+                      gameId={game.trackedGameId}
+                      currentEnabled={game.notificationsEnabled ?? true}
+                      onToggleChanged={loadGameByAppId}
+                    />
+                  </div>
+                </div>
+              </section>
+            )}
 
             <section className="rounded-xl border border-slate-800 bg-slate-900 p-5">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Recent History</h2>

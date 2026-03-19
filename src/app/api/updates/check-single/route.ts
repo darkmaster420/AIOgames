@@ -526,6 +526,44 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
   return { isNewer, changeType, significance, suspiciousVersion };
 }
 
+type VersionScheme = 'semver' | 'build' | 'date' | 'unknown';
+
+function detectVersionScheme(info: VersionInfo): VersionScheme {
+  const normalizedVersion = String(info.version || '').trim().replace(/^v\s*/i, '');
+
+  if (info.isDateVersion || /^\d{8}$/.test(normalizedVersion) || /^\d{4}[-.]\d{2}[-.]\d{2}$/.test(normalizedVersion)) {
+    return 'date';
+  }
+
+  if (/^\d+\.\d+(?:\.\d+){0,2}$/.test(normalizedVersion)) {
+    return 'semver';
+  }
+
+  if (info.build && /^\d+$/.test(String(info.build).trim())) {
+    return 'build';
+  }
+
+  return 'unknown';
+}
+
+function parsePubTimestamp(value?: string | Date | number | null): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    const ts = value.getTime();
+    return Number.isFinite(ts) ? ts : 0;
+  }
+
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const ts = new Date(value).getTime();
+    return Number.isFinite(ts) ? ts : 0;
+  }
+
+  return 0;
+}
+
 // POST: Check for updates for a specific game using the search API
 export async function POST(request: Request) {
   try {
@@ -687,7 +725,24 @@ export async function POST(request: Request) {
           }
         }
         
-        const comparison = compareVersions(currentVersionInfo, newVersionInfo);
+        let comparison = compareVersions(currentVersionInfo, newVersionInfo);
+        const currentScheme = detectVersionScheme(currentVersionInfo);
+        const newScheme = detectVersionScheme(newVersionInfo);
+        const schemesMismatchOrUnknown = currentScheme !== newScheme || currentScheme === 'unknown' || newScheme === 'unknown';
+        const currentPubTimestamp = typeof game.lastPubTimestamp === 'number'
+          ? game.lastPubTimestamp
+          : parsePubTimestamp(game.lastVersionDate);
+        const newPubTimestamp = parsePubTimestamp(result.date);
+
+        if (!comparison.isNewer && schemesMismatchOrUnknown && currentPubTimestamp > 0 && newPubTimestamp > 0 && newPubTimestamp > currentPubTimestamp) {
+          comparison = {
+            ...comparison,
+            isNewer: true,
+            changeType: 'pub_timestamp',
+            significance: Math.max(comparison.significance, 1),
+          };
+          logger.debug(`🕒 Fallback to publication timestamp due to scheme mismatch (${currentScheme} vs ${newScheme}): ${currentPubTimestamp} -> ${newPubTimestamp}`);
+        }
         
         logger.debug(`📊 Comparison: isNewer=${comparison.isNewer}, current="${currentVersionInfo.version || currentVersionInfo.build}", new="${newVersionInfo.version || newVersionInfo.build}"`);
         
@@ -858,6 +913,7 @@ export async function POST(request: Request) {
               const updateFields: Record<string, unknown> = {
                 lastKnownVersion: newVersionInfo.fullVersionString || newVersionInfo.version || newVersionInfo.build || decodedTitle,
                 lastVersionDate: new Date().toISOString(),
+                lastPubTimestamp: parsePubTimestamp(result.date) || Date.now(),
                 dateAdded: new Date(), // Move game to top when single-check auto-approved update is detected
                 title: cleanedDecodedTitle,
                 originalTitle: decodedTitle,

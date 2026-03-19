@@ -366,6 +366,44 @@ function compareSemanticVersions(a: string, b: string): number {
   return 0;
 }
 
+type VersionScheme = 'semver' | 'build' | 'date' | 'unknown';
+
+function detectVersionScheme(info: VersionInfo): VersionScheme {
+  const normalizedVersion = String(info.version || '').trim().replace(/^v\s*/i, '');
+
+  if (info.isDateVersion || /^\d{8}$/.test(normalizedVersion) || /^\d{4}[-.]\d{2}[-.]\d{2}$/.test(normalizedVersion)) {
+    return 'date';
+  }
+
+  if (/^\d+\.\d+(?:\.\d+){0,2}$/.test(normalizedVersion)) {
+    return 'semver';
+  }
+
+  if (info.build && /^\d+$/.test(String(info.build).trim())) {
+    return 'build';
+  }
+
+  return 'unknown';
+}
+
+function parsePubTimestamp(value?: string | Date | number | null): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    const ts = value.getTime();
+    return Number.isFinite(ts) ? ts : 0;
+  }
+
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const ts = new Date(value).getTime();
+    return Number.isFinite(ts) ? ts : 0;
+  }
+
+  return 0;
+}
+
 function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { isNewer: boolean; changeType: string; significance: number; shouldWaitForRegular?: boolean; suspiciousVersion?: { isSuspicious: boolean; reason?: string }; skipDueToHierarchy?: boolean } {
   let isNewer = false;
   let changeType = 'unknown';
@@ -818,6 +856,7 @@ export async function POST(request: Request) {
                         originalTitle: decodedTitle,
                         lastKnownVersion: versionString,
                         lastVersionDate: recentGame.date || new Date().toISOString(),
+                        lastPubTimestamp: parsePubTimestamp(recentGame.date) || Date.now(),
                         lastChecked: new Date(),
                         dateAdded: new Date(), // Move game to top when sequel update is detected
                         gameLink: recentGame.link,
@@ -878,6 +917,7 @@ export async function POST(request: Request) {
                       gameLink: recentGame.link,
                       lastKnownVersion: versionString,
                       lastVersionDate: recentGame.date || new Date().toISOString(),
+                      lastPubTimestamp: parsePubTimestamp(recentGame.date) || Date.now(),
                       dateAdded: new Date(),
                       lastChecked: new Date(),
                       notificationsEnabled: true,
@@ -1177,6 +1217,14 @@ export async function POST(request: Request) {
           let isActuallyNewer = false;
           let comparisonReason = '';
           let comparison: { isNewer: boolean; changeType: string; significance: number; shouldWaitForRegular?: boolean; suspiciousVersion?: { isSuspicious: boolean; reason?: string }; skipDueToHierarchy?: boolean } | undefined;
+          const currentScheme = detectVersionScheme(currentVersionInfo);
+          const newScheme = detectVersionScheme(newVersionInfo);
+          const schemesMismatchOrUnknown = currentScheme !== newScheme || currentScheme === 'unknown' || newScheme === 'unknown';
+          const currentPubTimestamp = typeof game.lastPubTimestamp === 'number'
+            ? game.lastPubTimestamp
+            : parsePubTimestamp(game.lastVersionDate);
+          const newPubTimestamp = parsePubTimestamp(bestMatch.date);
+          const canFallbackToPubTimestamp = currentPubTimestamp > 0 && newPubTimestamp > 0;
           
           // More flexible update detection - don't require version if we have other indicators
           const hasVersionInfo = newVersionInfo.version || newVersionInfo.build;
@@ -1200,26 +1248,37 @@ export async function POST(request: Request) {
             logger.info(`0xdeadcode release detected: ${decodedTitle}`);
           } else if ((hasVerifiedVersion || hasVerifiedBuild) && hasVersionInfo) {
             const hasComparableVersion = !!(newVersionInfo.version && currentVersionInfo.version);
-            const versionCmp = hasComparableVersion
-              ? compareSemanticVersions(newVersionInfo.version, currentVersionInfo.version)
-              : 0;
             const currentBuild = parseInt(currentVersionInfo.build || '0');
             const newBuild = parseInt(newVersionInfo.build || '0');
             const canCompareBuilds = !isNaN(currentBuild) && !isNaN(newBuild) && currentBuild > 0 && newBuild > 0;
-            
-            if ((hasComparableVersion && versionCmp > 0) ||
-                (hasComparableVersion && canCompareBuilds && versionCmp === 0 && newBuild > currentBuild) ||
-                (!hasComparableVersion && canCompareBuilds && newBuild > currentBuild)) {
+
+            if (!schemesMismatchOrUnknown) {
+              const versionCmp = hasComparableVersion
+                ? compareSemanticVersions(newVersionInfo.version, currentVersionInfo.version)
+                : 0;
+
+              if ((hasComparableVersion && versionCmp > 0) ||
+                  (hasComparableVersion && canCompareBuilds && versionCmp === 0 && newBuild > currentBuild) ||
+                  (!hasComparableVersion && canCompareBuilds && newBuild > currentBuild)) {
+                isActuallyNewer = true;
+                comparisonReason = `Version/Build: ${currentVersionInfo.version || '0'}/${currentVersionInfo.build || '0'} → ${newVersionInfo.version || '0'}/${newVersionInfo.build || '0'}`;
+              }
+            } else if (canFallbackToPubTimestamp && newPubTimestamp > currentPubTimestamp) {
               isActuallyNewer = true;
-              comparisonReason = `Version/Build: ${currentVersionInfo.version || '0'}/${currentVersionInfo.build || '0'} → ${newVersionInfo.version || '0'}/${newVersionInfo.build || '0'}`;
+              comparisonReason = `Publication timestamp fallback: ${currentPubTimestamp} → ${newPubTimestamp} (scheme mismatch ${currentScheme} vs ${newScheme})`;
             }
           } else if (hasVerifiedVersion) {
             // Only compare versions
-            const versionCmp = compareSemanticVersions(newVersionInfo.version || '0', currentVersionInfo.version || game.currentVersionNumber || '0');
-            
-            if (versionCmp > 0) {
+            if (!schemesMismatchOrUnknown) {
+              const versionCmp = compareSemanticVersions(newVersionInfo.version || '0', currentVersionInfo.version || game.currentVersionNumber || '0');
+
+              if (versionCmp > 0) {
+                isActuallyNewer = true;
+                comparisonReason = `Version: ${currentVersionInfo.version || game.currentVersionNumber || '0'} → ${newVersionInfo.version || '0'}`;
+              }
+            } else if (canFallbackToPubTimestamp && newPubTimestamp > currentPubTimestamp) {
               isActuallyNewer = true;
-              comparisonReason = `Version: ${currentVersionInfo.version || game.currentVersionNumber || '0'} → ${newVersionInfo.version || '0'}`;
+              comparisonReason = `Publication timestamp fallback: ${currentPubTimestamp} → ${newPubTimestamp} (scheme mismatch ${currentScheme} vs ${newScheme})`;
             }
           } else if (hasVerifiedBuild) {
             // Only compare builds
@@ -1282,17 +1341,14 @@ export async function POST(request: Request) {
               if (comparison.changeType === 'date_to_regular_needs_verification') {
                 // Current game has date version, new post has regular version
                 // We need to verify if the regular version is actually newer by checking post dates
-                if (bestMatch.date && game.lastVersionDate) {
-                  const newPostDate = new Date(bestMatch.date);
-                  const currentPostDate = new Date(game.lastVersionDate);
-                  
-                  if (newPostDate > currentPostDate) {
+                if (canFallbackToPubTimestamp) {
+                  if (newPubTimestamp > currentPubTimestamp) {
                     isActuallyNewer = true;
-                    comparisonReason = `Regular version from newer post: ${game.lastVersionDate} → ${bestMatch.date} (${currentVersionInfo.version} → ${newVersionInfo.version})`;
+                    comparisonReason = `Regular version from newer post timestamp: ${currentPubTimestamp} → ${newPubTimestamp} (${currentVersionInfo.version} → ${newVersionInfo.version})`;
                     logger.info(`Date-to-regular version update verified by post date: ${decodedTitle}`);
                   } else {
                     // Post date is older or same, so the regular version might be older
-                    logger.info(`Regular version from older post, skipping: ${decodedTitle} (${bestMatch.date} <= ${game.lastVersionDate})`);
+                    logger.info(`Regular version from older post timestamp, skipping: ${decodedTitle} (${newPubTimestamp} <= ${currentPubTimestamp})`);
                     // Continue to check if we can verify via SteamDB
                   }
                 } else {
@@ -1307,19 +1363,19 @@ export async function POST(request: Request) {
               // If we have a date-based version that's older than 2 days, check post dates as fallback
               else if (newVersionInfo.isDateVersion && !comparison.isNewer) {
                 // Fallback to post date comparison for date-based versions
-                if (bestMatch.date && game.lastVersionDate) {
-                  const newPostDate = new Date(bestMatch.date);
-                  const currentPostDate = new Date(game.lastVersionDate);
-                  
-                  if (newPostDate > currentPostDate) {
-                    isActuallyNewer = true;
-                    comparisonReason = `Newer post date: ${game.lastVersionDate} → ${bestMatch.date} (date-based version)`;
-                    logger.info(`Date-based version update by post date: ${decodedTitle}`);
-                  }
+                if (canFallbackToPubTimestamp && newPubTimestamp > currentPubTimestamp) {
+                  isActuallyNewer = true;
+                  comparisonReason = `Newer post timestamp: ${currentPubTimestamp} → ${newPubTimestamp} (date-based version)`;
+                  logger.info(`Date-based version update by post date: ${decodedTitle}`);
                 }
               } else {
                 isActuallyNewer = comparison.isNewer && comparison.significance >= 1;
                 comparisonReason = `Enhanced comparison: ${comparison.changeType} (significance: ${comparison.significance})`;
+
+                if (!isActuallyNewer && schemesMismatchOrUnknown && canFallbackToPubTimestamp && newPubTimestamp > currentPubTimestamp) {
+                  isActuallyNewer = true;
+                  comparisonReason = `Publication timestamp fallback: ${currentPubTimestamp} → ${newPubTimestamp} (scheme mismatch ${currentScheme} vs ${newScheme})`;
+                }
               }
             } else if (hasUpdateKeywords || isDifferentReleaseGroup) {
               // Accept updates based on keywords or different release groups
@@ -1419,6 +1475,7 @@ export async function POST(request: Request) {
                   $push: { updateHistory: approvedUpdate },
                   lastKnownVersion: versionString,
                   lastVersionDate: bestMatch.date || new Date().toISOString(),
+                  lastPubTimestamp: parsePubTimestamp(bestMatch.date) || Date.now(),
                   lastChecked: new Date(),
                   dateAdded: new Date(), // Move game to top when auto-approved update is detected
                   gameLink: bestMatch.link,

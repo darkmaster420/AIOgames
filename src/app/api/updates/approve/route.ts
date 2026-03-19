@@ -94,6 +94,7 @@ export async function POST(request: NextRequest) {
       versionNumberSource: 'user_approved',
       versionNumberLastUpdated: new Date(),
       lastVersionDate: pendingUpdate.dateFound,
+      lastPubTimestamp: new Date(pendingUpdate.dateFound || new Date()).getTime(),
       dateAdded: new Date(), // Move game to top of list when update is approved
       title: pendingUpdate.newTitle,
       originalTitle: pendingUpdate.newTitle, // Update original title to match new title

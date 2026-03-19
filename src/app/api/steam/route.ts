@@ -5,6 +5,19 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
+const SEARCH_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const APPID_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+type SteamRoutePayload = Record<string, unknown>;
+
+type CacheEntry = {
+  value: SteamRoutePayload;
+  expiresAt: number;
+};
+
+const steamResponseCache = new Map<string, CacheEntry>();
+const inflightRequests = new Map<string, Promise<SteamRoutePayload>>();
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
@@ -30,69 +43,120 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      let results: Array<{
-        appid: string;
-        name: string;
-        type: 'game' | 'dlc' | 'demo' | 'beta' | 'tool';
-        developers?: string[];
-        publishers?: string[];
-        owners?: string;
-        header_image?: string;
-      }> = [];
-      let source = 'steam_web_api';
-      
-      // If query is numeric, treat as appid lookup
-      if (/^\d+$/.test(q)) {
-        try {
-          const data = await fetchSteamSpyAppDetails(q);
-          if (data && data.name) {
-            results = [{
-              appid: q,
-              name: data.name,
-              type: 'game' as const,
-              developers: data.developer ? [data.developer] : undefined,
-              publishers: data.publisher ? [data.publisher] : undefined,
-              owners: data.owners,
-            }];
-            source = 'steamspy';
+      const cacheKey = `search:${q.trim().toLowerCase()}`;
+      const cachedResponse = getCachedResponse(cacheKey);
+      if (cachedResponse) {
+        return NextResponse.json(
+          {
+            ...cachedResponse,
+            cached: true,
+          },
+          {
+            headers: {
+              ...CORS_HEADERS,
+              'Cache-Control': 'public, max-age=120, s-maxage=600, stale-while-revalidate=60',
+            },
           }
-        } catch (error) {
-          console.error('SteamSpy appid lookup error:', error);
-        }
-      } else {
-        // Text search - try Steam Web API first (more reliable)
-        try {
-          const steamResults = await searchSteamWebAPI(q);
-          if (steamResults && steamResults.length > 0) {
-            results = steamResults;
-            source = 'steam_web_api';
+        );
+      }
+
+      const inFlight = inflightRequests.get(cacheKey);
+      if (inFlight) {
+        const inflightResult = await inFlight;
+        return NextResponse.json(
+          {
+            ...inflightResult,
+            cached: true,
+          },
+          {
+            headers: {
+              ...CORS_HEADERS,
+              'Cache-Control': 'public, max-age=120, s-maxage=600, stale-while-revalidate=60',
+            },
           }
-        } catch (error) {
-          console.error('Steam Web API search error:', error);
-        }
+        );
+      }
+
+      const searchPromise = (async (): Promise<SteamRoutePayload> => {
+        let results: Array<{
+          appid: string;
+          name: string;
+          type: 'game' | 'dlc' | 'demo' | 'beta' | 'tool';
+          developers?: string[];
+          publishers?: string[];
+          owners?: string;
+          header_image?: string;
+        }> = [];
+        let source = 'steam_web_api';
         
-        // Fallback to SteamSpy if Steam Web API failed
-        if (results.length === 0) {
+        // If query is numeric, treat as appid lookup
+        if (/^\d+$/.test(q)) {
           try {
-            const searchResults = await searchSteamSpyByName(q);
-            if (searchResults && searchResults.length > 0) {
-              results = searchResults;
+            const data = await fetchSteamSpyAppDetails(q);
+            if (data && data.name) {
+              results = [{
+                appid: q,
+                name: data.name,
+                type: 'game' as const,
+                developers: data.developer ? [data.developer] : undefined,
+                publishers: data.publisher ? [data.publisher] : undefined,
+                owners: data.owners,
+              }];
               source = 'steamspy';
             }
           } catch (error) {
-            console.error('SteamSpy search error:', error);
+            console.error('SteamSpy appid lookup error:', error);
+          }
+        } else {
+          // Text search - try Steam Web API first (more reliable)
+          try {
+            const steamResults = await searchSteamWebAPI(q);
+            if (steamResults && steamResults.length > 0) {
+              results = steamResults;
+              source = 'steam_web_api';
+            }
+          } catch (error) {
+            console.error('Steam Web API search error:', error);
+          }
+          
+          // Fallback to SteamSpy if Steam Web API failed
+          if (results.length === 0) {
+            try {
+              const searchResults = await searchSteamSpyByName(q);
+              if (searchResults && searchResults.length > 0) {
+                results = searchResults;
+                source = 'steamspy';
+              }
+            } catch (error) {
+              console.error('SteamSpy search error:', error);
+            }
           }
         }
+
+        return {
+          query: q,
+          results,
+          total: results.length,
+          source,
+          cached: false,
+        };
+      })();
+
+      inflightRequests.set(cacheKey, searchPromise);
+
+      try {
+        const responsePayload = await searchPromise;
+        setCachedResponse(cacheKey, responsePayload, SEARCH_CACHE_TTL_MS);
+
+        return NextResponse.json(responsePayload, {
+          headers: {
+            ...CORS_HEADERS,
+            'Cache-Control': 'public, max-age=120, s-maxage=600, stale-while-revalidate=60',
+          },
+        });
+      } finally {
+        inflightRequests.delete(cacheKey);
       }
-      
-      // Return in the format expected by steamApi.ts
-      return NextResponse.json({
-        query: q,
-        results: results,
-        total: results.length,
-        source: source,
-        cached: false
-      }, { headers: CORS_HEADERS });
     }
     
     // App details endpoint: /api/steam?action=appid&id=12345
@@ -104,36 +168,89 @@ export async function GET(request: NextRequest) {
           { status: 400, headers: CORS_HEADERS }
         );
       }
-      
-      const [steamspy, steamRaw, rssXml] = await Promise.all([
-        fetchSteamSpyAppDetails(appid),
-        fetchSteamStoreDetails(appid),
-        fetchSteamDBRss(appid),
-      ]);
 
-      const steamData = steamRaw && steamRaw[appid] && steamRaw[appid].success 
-        ? steamRaw[appid].data 
-        : null;
-      
-      const rssItems = parseSteamDBRss(rssXml);
-      const builds = rssItems.map(simplifyPatchItem);
-
-      const name = steamData?.name || steamspy?.name || null;
-
-      return NextResponse.json({
-        appid,
-        name,
-        sources: {
-          steamspy,
-          steam: steamData ? pickSteamFields(steamData) : null,
-          steamdb: {
-            rss_url: `https://steamdb.info/api/PatchnotesRSS/?appid=${appid}`,
-            item_count: rssItems.length,
+      const cacheKey = `appid:${appid}`;
+      const cachedResponse = getCachedResponse(cacheKey);
+      if (cachedResponse) {
+        return NextResponse.json(
+          {
+            ...cachedResponse,
+            cached: true,
           },
-        },
-        builds,
-        latest_build: builds[0] || null,
-      }, { headers: CORS_HEADERS });
+          {
+            headers: {
+              ...CORS_HEADERS,
+              'Cache-Control': 'public, max-age=300, s-maxage=1800, stale-while-revalidate=120',
+            },
+          }
+        );
+      }
+
+      const inFlight = inflightRequests.get(cacheKey);
+      if (inFlight) {
+        const inflightResult = await inFlight;
+        return NextResponse.json(
+          {
+            ...inflightResult,
+            cached: true,
+          },
+          {
+            headers: {
+              ...CORS_HEADERS,
+              'Cache-Control': 'public, max-age=300, s-maxage=1800, stale-while-revalidate=120',
+            },
+          }
+        );
+      }
+
+      const appidPromise = (async (): Promise<SteamRoutePayload> => {
+        const [steamspy, steamRaw, rssXml] = await Promise.all([
+          fetchSteamSpyAppDetails(appid),
+          fetchSteamStoreDetails(appid),
+          fetchSteamDBRss(appid),
+        ]);
+
+        const steamData = steamRaw && steamRaw[appid] && steamRaw[appid].success 
+          ? steamRaw[appid].data 
+          : null;
+        
+        const rssItems = parseSteamDBRss(rssXml);
+        const builds = rssItems.map(simplifyPatchItem);
+
+        const name = steamData?.name || steamspy?.name || null;
+
+        return {
+          appid,
+          name,
+          sources: {
+            steamspy,
+            steam: steamData ? pickSteamFields(steamData) : null,
+            steamdb: {
+              rss_url: `https://steamdb.info/api/PatchnotesRSS/?appid=${appid}`,
+              item_count: rssItems.length,
+            },
+          },
+          builds,
+          latest_build: builds[0] || null,
+          cached: false,
+        };
+      })();
+
+      inflightRequests.set(cacheKey, appidPromise);
+
+      try {
+        const responsePayload = await appidPromise;
+        setCachedResponse(cacheKey, responsePayload, APPID_CACHE_TTL_MS);
+
+        return NextResponse.json(responsePayload, {
+          headers: {
+            ...CORS_HEADERS,
+            'Cache-Control': 'public, max-age=300, s-maxage=1800, stale-while-revalidate=120',
+          },
+        });
+      } finally {
+        inflightRequests.delete(cacheKey);
+      }
     }
 
     // Default response
@@ -153,6 +270,25 @@ export async function GET(request: NextRequest) {
       { status: 500, headers: CORS_HEADERS }
     );
   }
+}
+
+function getCachedResponse(cacheKey: string): SteamRoutePayload | null {
+  const entry = steamResponseCache.get(cacheKey);
+  if (!entry) return null;
+
+  if (entry.expiresAt <= Date.now()) {
+    steamResponseCache.delete(cacheKey);
+    return null;
+  }
+
+  return entry.value;
+}
+
+function setCachedResponse(cacheKey: string, value: SteamRoutePayload, ttlMs: number) {
+  steamResponseCache.set(cacheKey, {
+    value,
+    expiresAt: Date.now() + ttlMs,
+  });
 }
 
 // Helper functions
@@ -269,6 +405,8 @@ interface RssItem {
   description: string;
 }
 
+type VersionScheme = 'semver' | 'build' | 'date' | 'unknown';
+
 function parseSteamDBRss(xml: string): RssItem[] {
   if (!xml) return [];
   
@@ -306,13 +444,29 @@ function simplifyPatchItem(item: RssItem) {
   // Extract version from title or description (e.g., "v1.2.3" or "1.2.3")
   const versionMatch = `${item.title || ''} ${item.description || ''}`.match(/(v?\d+\.\d+(?:\.\d+){0,2})/i);
   const version = versionMatch ? versionMatch[1] : null;
+
+  const normalizedVersion = version ? version.replace(/^v\s*/i, '') : '';
+  let versionScheme: VersionScheme = 'unknown';
+
+  if (/^\d+\.\d+(?:\.\d+){0,2}$/.test(normalizedVersion)) {
+    versionScheme = 'semver';
+  } else if (/^\d{8}$/.test(normalizedVersion) || /^\d{4}[-.]\d{2}[-.]\d{2}$/.test(normalizedVersion)) {
+    versionScheme = 'date';
+  } else if (build) {
+    versionScheme = 'build';
+  }
+
+  const parsedPubTimestamp = new Date(item.pubDate).getTime();
+  const pubTimestamp = Number.isFinite(parsedPubTimestamp) ? parsedPubTimestamp : null;
   
   return {
     title: item.title,
     build_id: build,
     version: version,
+    version_scheme: versionScheme,
     link: item.link,
     pubDate: item.pubDate,
+    pub_timestamp: pubTimestamp,
     description: item.description ? item.description.substring(0, 200) : null,
   };
 }

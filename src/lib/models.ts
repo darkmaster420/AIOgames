@@ -224,6 +224,10 @@ const trackedGameSchema = new mongoose.Schema({
   lastVersionDate: {
     type: String
   },
+  lastPubTimestamp: {
+    type: Number,
+    default: 0
+  },
   dateAdded: {
     type: Date,
     default: Date.now

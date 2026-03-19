@@ -163,11 +163,13 @@ export interface SteamDbBuildItem {
   guid: string; // e.g., "build#20193388"
   build_id: string; // e.g., "20193388"
   version?: string | null; // heuristic version extracted by the Worker
+  version_scheme?: 'semver' | 'build' | 'date' | 'unknown';
   title?: string;
   url?: string;
   description?: string;
   thumbnail?: string | null;
   published_at?: string; // RFC 822 from RSS
+  pub_timestamp?: number | null;
 }
 
 export interface SteamAppAggregatedDetails {

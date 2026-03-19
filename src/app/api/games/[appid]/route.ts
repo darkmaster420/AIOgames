@@ -210,11 +210,30 @@ export async function GET(
         if (trackedGame) {
           response.isTracked = true;
           response.trackedGameId = trackedGame._id.toString();
+          response.gameId = trackedGame.gameId;
+          response.title = trackedGame.title;
+          response.originalTitle = trackedGame.originalTitle;
+          response.source = trackedGame.source;
+          response.image = trackedGame.image;
+          response.gameLink = trackedGame.gameLink;
           response.lastKnownVersion = trackedGame.lastKnownVersion;
           response.hasNewUpdate = trackedGame.hasNewUpdate || false;
           response.steamVerified = trackedGame.steamVerified;
+          response.steamAppId = trackedGame.steamAppId;
+          response.steamName = trackedGame.steamName;
+          response.gogVerified = trackedGame.gogVerified;
+          response.gogProductId = trackedGame.gogProductId;
+          response.gogName = trackedGame.gogName;
+          response.gogVersion = trackedGame.gogVersion;
+          response.gogBuildId = trackedGame.gogBuildId;
+          response.gogLastChecked = trackedGame.gogLastChecked;
           response.buildNumberVerified = trackedGame.buildNumberVerified;
           response.currentBuildNumber = trackedGame.currentBuildNumber;
+          response.versionNumberVerified = trackedGame.versionNumberVerified;
+          response.currentVersionNumber = trackedGame.currentVersionNumber;
+          response.notificationsEnabled = trackedGame.notificationsEnabled;
+          response.dateAdded = trackedGame.dateAdded;
+          response.lastChecked = trackedGame.lastChecked;
           
           // Include recent update history
           if (trackedGame.updateHistory && trackedGame.updateHistory.length > 0) {
