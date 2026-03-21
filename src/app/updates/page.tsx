@@ -4,8 +4,6 @@ import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import Image from 'next/image';
 import { SchedulerStatus } from '../../components/SchedulerStatus';
-import { AIDetectionStatus } from '../../components/AIDetectionStatus';
-import { PendingRelatedGames } from '../../components/PendingRelatedGames';
 import { useNotification } from '../../contexts/NotificationContext';
 
 interface UpdateHistoryItem {
@@ -42,55 +40,11 @@ interface GameWithUpdates {
   totalUpdates: number;
 }
 
-interface PendingUpdate {
-  _id: string;
-  version: string; // Full title with version (e.g., "TEKKEN 8 v2.06.01-P2P")
-  detectedVersion: string; // Clean version number
-  build: string;
-  releaseType: string;
-  updateType: string;
-  changeType: string;
-  significance: number;
-  newTitle: string;
-  newLink: string;
-  gameLink: string;
-  previousVersion: string;
-  newImage?: string;
-  dateFound: string;
-  confidence: number;
-  reason: string;
-  aiDetectionConfidence?: number;
-  aiDetectionReason?: string;
-  detectionMethod?: string;
-  steamEnhanced?: boolean;
-  steamValidated?: boolean;
-  downloadLinks?: Array<{
-    service: string;
-    url: string;
-    type: string;
-  }>;
-}
-
-interface GameWithPending {
-  _id: string;
-  title: string;
-  originalTitle: string;
-  steamName?: string;
-  steamVerified?: boolean;
-  lastKnownVersion: string;
-  currentVersionNumber: string;
-  currentBuildNumber: string;
-  image?: string;
-  pendingUpdates: PendingUpdate[];
-}
-
 export default function UpdatesPage() {
   const { data: session } = useSession();
   const { showSuccess, showError } = useNotification();
   const [recentUpdates, setRecentUpdates] = useState<GameWithUpdates[]>([]);
-  const [pendingUpdates, setPendingUpdates] = useState<GameWithPending[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'recent' | 'pending'>('recent');
   const [checkingUpdates, setCheckingUpdates] = useState(false);
 
   useEffect(() => {
@@ -110,12 +64,6 @@ export default function UpdatesPage() {
         setRecentUpdates(recentData.games || []);
       }
 
-      // Fetch pending updates
-      const pendingResponse = await fetch('/api/updates/pending');
-      if (pendingResponse.ok) {
-        const pendingData = await pendingResponse.json();
-        setPendingUpdates(pendingData.games || []);
-      }
     } catch (error) {
       console.error('Failed to fetch updates:', error);
     } finally {
@@ -143,42 +91,6 @@ export default function UpdatesPage() {
     }
   };
 
-  const approveUpdate = async (gameId: string, updateIndex: number) => {
-    try {
-      const response = await fetch('/api/updates/approve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gameId, updateIndex })
-      });
-
-      if (response.ok) {
-        fetchUpdates(); // Refresh data
-        showSuccess('Update Approved', 'Update approved and applied!');
-      }
-    } catch (error) {
-      console.error('Failed to approve update:', error);
-      showError('Approval Failed', 'Failed to approve update');
-    }
-  };
-
-  const rejectUpdate = async (gameId: string, updateIndex: number) => {
-    try {
-      const response = await fetch('/api/updates/reject', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gameId, updateIndex })
-      });
-
-      if (response.ok) {
-        fetchUpdates(); // Refresh data
-        showSuccess('Update Rejected', 'Update rejected');
-      }
-    } catch (error) {
-      console.error('Failed to reject update:', error);
-      showError('Rejection Failed', 'Failed to reject update');
-    }
-  };
-
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -197,6 +109,18 @@ export default function UpdatesPage() {
     } else {
       return <span className="status-badge bg-primary-100/80 text-primary-800 border border-primary-200/50 dark:bg-primary-900/30 dark:text-primary-300 dark:border-primary-700/50">🔵 Patch</span>;
     }
+  };
+
+  const getDisplayChangeType = (changeType: string | undefined, significance: number) => {
+    const normalized = String(changeType || '').trim().toLowerCase();
+
+    if (!normalized || normalized === 'unknown') {
+      if (significance >= 3) return 'major';
+      if (significance >= 2) return 'minor';
+      return 'patch';
+    }
+
+    return normalized.replace(/_/g, ' ');
   };
 
   if (!session) {
@@ -221,8 +145,6 @@ export default function UpdatesPage() {
       <div className="max-w-6xl mx-auto py-8 px-4">
         <div className="mb-6 space-y-4">
           <SchedulerStatus />
-          <AIDetectionStatus />
-          <PendingRelatedGames />
         </div>
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
           <div>
@@ -248,36 +170,6 @@ export default function UpdatesPage() {
           </button>
         </div>
 
-        {/* Enhanced Tabs */}
-        <div className="border-b border-white/20 dark:border-white/10 mb-6">
-          <nav className="-mb-px flex space-x-8">
-            <button
-              onClick={() => setActiveTab('recent')}
-              className={`py-3 px-1 border-b-2 font-medium text-sm transition-all duration-200 ${
-                activeTab === 'recent'
-                  ? 'border-primary-500 text-primary-600 dark:text-primary-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300 dark:text-slate-400 dark:hover:text-slate-300'
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                📈 <span>Recent Updates ({recentUpdates.length})</span>
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab('pending')}
-              className={`py-3 px-1 border-b-2 font-medium text-sm transition-all duration-200 ${
-                activeTab === 'pending'
-                  ? 'border-primary-500 text-primary-600 dark:text-primary-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300 dark:text-slate-400 dark:hover:text-slate-300'
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                ⏳ <span>Pending Confirmation ({pendingUpdates.reduce((acc, game) => acc + game.pendingUpdates.length, 0)})</span>
-              </span>
-            </button>
-          </nav>
-        </div>
-
         {loading ? (
           <div className="text-center py-12">
             <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-xl p-8 max-w-sm mx-auto">
@@ -287,8 +179,7 @@ export default function UpdatesPage() {
           </div>
         ) : (
           <div>
-            {activeTab === 'recent' && (
-              <div className="space-y-6">
+            <div className="space-y-6">
                 {recentUpdates.length === 0 ? (
                   <div className="text-center py-12">
                     <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-xl p-8 max-w-md mx-auto">
@@ -370,200 +261,7 @@ export default function UpdatesPage() {
                     </div>
                   ))
                 )}
-              </div>
-            )}
-
-            {activeTab === 'pending' && (
-              <div className="space-y-6">
-                {pendingUpdates.length === 0 ? (
-                  <div className="text-center py-12">
-                    <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-xl p-8 max-w-md mx-auto">
-                      <div className="text-6xl mb-4">✅</div>
-                      <h3 className="text-lg font-medium text-slate-700 dark:text-slate-300 mb-2">No Pending Updates</h3>
-                      <p className="text-slate-500 dark:text-slate-400">All detected updates have been processed.</p>
-                    </div>
-                  </div>
-                ) : (
-                  pendingUpdates.map((game) => (
-                    <div key={game._id} className="game-card animate-fade-in">
-                      <div className="flex flex-col sm:flex-row sm:items-start space-y-4 sm:space-y-0 sm:space-x-4 p-6 border-b border-gray-200 dark:border-gray-700">
-                        {game.image && (
-                          <Image 
-                            src={game.image} 
-                            alt={game.title}
-                            width={80}
-                            height={80}
-                            className="w-20 h-20 rounded-lg object-cover flex-shrink-0"
-                          />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
-                            {(game.steamVerified && game.steamName) ? game.steamName : game.title}
-                          </h3>
-                          <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-2">
-                            {!game.steamVerified && game.originalTitle && (
-                              <>
-                                <span className="font-medium">Current:</span>
-                                <span className="text-gray-900 dark:text-white">{game.originalTitle}</span>
-                              </>
-                            )}
-                            {game.lastKnownVersion && (
-                              <>
-                                <span>•</span>
-                                <span>Version: {game.lastKnownVersion}</span>
-                              </>
-                            )}
-                          </div>
-                          <p className="text-sm text-warning-600 dark:text-warning-400 flex items-center gap-2">
-                            ⚠️ <span>{game.pendingUpdates.length} update{game.pendingUpdates.length > 1 ? 's' : ''} awaiting confirmation</span>
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="space-y-3 p-6">
-                        {game.pendingUpdates.map((update, idx) => (
-                          <div key={idx} className="card-gradient backdrop-blur-sm border border-warning-300/30 dark:border-warning-600/30 rounded-xl p-4">
-                            <div className="flex flex-col space-y-3">
-                              {/* Title and Badges */}
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center flex-wrap gap-2 mb-2">
-                                    <span className="text-lg font-semibold text-gray-900 dark:text-white">
-                                      {update.version || update.newTitle}
-                                    </span>
-                                    {update.steamEnhanced && (
-                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                                        🎮 Steam Enhanced
-                                      </span>
-                                    )}
-                                    {update.steamValidated && (
-                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                                        ✓ Steam Validated
-                                      </span>
-                                    )}
-                                    {getSignificanceBadge(update.significance || 0)}
-                                  </div>
-                                  
-                                  {/* Version Information */}
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm mb-2">
-                                    {update.detectedVersion && (
-                                      <div className="flex items-center gap-1">
-                                        <span className="text-gray-500 dark:text-gray-400">Version:</span>
-                                        <span className="font-medium text-gray-900 dark:text-white">{update.detectedVersion}</span>
-                                      </div>
-                                    )}
-                                    {update.build && (
-                                      <div className="flex items-center gap-1">
-                                        <span className="text-gray-500 dark:text-gray-400">Build:</span>
-                                        <span className="font-medium text-gray-900 dark:text-white">{update.build}</span>
-                                      </div>
-                                    )}
-                                    {update.updateType && (
-                                      <div className="flex items-center gap-1">
-                                        <span className="text-gray-500 dark:text-gray-400">Type:</span>
-                                        <span className="font-medium text-gray-900 dark:text-white">{update.updateType}</span>
-                                      </div>
-                                    )}
-                                    {update.releaseType && (
-                                      <div className="flex items-center gap-1">
-                                        <span className="text-gray-500 dark:text-gray-400">Release:</span>
-                                        <span className="font-medium text-gray-900 dark:text-white">{update.releaseType}</span>
-                                      </div>
-                                    )}
-                                    {update.changeType && (
-                                      <div className="flex items-center gap-1">
-                                        <span className="text-gray-500 dark:text-gray-400">Change:</span>
-                                        <span className="font-medium text-gray-900 dark:text-white">{update.changeType}</span>
-                                      </div>
-                                    )}
-                                    {update.previousVersion && (
-                                      <div className="flex items-center gap-1">
-                                        <span className="text-gray-500 dark:text-gray-400">Previous:</span>
-                                        <span className="font-medium text-gray-700 dark:text-gray-300">{update.previousVersion}</span>
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  {/* AI Detection Info */}
-                                  {update.aiDetectionConfidence && update.aiDetectionConfidence > 0 && (
-                                    <div className="flex items-center gap-2 text-xs mb-2">
-                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
-                                        🤖 AI: {Math.round(update.aiDetectionConfidence * 100)}%
-                                      </span>
-                                      {update.aiDetectionReason && (
-                                        <span className="text-gray-600 dark:text-gray-400">{update.aiDetectionReason}</span>
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {/* Detection Info */}
-                                  <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-                                    <span>Confidence: {Math.round(update.confidence * 100)}%</span>
-                                    <span>•</span>
-                                    <span>{update.reason}</span>
-                                    <span>•</span>
-                                    <span>{new Date(update.dateFound).toLocaleDateString()}</span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Download Links */}
-                              {update.downloadLinks && update.downloadLinks.length > 0 && (
-                                <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
-                                  <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Download Links:</p>
-                                  <div className="flex flex-wrap gap-2">
-                                    {update.downloadLinks.slice(0, 5).map((link, linkIdx) => (
-                                      <a
-                                        key={linkIdx}
-                                        href={link.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center px-2 py-1 text-xs font-medium rounded bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50"
-                                      >
-                                        {link.service}
-                                      </a>
-                                    ))}
-                                    {update.downloadLinks.length > 5 && (
-                                      <span className="inline-flex items-center px-2 py-1 text-xs text-gray-600 dark:text-gray-400">
-                                        +{update.downloadLinks.length - 5} more
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Action Buttons */}
-                              <div className="flex items-center gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
-                                <button
-                                  onClick={() => approveUpdate(game._id, idx)}
-                                  className="flex-1 inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors"
-                                >
-                                  ✓ Approve
-                                </button>
-                                <button
-                                  onClick={() => rejectUpdate(game._id, idx)}
-                                  className="flex-1 inline-flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 text-sm font-medium rounded-lg text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors"
-                                >
-                                  ✗ Reject
-                                </button>
-                                <a
-                                  href={update.gameLink || update.newLink}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center px-4 py-2 border border-blue-300 dark:border-blue-600 text-sm font-medium rounded-lg text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
-                                >
-                                  🔗 View
-                                </a>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
+            </div>
           </div>
         )}
       </div>

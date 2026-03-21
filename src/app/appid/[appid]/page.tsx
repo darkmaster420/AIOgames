@@ -10,6 +10,7 @@ import GOGVerification from '../../../components/GOGVerification';
 import { SmartVersionVerification } from '../../../components/SmartVersionVerification';
 import { NotificationToggle } from '../../../components/NotificationToggle';
 import { cleanGameTitle } from '../../../utils/steamApi';
+import { ExternalLinkIcon } from '../../../components/ExternalLinkIcon';
 
 interface GameDetailsResponse {
   appid: number;
@@ -123,6 +124,9 @@ export default function AppIdDetailPage() {
   const [trackingError, setTrackingError] = useState('');
   const [untrackingLoading, setUntrackingLoading] = useState(false);
   const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [markingLatest, setMarkingLatest] = useState<string | null>(null);
+  const [markLatestError, setMarkLatestError] = useState('');
+  const [markLatestSuccess, setMarkLatestSuccess] = useState('');
   const [steamLatest, setSteamLatest] = useState<{ version?: string; build?: string; link?: string }>({});
   const [gogLatest, setGogLatest] = useState<{ version?: string; buildId?: string; date?: string }>({});
 
@@ -224,6 +228,44 @@ export default function AppIdDetailPage() {
       setTrackingError(err instanceof Error ? err.message : 'Failed to untrack game.');
     } finally {
       setUntrackingLoading(false);
+    }
+  };
+
+  const handleMarkAsLatest = async (result: GameApiSearchResult) => {
+    if (!game?.trackedGameId) return;
+
+    const version = result.originalTitle || result.title || '';
+    if (!version.trim()) return;
+
+    const confirmed = window.confirm(`Mark "${version}" as the latest version for "${game.name}"?\n\nThis will update lastKnownVersion and add it to the update history.`);
+    if (!confirmed) return;
+
+    setMarkingLatest(result.id);
+    setMarkLatestError('');
+    setMarkLatestSuccess('');
+
+    try {
+      const response = await fetch(`/api/tracking/${game.trackedGameId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          version,
+          gameLink: result.link || '',
+          title: version,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.error || 'Failed to mark as latest.');
+      }
+
+      setMarkLatestSuccess(`Marked "${version}" as latest.`);
+      await loadGameByAppId();
+    } catch (err) {
+      setMarkLatestError(err instanceof Error ? err.message : 'Failed to mark as latest.');
+    } finally {
+      setMarkingLatest(null);
     }
   };
 
@@ -435,6 +477,16 @@ export default function AppIdDetailPage() {
           </Link>
 
           <div className="flex items-center gap-2">
+            {game?.gameLink && (
+              <a
+                href={game.gameLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-2 text-sm font-medium text-white hover:bg-purple-500"
+              >
+                <ExternalLinkIcon className="w-3.5 h-3.5" /> Open Source Page
+              </a>
+            )}
             {game && !game.isTracked && (
               <button
                 type="button"
@@ -545,6 +597,11 @@ export default function AppIdDetailPage() {
                 </div>
 
                 <div className="mt-4 space-y-3">
+                  <div className="rounded-md border border-slate-700/60 bg-slate-800/50 px-4 py-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-slate-400 mb-1">Currently Tracked</p>
+                    <p className="text-sm font-semibold text-slate-100 truncate">{game.originalTitle || game.title || game.name}</p>
+                  </div>
+
                   <SteamVerification
                     gameId={game.trackedGameId}
                     gameTitle={game.title || game.name}
@@ -632,6 +689,17 @@ export default function AppIdDetailPage() {
                 Live search results for this game from gameapi sources.
               </p>
 
+              {markLatestError && (
+                <div className="mt-3 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+                  {markLatestError}
+                </div>
+              )}
+              {markLatestSuccess && (
+                <div className="mt-3 rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+                  {markLatestSuccess}
+                </div>
+              )}
+
               {resultsLoading && (
                 <div className="mt-4 rounded-md border border-slate-800 bg-slate-950/40 p-4 text-sm text-slate-300">
                   Loading results from gameapi...
@@ -698,6 +766,27 @@ export default function AppIdDetailPage() {
                               gameTitle={result.originalTitle || result.title}
                               className="w-full"
                             />
+                          )}
+
+                          {game.isTracked && game.trackedGameId && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleMarkAsLatest(result)}
+                                disabled={markingLatest === result.id}
+                                className="block w-full rounded border border-emerald-700 px-3 py-1.5 text-center text-xs text-emerald-300 hover:bg-emerald-900/40 disabled:opacity-60"
+                              >
+                                {markingLatest === result.id ? 'Saving...' : '✓ Mark as Latest'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleSingleGameUpdate}
+                                disabled={checkingUpdates}
+                                className="block w-full rounded border border-slate-700 px-3 py-1.5 text-center text-xs text-slate-100 hover:bg-slate-800 disabled:opacity-60"
+                              >
+                                {checkingUpdates ? 'Checking...' : '🔄 Check Updates'}
+                              </button>
+                            </>
                           )}
                         </div>
                       </div>

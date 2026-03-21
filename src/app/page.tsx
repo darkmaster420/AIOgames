@@ -470,14 +470,22 @@ function DashboardInner() {
         const candidateHasImage = Boolean(game.image);
         const existingHasImage = Boolean(existing?.image);
 
+        const PREFERRED_SOURCES = ['skidrowreloaded', 'skidrow'];
+        const candidatePreferred = PREFERRED_SOURCES.some(s => (game.source || '').toLowerCase().includes(s) || (game.siteType || '').toLowerCase().includes(s));
+        const existingPreferred = existing ? PREFERRED_SOURCES.some(s => (existing.source || '').toLowerCase().includes(s) || (existing.siteType || '').toLowerCase().includes(s)) : false;
+
         if (!existing) {
           grouped.set(groupKey, { ...game, displayKey: groupKey, postCount: 1 });
           continue;
         }
 
         const shouldReplace =
-          (candidateDate > existingDate) ||
-          (candidateDate === existingDate && candidateHasImage && !existingHasImage);
+          // Preferred source always wins over non-preferred regardless of date
+          (candidatePreferred && !existingPreferred) ||
+          // Among same preference tier, newer date wins
+          (!candidatePreferred && existingPreferred ? false :
+            (candidateDate > existingDate) ||
+            (candidateDate === existingDate && candidateHasImage && !existingHasImage));
 
         if (shouldReplace) {
           grouped.set(groupKey, {

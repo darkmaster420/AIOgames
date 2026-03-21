@@ -4,10 +4,10 @@ import connectDB from '../../../../lib/db';
 import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel } from '../../../../utils/sequelDetection';
-import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities, resolveComparableVersionData } from '../../../../utils/steamApi';
+import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities, resolveComparableVersionData, resolvePubTimestampFromBuild, resolvePubTimestampFromVersion } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
-import { detectUpdatesWithAI, isAIDetectionAvailable, prepareCandidatesForAI } from '../../../../utils/aiUpdateDetection';
+
 import { calculateGameSimilarity } from '../../../../utils/titleMatching';
 
 interface GameSearchResult {
@@ -91,6 +91,55 @@ interface TrackedGameDocument {
   steamName?: string;
 }
 
+const TRAILING_ROMAN_TO_ARABIC: Record<string, string> = {
+  i: '1',
+  ii: '2',
+  iii: '3',
+  iv: '4',
+  v: '5',
+  vi: '6',
+  vii: '7',
+  viii: '8',
+  ix: '9',
+  x: '10',
+  xi: '11',
+  xii: '12',
+  xiii: '13',
+  xiv: '14',
+  xv: '15',
+};
+
+const TRAILING_ARABIC_TO_ROMAN: Record<string, string> = Object.fromEntries(
+  Object.entries(TRAILING_ROMAN_TO_ARABIC).map(([roman, arabic]) => [arabic, roman])
+);
+
+function buildSearchTitleVariants(input: string): string[] {
+  const base = String(input || '').trim().toLowerCase();
+  if (!base) return [];
+
+  const variants = new Set<string>([base]);
+
+  const trailingRomanMatch = base.match(/\b(xv|xiv|xiii|xii|xi|x|ix|viii|vii|vi|v|iv|iii|ii|i)\b\s*$/i);
+  if (trailingRomanMatch) {
+    const roman = trailingRomanMatch[1].toLowerCase();
+    const arabic = TRAILING_ROMAN_TO_ARABIC[roman];
+    if (arabic) {
+      variants.add(base.replace(/\b(xv|xiv|xiii|xii|xi|x|ix|viii|vii|vi|v|iv|iii|ii|i)\b\s*$/i, arabic));
+    }
+  }
+
+  const trailingArabicMatch = base.match(/\b(1[0-5]|[1-9])\b\s*$/);
+  if (trailingArabicMatch) {
+    const arabic = trailingArabicMatch[1];
+    const roman = TRAILING_ARABIC_TO_ROMAN[arabic];
+    if (roman) {
+      variants.add(base.replace(/\b(1[0-5]|[1-9])\b\s*$/, roman));
+    }
+  }
+
+  return Array.from(variants);
+}
+
 // Helper function to check if we can auto-approve based on version/build numbers
 async function canAutoApprove(game: TrackedGameDocument, newVersionInfo: VersionInfo, versionComparison?: { isNewer: boolean; changeType: string; significance: number; suspiciousVersion?: { isSuspicious: boolean; reason?: string } }): Promise<{canApprove: boolean; reason: string}> {
   let currentInfo: VersionInfo = {
@@ -109,12 +158,46 @@ async function canAutoApprove(game: TrackedGameDocument, newVersionInfo: Version
   if (game.steamAppId) {
     newVersionInfo = await enrichVersionInfoWithSteamDb(game.steamAppId, newVersionInfo);
   }
+
+  // If publication timestamp already proved this update is newer, trust that signal.
+  if (versionComparison?.isNewer && versionComparison.changeType === 'pub_timestamp') {
+    return {
+      canApprove: true,
+      reason: 'Publication timestamp indicates a newer release'
+    };
+  }
+
+  // If a version scheme mismatch was detected (e.g., game tracked as Build XXXXXXX but the
+  // new release uses semver like v0.4.4f10), we cannot numerically compare across schemes.
+  // The outer boost already verified strong title similarity + update indicator signals,
+  // so we trust that context and auto-approve rather than silently dropping the update.
+  if (versionComparison?.changeType === 'scheme_mismatch_unverified') {
+    return {
+      canApprove: true,
+      reason: 'Version scheme changed (e.g., build number → semantic version). Strong title and update-indicator match confirm this is a valid update.'
+    };
+  }
   
   // Check if version is suspicious - if so, require user confirmation
   if (versionComparison?.suspiciousVersion?.isSuspicious) {
     return {
       canApprove: false,
       reason: `Suspicious version pattern detected: ${versionComparison.suspiciousVersion.reason}. Please verify before approving.`
+    };
+  }
+
+  // If the outer comparison (which already incorporates pubdate resolution) shows a clear version or
+  // build increase with significance >= 2, trust it directly instead of re-running the comparison.
+  // This covers build-only updates (Build X → Build Y) and suffix patches (v0.4.3 → v0.4.3f).
+  if (
+    versionComparison?.isNewer &&
+    (versionComparison.significance ?? 0) >= 2 &&
+    versionComparison.changeType !== 'unknown' &&
+    !versionComparison.changeType?.startsWith('rejected_')
+  ) {
+    return {
+      canApprove: true,
+      reason: `Version/build comparison indicates a newer release (${versionComparison.changeType}, significance: ${versionComparison.significance})`
     };
   }
   
@@ -158,11 +241,14 @@ async function canAutoApprove(game: TrackedGameDocument, newVersionInfo: Version
   }
 
   // Try each title source in priority order
+  // 0. Explicitly stored version/build numbers (most reliable baseline for comparison)
   // 1. Original title (most likely to have accurate version info)
   // 2. Last known version (previously verified)
   // 3. Steam enhanced title (if available)
   // 4. Clean title (fallback)
   const titleSources = [
+    ...(game.currentVersionNumber ? [{ title: game.currentVersionNumber, label: 'current version number' }] : []),
+    ...(game.currentBuildNumber ? [{ title: `Build ${game.currentBuildNumber}`, label: 'current build number' }] : []),
     { title: game.originalTitle, label: 'original title' },
     { title: game.lastKnownVersion, label: 'last known version' },
     { title: game.steamName, label: 'Steam enhanced title' },
@@ -256,12 +342,12 @@ function extractVersionInfo(title: string): VersionInfo {
     /v(\d{2}\.\d{2}\.\d{2})\b/i,
     // Date-based versions - 8 digits like v20250922
     /v(\d{8})/i,
-    // v1.2.3a, v1.2.3.a, v1.2.3c, v1.2.3b, v1.2.3-beta, v1.2.3-alpha, etc. (version with suffix)
-    /v(\d+(?:\.\d+)+(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,
-    // Version 1.2.3a, Version 1.2.3.a, Version 1.2.3c, Version 1.2.3-beta, etc.
-    /version\s*(\d+(?:\.\d+)+(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,
-    // Standalone version numbers with suffixes (at least two parts like 1.2a, 1.2.a, 1.2.3c)
-    /(\d+\.\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/,
+    // v1.2.3a, v0.4.1f12, v1.2.3.a — letter suffix optionally followed by digits (post-release patches)
+    /v(\d+(?:\.\d+)+(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,
+    // Version 1.2.3a, Version 0.4.1f12, Version 1.2.3-beta, etc.
+    /version\s*(\d+(?:\.\d+)+(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,
+    // Standalone version numbers with suffixes (at least two parts like 1.2a, 0.4.1f12, 1.2.3c)
+    /(\d+\.\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/,
   ];
   
   // Extract build patterns (from original title)
@@ -435,20 +521,20 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
   
   // Compare versions if both have them
   if (oldVersion.version && newVersion.version) {
-    const oldParts = oldVersion.version.split('.').map(Number);
-    const newParts = newVersion.version.split('.').map(Number);
+    const oldParts = parseComparableVersionParts(oldVersion.version);
+    const newParts = parseComparableVersionParts(newVersion.version);
     
-    logger.debug(`🔍 Version parts: [${oldParts.join(',')}] vs [${newParts.join(',')}]`);
+    logger.debug(`🔍 Version parts: [${oldParts.map(p => `${p.number}${p.suffix ? p.suffix : ''}`).join(',')}] vs [${newParts.map(p => `${p.number}${p.suffix ? p.suffix : ''}`).join(',')}]`);
     
     const maxLength = Math.max(oldParts.length, newParts.length);
     
     for (let i = 0; i < maxLength; i++) {
-      const oldPart = oldParts[i] || 0;
-      const newPart = newParts[i] || 0;
+      const oldPart = oldParts[i] || { number: 0, suffix: '' };
+      const newPart = newParts[i] || { number: 0, suffix: '' };
       
-      logger.debug(`🔍 Comparing part ${i}: ${oldPart} vs ${newPart}`);
+      logger.debug(`🔍 Comparing part ${i}: ${oldPart.number}${oldPart.suffix} vs ${newPart.number}${newPart.suffix}`);
       
-      if (newPart > oldPart) {
+      if (newPart.number > oldPart.number) {
         isNewer = true;
         if (i === 0) {
           changeType = 'major';
@@ -466,8 +552,26 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
         }
         logger.debug(`✅ Version is newer: ${changeType} (significance: ${significance})`);
         break;
-      } else if (newPart < oldPart) {
+      }
+
+      if (newPart.number === oldPart.number) {
+        const suffixCmp = compareVersionSuffix(newPart.suffix, oldPart.suffix);
+        if (suffixCmp > 0) {
+          isNewer = true;
+          changeType = i >= 2 ? 'patch' : (i === 1 ? 'minor' : 'major');
+          significance = i === 0 ? 10 : i === 1 ? 5 : 3;
+          logger.debug(`✅ Version suffix indicates newer release: ${changeType} (significance: ${significance})`);
+          break;
+        }
+
+        if (suffixCmp < 0) {
+          logger.debug(`❌ Version suffix indicates older release`);
+          changeType = 'version_older';
+          break;
+        }
+      } else if (newPart.number < oldPart.number) {
         logger.debug(`❌ Version is older`);
+        changeType = 'version_older';
         break; // Older version
       }
     }
@@ -487,6 +591,9 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
           // Calculate significance based on the difference
           significance = Math.min(10, Math.max(2, Math.floor(Math.log10(newBuild - oldBuild))));
         }
+      } else if (newBuild < oldBuild && !isNewer) {
+        // New build is definitively older — mark it so the keyword boost won't treat it as unknown
+        changeType = 'build_older';
       }
     }
   }
@@ -528,6 +635,66 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
 
 type VersionScheme = 'semver' | 'build' | 'date' | 'unknown';
 
+function parseComparableVersionParts(version: string): Array<{ number: number; suffix: string }> {
+  return String(version || '')
+    .trim()
+    .replace(/^v\s*/i, '')
+    .split('.')
+    .filter(Boolean)
+    .map((part) => {
+      const normalized = part.toLowerCase().trim();
+      const match = normalized.match(/^(\d+)(?:[-_]?([a-z][a-z0-9-]*))?$/i);
+
+      if (match) {
+        return {
+          number: parseInt(match[1], 10),
+          suffix: (match[2] || '').toLowerCase(),
+        };
+      }
+
+      const numericPrefix = normalized.match(/^(\d+)/);
+      if (numericPrefix) {
+        return {
+          number: parseInt(numericPrefix[1], 10),
+          suffix: normalized.slice(numericPrefix[1].length).replace(/^[-_]+/, ''),
+        };
+      }
+
+      return { number: 0, suffix: normalized };
+    });
+}
+
+function suffixWeight(suffix: string): number {
+  const normalized = (suffix || '').toLowerCase();
+  if (!normalized) return 100;
+  if (normalized.startsWith('final') || normalized.startsWith('release')) return 95;
+  if (normalized.startsWith('rc')) return 85;
+  if (normalized.startsWith('beta')) return 75;
+  if (normalized.startsWith('alpha') || normalized.startsWith('pre') || normalized.startsWith('preview')) return 65;
+  // Letter-only ('f') or letter+digits ('f12') mean sequential post-release patches.
+  // v0.4.3 < v0.4.3a < v0.4.3f < v0.4.3f1 < v0.4.3f12 < v0.4.3g
+  // Weight above the base release (100) so any suffix is seen as newer than no suffix.
+  const letterDigitMatch = normalized.match(/^([a-z])(\d*)$/);
+  if (letterDigitMatch) {
+    const letterOffset = letterDigitMatch[1].charCodeAt(0) - 97; // 0 for 'a', 5 for 'f', etc.
+    const num = parseInt(letterDigitMatch[2] || '0', 10);
+    return 101 + letterOffset * 1000 + num;
+  }
+  return 70;
+}
+
+function compareVersionSuffix(aSuffix: string, bSuffix: string): number {
+  const aWeight = suffixWeight(aSuffix);
+  const bWeight = suffixWeight(bSuffix);
+
+  if (aWeight > bWeight) return 1;
+  if (aWeight < bWeight) return -1;
+
+  if (aSuffix > bSuffix) return 1;
+  if (aSuffix < bSuffix) return -1;
+  return 0;
+}
+
 function detectVersionScheme(info: VersionInfo): VersionScheme {
   const normalizedVersion = String(info.version || '').trim().replace(/^v\s*/i, '');
 
@@ -535,7 +702,7 @@ function detectVersionScheme(info: VersionInfo): VersionScheme {
     return 'date';
   }
 
-  if (/^\d+\.\d+(?:\.\d+){0,2}$/.test(normalizedVersion)) {
+  if (/^\d+\.\d+(?:\.\d+){0,2}(?:[-_.]?(?:[a-z][a-z0-9-]*))?$/i.test(normalizedVersion)) {
     return 'semver';
   }
 
@@ -606,26 +773,88 @@ export async function POST(request: Request) {
     let sequelsFound = 0;
     const results = [];
 
-    // Get the clean title for searching (same approach as the search functionality)
+    // Get the clean title for matching results against tracked title.
+    // Also compute a cleaned Steam name so similarity checks can use the best score of either.
     const cleanTitle = cleanGameTitle(game.title);
-    const searchTitle = cleanGameTitlePreserveEdition(game.title);
-    
-    logger.debug(`🔍 Searching for: "${searchTitle}" (from "${game.title}")`);
+    const cleanSteamTitle = game.steamName ? cleanGameTitle(game.steamName) : null;
+
+    // Build search query: prefer Steam name (most accurate) then fall back to cleaned title.
+    // This is important for games whose scene/tracker title differs from the Steam name
+    // (e.g. "Schedule I" vs "Schedule 1").
+    const steamSearchBase = game.steamName
+      ? cleanGameTitlePreserveEdition(game.steamName)
+      : cleanGameTitlePreserveEdition(game.title);
+    const fallbackSearchBase = cleanGameTitlePreserveEdition(game.title);
+
+    // Merge variants from both sources (deduplicated) so we catch both spellings
+    const allVariantSet = new Set<string>([
+      ...buildSearchTitleVariants(steamSearchBase),
+      ...buildSearchTitleVariants(fallbackSearchBase),
+    ]);
+    const searchVariants = Array.from(allVariantSet);
+
+    logger.debug(`🔍 Searching for variants: ${searchVariants.map(v => `"${v}"`).join(', ')} (steam="${game.steamName || 'none'}", title="${game.title}")`);
 
     // Use the same search API that the main search uses
     const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
-    const searchResponse = await fetch(`${baseUrl}/?search=${encodeURIComponent(searchTitle)}`);
-    
-    if (!searchResponse.ok) {
-      throw new Error(`Search API request failed: ${searchResponse.status}`);
+    const mergedResults: GameSearchResult[] = [];
+
+    // Fetch title-based search results AND the recent-uploads feed in parallel.
+    // The search endpoint has a 1-hour Cloudflare cache: if a post was published after
+    // the cache was last populated, it won't appear in search results. The recent-uploads
+    // feed is refreshed much more frequently (stale-while-revalidate) so it catches new
+    // posts that haven't yet made it into the search cache.
+    const [searchResponses, recentResponse] = await Promise.allSettled([
+      Promise.all(
+        searchVariants.map(variant =>
+          fetch(`${baseUrl}/?search=${encodeURIComponent(variant)}`)
+            .then(async r => {
+              if (!r.ok) { logger.warn(`Search API failed for "${variant}": ${r.status}`); return null; }
+              const d = await r.json();
+              return (d.success && Array.isArray(d.results)) ? d.results as GameSearchResult[] : null;
+            })
+            .catch(e => { logger.warn(`Search fetch error for "${variant}":`, e); return null; })
+        )
+      ),
+      fetch(`${baseUrl}/recent`)
+        .then(async r => {
+          if (!r.ok) return null;
+          const d = await r.json();
+          return (d.success && Array.isArray(d.results)) ? d.results as GameSearchResult[] : null;
+        })
+        .catch(e => { logger.warn('Recent-uploads fetch error:', e); return null; })
+    ]);
+
+    if (searchResponses.status === 'fulfilled') {
+      for (const batch of searchResponses.value) {
+        if (batch) mergedResults.push(...batch);
+      }
     }
-    
-    const searchData = await searchResponse.json();
-    
-    // Extract results from API response
+
+    // Merge recent-uploads: only include results that have reasonable title similarity
+    // so we don't bloat the processing set with completely unrelated games.
+    if (recentResponse.status === 'fulfilled' && recentResponse.value) {
+      const recentPosts = recentResponse.value;
+      logger.debug(`📰 Recent-uploads feed returned ${recentPosts.length} posts`);
+      for (const post of recentPosts) {
+        const postClean = cleanGameTitle(decodeHtmlEntities(post.title));
+        const sim = Math.max(
+          calculateGameSimilarity(cleanTitle, postClean),
+          cleanSteamTitle ? calculateGameSimilarity(cleanSteamTitle, postClean) : 0
+        );
+        if (sim >= 0.70) {
+          mergedResults.push(post);
+          logger.debug(`📰 Added from recent feed (sim=${sim.toFixed(2)}): "${post.title}"`);
+        }
+      }
+    }
+
+    // Extract results from merged API responses
     let games: GameSearchResult[] = [];
-    if (searchData.success && searchData.results && Array.isArray(searchData.results)) {
-      games = searchData.results;
+    if (mergedResults.length > 0) {
+      games = mergedResults;
+    } else {
+      throw new Error('Search API request returned no results for all title variants');
     }
     
     logger.debug(`📊 Search returned ${games.length} results`);
@@ -660,7 +889,12 @@ export async function POST(request: Request) {
     for (const result of games) {
       const decodedTitle = decodeHtmlEntities(result.title);
       const cleanedDecodedTitle = cleanGameTitle(decodedTitle);
-      const similarity = calculateGameSimilarity(cleanTitle, cleanedDecodedTitle);
+      // Use the best similarity between the tracked title and the Steam name so that
+      // games like "Schedule I" (tracked) still match results titled "Schedule 1 v0.4.3f".
+      const similarity = Math.max(
+        calculateGameSimilarity(cleanTitle, cleanedDecodedTitle),
+        cleanSteamTitle ? calculateGameSimilarity(cleanSteamTitle, cleanedDecodedTitle) : 0
+      );
 
       logger.debug(`Processing: "${decodedTitle}" (similarity: ${similarity.toFixed(2)})`);
 
@@ -690,6 +924,9 @@ export async function POST(request: Request) {
       if (similarity >= 0.75) {
         // Try sources in priority order for current version
         const titleSources = [
+          // Explicitly-stored version/build numbers are the most reliable baseline
+          ...(game.currentVersionNumber ? [{ title: game.currentVersionNumber, label: 'current version number' }] : []),
+          ...(game.currentBuildNumber ? [{ title: `Build ${game.currentBuildNumber}`, label: 'current build number' }] : []),
           { title: game.originalTitle, label: 'original title' },
           { title: game.lastKnownVersion, label: 'last known version' },
           { title: game.steamName, label: 'Steam enhanced title' },
@@ -729,33 +966,137 @@ export async function POST(request: Request) {
         const currentScheme = detectVersionScheme(currentVersionInfo);
         const newScheme = detectVersionScheme(newVersionInfo);
         const schemesMismatchOrUnknown = currentScheme !== newScheme || currentScheme === 'unknown' || newScheme === 'unknown';
-        const currentPubTimestamp = typeof game.lastPubTimestamp === 'number'
-          ? game.lastPubTimestamp
-          : parsePubTimestamp(game.lastVersionDate);
-        const newPubTimestamp = parsePubTimestamp(result.date);
 
-        if (!comparison.isNewer && schemesMismatchOrUnknown && currentPubTimestamp > 0 && newPubTimestamp > 0 && newPubTimestamp > currentPubTimestamp) {
+        // --- Resolve current pub timestamp ---
+        // Priority: SteamDB build (most accurate) → SteamDB version → stored lastPubTimestamp → lastVersionDate
+        let currentPubTimestamp = 0;
+
+        if (game.steamAppId && (game.currentBuildNumber || currentVersionInfo.build)) {
+          const currentBuildForTimestamp = game.currentBuildNumber || currentVersionInfo.build;
+          if (currentBuildForTimestamp) {
+            const resolvedCurrentPubTs = await resolvePubTimestampFromBuild(game.steamAppId, currentBuildForTimestamp);
+            if (typeof resolvedCurrentPubTs === 'number' && resolvedCurrentPubTs > 0) {
+              currentPubTimestamp = resolvedCurrentPubTs;
+              logger.debug(`🕒 Resolved current pub timestamp from SteamDB build ${currentBuildForTimestamp}: ${currentPubTimestamp}`);
+            }
+          }
+        }
+
+        if (currentPubTimestamp <= 0 && game.steamAppId && (game.currentVersionNumber || currentVersionInfo.version)) {
+          const currentVersionForTimestamp = game.currentVersionNumber || currentVersionInfo.version;
+          if (currentVersionForTimestamp) {
+            const resolvedCurrentPubTsFromVersion = await resolvePubTimestampFromVersion(game.steamAppId, currentVersionForTimestamp);
+            if (typeof resolvedCurrentPubTsFromVersion === 'number' && resolvedCurrentPubTsFromVersion > 0) {
+              currentPubTimestamp = resolvedCurrentPubTsFromVersion;
+              logger.debug(`🕒 Resolved current pub timestamp from SteamDB version ${currentVersionForTimestamp}: ${currentPubTimestamp}`);
+            }
+          }
+        }
+
+        if (currentPubTimestamp <= 0 && typeof game.lastPubTimestamp === 'number' && game.lastPubTimestamp > 0) {
+          currentPubTimestamp = game.lastPubTimestamp;
+          logger.debug(`🕒 Using stored lastPubTimestamp as current baseline: ${currentPubTimestamp}`);
+        }
+
+        if (currentPubTimestamp <= 0) {
+          currentPubTimestamp = parsePubTimestamp(game.lastVersionDate);
+          if (currentPubTimestamp > 0) {
+            logger.debug(`🕒 Using stored post date as current baseline: ${currentPubTimestamp}`);
+          }
+        }
+
+        // --- Resolve new pub timestamp ---
+        // Priority: SteamDB build (most accurate) → SteamDB version → feed date
+        // We always try SteamDB first because feed/post dates from scene sites are
+        // unreliable proxies; the Steam build pub_timestamp is the authoritative source.
+        let newPubTimestamp = 0;
+
+        if (game.steamAppId && newVersionInfo.build) {
+          const resolvedPubTs = await resolvePubTimestampFromBuild(game.steamAppId, newVersionInfo.build);
+          if (typeof resolvedPubTs === 'number' && resolvedPubTs > 0) {
+            newPubTimestamp = resolvedPubTs;
+            logger.debug(`🕒 Resolved new pub timestamp from SteamDB build ${newVersionInfo.build}: ${newPubTimestamp}`);
+          }
+        }
+
+        if (newPubTimestamp <= 0 && game.steamAppId && newVersionInfo.version) {
+          const resolvedPubTsFromVersion = await resolvePubTimestampFromVersion(game.steamAppId, newVersionInfo.version);
+          if (typeof resolvedPubTsFromVersion === 'number' && resolvedPubTsFromVersion > 0) {
+            newPubTimestamp = resolvedPubTsFromVersion;
+            logger.debug(`🕒 Resolved new pub timestamp from SteamDB version ${newVersionInfo.version}: ${newPubTimestamp}`);
+          }
+        }
+
+        if (newPubTimestamp <= 0) {
+          newPubTimestamp = parsePubTimestamp(result.date);
+          if (newPubTimestamp > 0) {
+            logger.debug(`🕒 Using feed date as new pub timestamp fallback: ${newPubTimestamp}`);
+          }
+        }
+
+        // Last-resort fallback: if the current baseline was resolved from post date AND the new
+        // result has a feed date, compare the two post dates directly.
+        // This lets us at least say "the scene post is newer than the one we're tracking" when
+        // SteamDB has no data for either side.
+        const currentPostDate = parsePubTimestamp(game.lastVersionDate);
+        const newPostDate = parsePubTimestamp(result.date);
+        if (newPubTimestamp <= 0 && currentPubTimestamp <= 0 && currentPostDate > 0 && newPostDate > 0) {
+          // Both sides only have post dates — compare them directly
+          logger.debug(`🕒 Post-date vs post-date fallback: current=${currentPostDate}, new=${newPostDate}`);
+          currentPubTimestamp = currentPostDate;
+          newPubTimestamp = newPostDate;
+        } else if (newPubTimestamp <= 0 && currentPubTimestamp > 0 && newPostDate > 0) {
+          // Current has a proper baseline but new only has its post date — use post date for new
+          newPubTimestamp = newPostDate;
+          logger.debug(`🕒 Using new post date as fallback for new pub timestamp: ${newPubTimestamp}`);
+        }
+
+        // Absolute last resort: if we still have no current baseline, use the game's dateAdded.
+        // Semantically: "the game was last known-good when tracking started, so any post after
+        // that date is potentially newer." This handles scheme-switch cases (build→semver) where
+        // lastVersionDate and lastPubTimestamp are both unset.
+        if (currentPubTimestamp <= 0 && (newPubTimestamp > 0 || newPostDate > 0)) {
+          const dateAddedTs = parsePubTimestamp(game.dateAdded);
+          if (dateAddedTs > 0) {
+            currentPubTimestamp = dateAddedTs;
+            if (newPubTimestamp <= 0) newPubTimestamp = newPostDate;
+            logger.debug(`🕒 Last-resort baseline: dateAdded=${dateAddedTs}, new pub timestamp=${newPubTimestamp}`);
+          }
+        }
+
+        const hasComparablePubTimestamps = currentPubTimestamp > 0 && newPubTimestamp > 0;
+        const pubTimestampDelta = hasComparablePubTimestamps ? (newPubTimestamp - currentPubTimestamp) : 0;
+
+        if (hasComparablePubTimestamps && pubTimestampDelta !== 0) {
           comparison = {
             ...comparison,
-            isNewer: true,
-            changeType: 'pub_timestamp',
-            significance: Math.max(comparison.significance, 1),
+            isNewer: pubTimestampDelta > 0,
+            changeType: pubTimestampDelta > 0 ? 'pub_timestamp' : 'pub_timestamp_older',
+            significance: pubTimestampDelta > 0 ? Math.max(comparison.significance, 1) : 0,
           };
-          logger.debug(`🕒 Fallback to publication timestamp due to scheme mismatch (${currentScheme} vs ${newScheme}): ${currentPubTimestamp} -> ${newPubTimestamp}`);
+          logger.debug(`🕒 Publication timestamp precedence (${currentScheme} vs ${newScheme}): ${currentPubTimestamp} -> ${newPubTimestamp}`);
         }
-        
+
+        // When schemes are incompatible and pub_timestamp didn't resolve it, don't trust string comparison
+        if (schemesMismatchOrUnknown && comparison.changeType !== 'pub_timestamp' && comparison.changeType !== 'pub_timestamp_older') {
+          comparison = {
+            ...comparison,
+            isNewer: false,
+            changeType: 'scheme_mismatch_unverified',
+            significance: 0,
+          };
+          logger.debug(`⚠️ Scheme mismatch (${currentScheme} vs ${newScheme}) — skipping string comparison, pub_timestamp required`);
+        }
+
         logger.debug(`📊 Comparison: isNewer=${comparison.isNewer}, current="${currentVersionInfo.version || currentVersionInfo.build}", new="${newVersionInfo.version || newVersionInfo.build}"`);
         
-        // Regex-First Detection — AI only used as tiebreaker for uncertain cases
+        // Version/regex detection
         let isUpdateCandidate = false;
-        let aiConfidence = 0;
-        let aiReason = '';
-        let enhancedScore = similarity;
         
-        // Step 1: Regex/version comparison is the primary detection method
+        // Primary detection: version comparison
         isUpdateCandidate = comparison.isNewer || newVersionInfo.needsUserConfirmation;
         
-        // Enhanced regex scoring
+        // Boost for strong update indicators
         const titleLower = decodedTitle.toLowerCase();
         const gameTitle = game.title.toLowerCase();
         
@@ -770,7 +1111,6 @@ export async function POST(request: Request) {
           const regex = new RegExp(keyword, 'i');
           if (regex.test(titleLower) && !regex.test(gameTitle)) {
             updateIndicators++;
-            enhancedScore += 0.1;
           }
         }
         
@@ -782,68 +1122,16 @@ export async function POST(request: Request) {
         for (const pattern of versionPatterns) {
           if (pattern.test(decodedTitle)) {
             updateIndicators++;
-            enhancedScore += 0.15;
           }
         }
         
-        enhancedScore = Math.min(enhancedScore, 1.0);
-        aiReason = `Regex analysis: ${updateIndicators} update indicators`;
-        
-        // Boost confidence if we have strong indicators
-        if (updateIndicators >= 2 && similarity >= 0.85) {
+        // Boost if strong indicators present — but never override a definitive "older" result.
+        // Also allow scheme_mismatch_unverified: this fires when schemes differ (e.g. tracked as
+        // build-number, new post uses semver) and pub_timestamp couldn't resolve it. In that case
+        // strong update signals (version pattern + update keyword) are the only reliable guide.
+        if (updateIndicators >= 2 && similarity >= 0.85 &&
+            (comparison.isNewer || comparison.changeType === 'unknown' || comparison.changeType === 'scheme_mismatch_unverified')) {
           isUpdateCandidate = true;
-        }
-        
-        // Step 2: Only use AI as tiebreaker when regex is uncertain
-        // Uncertain = version comparison says not newer but we have update keywords/patterns
-        const regexUncertain = !comparison.isNewer && updateIndicators > 0 && similarity >= 0.75;
-        const aiAvailable = await isAIDetectionAvailable();
-        
-        if (regexUncertain && aiAvailable) {
-          try {
-            logger.debug(`🤖 Regex uncertain (isNewer=${comparison.isNewer}, indicators=${updateIndicators}), using AI as tiebreaker`);
-            
-            const candidates = prepareCandidatesForAI(
-              [{ title: decodedTitle, link: result.link, date: result.date, similarity }],
-              game.title,
-              { maxCandidates: 1, minSimilarity: 0.75, includeDate: true }
-            );
-
-            const aiResults = await detectUpdatesWithAI(
-              game.title,
-              candidates,
-              {
-                lastKnownVersion: game.lastKnownVersion,
-                releaseGroup: game.releaseGroup,
-                gameLink: game.gameLink
-              },
-              {
-                minConfidence: 0.5,
-                requireVersionPattern: false,
-                debugLogging: true,
-                maxCandidates: 1
-              }
-            );
-
-            if (aiResults.length > 0) {
-              const aiResult = aiResults[0];
-              aiConfidence = aiResult.confidence;
-              aiReason = `AI tiebreaker: ${aiResult.reason}`;
-              
-              // AI breaks the tie — if it says it's an update with high confidence, accept it
-              if (aiResult.isUpdate && aiResult.confidence >= 0.6) {
-                isUpdateCandidate = true;
-                logger.debug(`🤖 AI tiebreaker: YES update (confidence=${aiConfidence.toFixed(2)})`);
-              } else {
-                logger.debug(`🤖 AI tiebreaker: NOT update (confidence=${aiConfidence.toFixed(2)})`);
-              }
-            }
-          } catch (aiError) {
-            logger.debug(`⚠️ AI tiebreaker failed: ${aiError instanceof Error ? aiError.message : 'unknown error'}`);
-            // Keep regex decision
-          }
-        } else if (!regexUncertain) {
-          logger.debug(`✅ Regex decisive (isNewer=${comparison.isNewer}, indicators=${updateIndicators}), no AI needed`);
         }
         
         logger.debug(`🎯 Final decision: isUpdateCandidate=${isUpdateCandidate}, hasVersion=${!!newVersionInfo.version}, hasBuild=${!!newVersionInfo.build}`);
@@ -853,12 +1141,37 @@ export async function POST(request: Request) {
           logger.debug(`🔗 Download links in result:`, result.downloadLinks);
           
           // Check if we already have this update in pending or history (fresh DB query to avoid race conditions)
-          const freshGame = await TrackedGame.findById(game._id).lean() as { pendingUpdates?: Array<{ version?: string; gameLink?: string; newLink?: string }>; updateHistory?: Array<{ gameLink: string }> } | null;
-          const existingPending = freshGame?.pendingUpdates?.some((pending: { version?: string; gameLink?: string; newLink?: string }) => 
-            pending.gameLink === result.link || pending.newLink === result.link
+          const freshGame = await TrackedGame.findById(game._id).lean() as {
+            pendingUpdates?: Array<{ detectedVersion?: string; build?: string; version?: string; gameLink?: string; newLink?: string }>;
+            updateHistory?: Array<{ version?: string; build?: string; gameLink: string }>;
+          } | null;
+
+          const candidateBuild = String(newVersionInfo.build || '').trim();
+          const candidateDetectedVersion = String(newVersionInfo.fullVersionString || newVersionInfo.version || '').trim().toLowerCase();
+
+          const isSameSignature = (entryBuild?: string, entryVersion?: string) => {
+            const normalizedBuild = String(entryBuild || '').trim();
+            const normalizedVersion = String(entryVersion || '').trim().toLowerCase();
+
+            if (candidateBuild && normalizedBuild) {
+              return candidateBuild === normalizedBuild;
+            }
+
+            if (candidateDetectedVersion && normalizedVersion) {
+              return normalizedVersion.includes(candidateDetectedVersion) || candidateDetectedVersion.includes(normalizedVersion);
+            }
+
+            return !candidateBuild && !candidateDetectedVersion;
+          };
+
+          const existingPending = freshGame?.pendingUpdates?.some((pending) =>
+            (pending.gameLink === result.link || pending.newLink === result.link) &&
+            isSameSignature(pending.build, pending.detectedVersion || pending.version)
           );
-          const existingInHistory = freshGame?.updateHistory?.some((update: { gameLink: string }) => 
-            update.gameLink === result.link
+
+          const existingInHistory = freshGame?.updateHistory?.some((update) =>
+            update.gameLink === result.link &&
+            isSameSignature(update.build, update.version)
           );
           
           if (existingPending || existingInHistory) {
@@ -881,20 +1194,15 @@ export async function POST(request: Request) {
               changeType: comparison.changeType,
               significance: comparison.significance,
               dateFound: new Date().toISOString(),
+              pub_timestamp: parsePubTimestamp(result.date) || null,
               previousVersion: game.lastKnownVersion || game.title,
               downloadLinks: result.downloadLinks || [],
               steamEnhanced: false,
               steamAppId: game.steamAppId,
               needsUserConfirmation: !autoApproveResult.canApprove && (newVersionInfo.needsUserConfirmation || comparison.significance < 2),
               autoApprovalReason: autoApproveResult.reason,
-              confidence: newVersionInfo.confidence || (aiConfidence > 0 ? aiConfidence : similarity),
-              reason: autoApproveResult.reason || (aiConfidence > 0 ? aiReason : 'Version number detected'),
-              // AI enhancement data
-              ...(aiConfidence > 0 && {
-                aiDetectionConfidence: aiConfidence,
-                aiDetectionReason: aiReason,
-                detectionMethod: 'ai_enhanced'
-              })
+              confidence: newVersionInfo.confidence || similarity,
+              reason: autoApproveResult.reason || 'Version number detected',
             };
 
             if (autoApproveResult.canApprove) {
@@ -958,13 +1266,17 @@ export async function POST(request: Request) {
               }
 
               // Atomic conditional update to prevent duplicate auto-approvals
+              const hasCandidateSignature = !!(candidateBuild || candidateDetectedVersion);
+
               const autoApproveResult2 = await TrackedGame.findOneAndUpdate(
-                {
-                  _id: game._id,
-                  'updateHistory.gameLink': { $ne: result.link },
-                  'pendingUpdates.gameLink': { $ne: result.link },
-                  'pendingUpdates.newLink': { $ne: result.link }
-                },
+                hasCandidateSignature
+                  ? { _id: game._id }
+                  : {
+                      _id: game._id,
+                      'updateHistory.gameLink': { $ne: result.link },
+                      'pendingUpdates.gameLink': { $ne: result.link },
+                      'pendingUpdates.newLink': { $ne: result.link }
+                    },
                 updateFields,
                 { new: true }
               );
@@ -975,31 +1287,8 @@ export async function POST(request: Request) {
               }
               
             } else {
-              // Only add to pending if version or build is present
-              if (!newVersionInfo.version && !newVersionInfo.build) {
-                logger.debug(`⚠️ Skipping game without valid version or build: "${decodedTitle}"`);
-                continue; // Don't return here, continue checking other results
-              }
-              
-              // Add to pending updates if can't auto-approve (atomic conditional to prevent duplicates)
-              const pendingResult = await TrackedGame.findOneAndUpdate(
-                {
-                  _id: game._id,
-                  'pendingUpdates.gameLink': { $ne: result.link },
-                  'pendingUpdates.newLink': { $ne: result.link },
-                  'updateHistory.gameLink': { $ne: result.link }
-                },
-                {
-                  $push: { pendingUpdates: updateData },
-                  lastChecked: new Date()
-                },
-                { new: true }
-              );
-
-              if (!pendingResult) {
-                logger.info(`⏩ Skipping duplicate pending update (atomic check): ${result.link}`);
-                continue;
-              }
+              logger.debug(`⏩ Skipping update that could not be auto-approved: "${decodedTitle}" (${autoApproveResult.reason})`);
+              continue;
             }
 
             // Send notification for the update only if enabled for this game
@@ -1028,7 +1317,7 @@ export async function POST(request: Request) {
                   { $set: { 'updateHistory.$.notificationSent': true } }
                 );
                 
-                logger.debug(`📢 ${autoApproveResult.canApprove ? 'Auto-approved' : 'Pending'} update notification sent for ${game.title}`);
+                logger.debug(`📢 Auto-approved update notification sent for ${game.title}`);
               } catch (notificationError) {
                 logger.error(`Failed to send update notification for ${game.title}:`, notificationError);
                 // Don't fail the whole operation if notification fails
@@ -1044,7 +1333,7 @@ export async function POST(request: Request) {
               autoApproved: autoApproveResult.canApprove
             });
             
-            const status = autoApproveResult.canApprove ? '✅ Auto-approved' : '📝 Added pending';
+            const status = '✅ Auto-approved';
             logger.info(`${status} update for ${game.title}: ${newVersionInfo.fullVersionString || newVersionInfo.version || decodedTitle}`);
             
             // For single check, only process the first (newest) update

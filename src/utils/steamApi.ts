@@ -274,6 +274,93 @@ export async function resolveVersionFromBuild(appId: string | number, buildId: s
 }
 
 /**
+ * Resolve publication timestamp for a SteamDB build ID using aggregated /appid data.
+ * Returns epoch milliseconds or null if unavailable.
+ */
+export async function resolvePubTimestampFromBuild(appId: string | number, buildId: string | number): Promise<number | null> {
+  const target = String(buildId).trim();
+  if (!target) return null;
+
+  try {
+    const details = await getSteamAppDetails(appId);
+    const builds = details.builds || [];
+    const found = builds.find(b => String(b.build_id) === target);
+    if (!found) return null;
+
+    if (typeof found.pub_timestamp === 'number' && Number.isFinite(found.pub_timestamp)) {
+      return found.pub_timestamp;
+    }
+
+    if (found.published_at) {
+      const parsed = new Date(found.published_at).getTime();
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve publication timestamp for a SteamDB version by first resolving build ID.
+ */
+export async function resolvePubTimestampFromVersion(appId: string | number, version: string): Promise<number | null> {
+  const normalized = normalizeVersionString(String(version || ''));
+  if (!normalized) return null;
+
+  try {
+    const buildId = await resolveBuildFromVersion(appId, normalized);
+    if (!buildId) return null;
+    return await resolvePubTimestampFromBuild(appId, buildId);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the latest known publication timestamp for an app from SteamDB build feed.
+ */
+export async function resolveLatestPubTimestamp(appId: string | number): Promise<number | null> {
+  if (!appId) return null;
+
+  try {
+    const details = await getSteamAppDetails(appId);
+
+    if (details.latest_build) {
+      if (typeof details.latest_build.pub_timestamp === 'number' && Number.isFinite(details.latest_build.pub_timestamp)) {
+        return details.latest_build.pub_timestamp;
+      }
+
+      if (details.latest_build.published_at) {
+        const parsedLatest = new Date(details.latest_build.published_at).getTime();
+        if (Number.isFinite(parsedLatest)) {
+          return parsedLatest;
+        }
+      }
+    }
+
+    const builds = details.builds || [];
+    for (const build of builds) {
+      if (typeof build.pub_timestamp === 'number' && Number.isFinite(build.pub_timestamp)) {
+        return build.pub_timestamp;
+      }
+
+      if (build.published_at) {
+        const parsed = new Date(build.published_at).getTime();
+        if (Number.isFinite(parsed)) {
+          return parsed;
+        }
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Resolve version and build from a date-based version string (YYYYMMDD or YYYY-MM-DD)
  * Uses SteamDB API to find the closest update on or before that date
  */
@@ -533,6 +620,60 @@ export async function findSteamMatches(
   }
 }
 
+const TRAILING_ROMAN_TO_ARABIC: Record<string, string> = {
+  i: '1',
+  ii: '2',
+  iii: '3',
+  iv: '4',
+  v: '5',
+  vi: '6',
+  vii: '7',
+  viii: '8',
+  ix: '9',
+  x: '10',
+  xi: '11',
+  xii: '12',
+  xiii: '13',
+  xiv: '14',
+  xv: '15',
+};
+
+const TRAILING_ARABIC_TO_ROMAN: Record<string, string> = Object.fromEntries(
+  Object.entries(TRAILING_ROMAN_TO_ARABIC).map(([roman, arabic]) => [arabic, roman])
+);
+
+/**
+ * Build Steam search query variants for trailing Roman/Arabic sequel numerals.
+ * Example: "Schedule I" -> ["Schedule I", "Schedule 1"]
+ */
+export function buildSteamSearchQueryVariants(query: string): string[] {
+  const base = String(query || '').trim();
+  if (!base) return [];
+
+  const variants = new Set<string>([base]);
+  const lower = base.toLowerCase();
+
+  const trailingRomanMatch = lower.match(/\b(xv|xiv|xiii|xii|xi|x|ix|viii|vii|vi|v|iv|iii|ii|i)\b\s*$/i);
+  if (trailingRomanMatch) {
+    const roman = trailingRomanMatch[1].toLowerCase();
+    const arabic = TRAILING_ROMAN_TO_ARABIC[roman];
+    if (arabic) {
+      variants.add(base.replace(/\b(xv|xiv|xiii|xii|xi|x|ix|viii|vii|vi|v|iv|iii|ii|i)\b\s*$/i, arabic));
+    }
+  }
+
+  const trailingArabicMatch = lower.match(/\b(1[0-5]|[1-9])\b\s*$/);
+  if (trailingArabicMatch) {
+    const arabic = trailingArabicMatch[1];
+    const roman = TRAILING_ARABIC_TO_ROMAN[arabic];
+    if (roman) {
+      variants.add(base.replace(/\b(1[0-5]|[1-9])\b\s*$/i, roman));
+    }
+  }
+
+  return Array.from(variants);
+}
+
 /**
  * Public function to clean and normalize game titles
  * @param title - Raw game title to clean
@@ -589,9 +730,10 @@ export function cleanGameTitle(title: string): string {
     
     // Remove complex version patterns FIRST - more aggressive cleaning
     .replace(/v\d+(\.\d+){3,}(-[A-Z0-9]+)?/gi, '') // v2013.012.003.008.007-P2P or v1.218.0.0
-    .replace(/v\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:-[A-Z0-9]+)?/gi, '') // v1.2.3, v1.2.3.a, v1.2.3c, v1.33.a-CODEX
-    .replace(/\bversion\s*\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?/gi, '') // version 1.2.3, version 1.2.a, version 1.2.3c
-    .replace(/\bver\.?\s*\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?/gi, '') // ver 1.2, ver. 1.2.a, ver 1.2.3c
+    // Letter+digit suffix (e.g. v0.4.1f12) must be consumed whole to avoid leaving orphan digits
+    .replace(/v\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:-[A-Z0-9]+)?/gi, '') // v1.2.3, v1.2.3c, v1.2.3f12, v1.33.a-CODEX
+    .replace(/\bversion\s*\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?/gi, '') // version 1.2.3, version 1.2.3c, version 1.2.3f12
+    .replace(/\bver\.?\s*\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?/gi, '') // ver 1.2, ver. 1.2.a, ver 1.2.3f12
     .replace(/\bbuild\s*#?\d+/gi, '') // build 20035145, build #123
     .replace(/\bb\d{4,}/gi, '') // b20035145 (build numbers)
     .replace(/\bupdate\s*\d+(\.\d+)*/gi, '') // update 1.5
@@ -623,11 +765,13 @@ export function cleanGameTitle(title: string): string {
     // Remove trademark symbols
     .replace(/[®™©]/g, '')
     
-    // Remove orphaned version letters ONLY if they appear to be version suffixes
-    // This preserves actual words like "beast" while removing version patterns
-    .replace(/\s+v?\d+(\.\d+)*[a-h](?=\s|$)/gi, '') // Remove version patterns ending with letters like "v1.2.3c"
-    .replace(/(?<=\s|^)v[a-h](?=\s|$)/gi, '') // Remove standalone version letters like "va", "vb" etc
-    .replace(/(?<=\d\s+)[a-h](?=\s|$)/gi, '') // Remove version letters that follow numbers like "1 a", "123 b"
+    // Remove orphaned version letters/digits ONLY if they appear to be version suffixes
+    // This preserves actual words like "beast" while removing version patterns.
+    // Must handle letter+digit combos like "f12" left over from "v0.4.1f12" if the main
+    // version regex missed them (shouldn't happen now, but kept as safety net).
+    .replace(/\s+v?\d+(\.\d+)*[a-z]\d*(?=\s|$)/gi, '') // Remove version patterns ending with letter+optional digits like "v1.2.3f12"
+    .replace(/(?<=\s|^)v[a-h]\d*(?=\s|$)/gi, '') // Remove standalone version letters like "va", "vf12" etc
+    .replace(/(?<=\d\s+)[a-h]\d*(?=\s|$)/gi, '') // Remove version letter+digits that follow numbers like "1 f12"
     
     // IMPORTANT: Keep "ZERO" as "zero" when it's likely part of a game name
     // Only convert isolated "0" to "zero" when appropriate
@@ -657,7 +801,12 @@ export function cleanGameTitle(title: string): string {
     // Remove special characters and normalize
     .replace(/[^\w\s&]/g, ' ')       
     .replace(/\s+/g, ' ')          
-    .trim();
+    .trim()
+    // Normalize trailing sequel numerals like "Schedule I" -> "schedule 1".
+    .replace(/\b(xv|xiv|xiii|xii|xi|x|ix|viii|vii|vi|v|iv|iii|ii|i)\b(?=\s*$)/i, (match) => {
+      const mapped = TRAILING_ROMAN_TO_ARABIC[match.toLowerCase()];
+      return mapped || match;
+    });
 }
 
 /**
@@ -799,19 +948,21 @@ export function cleanGameTitlePreserveEdition(title: string): string {
     .replace(/\s+edition\b/gi, '') // "Deluxe Edition" -> "Deluxe"
     
     // Remove complex version patterns - same as main function
+    // Letter+digit suffix (e.g. v0.4.1f12) must be consumed whole to avoid leaving orphan digits
     .replace(/v\d+(\.\d+){3,}-[A-Z0-9]+/gi, '') // v2013.012.003.008.007-P2P
     .replace(/v\d+(\.\d+){1,}-[A-Z0-9]+/gi, '') // v1.2-PLAZA, v1.2.3-CODEX
-    .replace(/v\d+(\.\d+){2,}/gi, '') // v1.2.3.4 or longer
-    .replace(/v\d+\.\d+/gi, '') // v1.2, v2.5 etc
-    .replace(/\bversion\s*\d+(\.\d+)*/gi, '') // version 1.2.3
-    .replace(/\bver\.?\s*\d+(\.\d+)*/gi, '') // ver 1.2 or ver. 1.2
+    .replace(/v\d+(\.\d+){2,}[a-z]?\d*/gi, '') // v1.2.3, v1.2.3f12 (2+ dot segments)
+    .replace(/v\d+\.\d+[a-z]?\d*/gi, '') // v1.2, v1.2f12 etc
+    .replace(/\bversion\s*\d+(\.\d+)*[a-z]?\d*/gi, '') // version 1.2.3, version 1.2.3f12
+    .replace(/\bver\.?\s*\d+(\.\d+)*[a-z]?\d*/gi, '') // ver 1.2, ver 1.2.3f12
     .replace(/\bbuild\s*\d+/gi, '') // build 20035145
     .replace(/\bb\d{4,}/gi, '') // b20035145 (build numbers)
     .replace(/\bupdate\s*\d+(\.\d+)*/gi, '') // update 1.5
     
-    // Remove orphaned version letters at end of titles (like "Game Title C" from "Game Title v1.2.3c")
-    .replace(/\s+[a-h]$/gi, '') // Remove common version letters a-h at end preceded by space
-    .replace(/\s+[a-h]\s/gi, ' ') // Remove common version letters a-h in middle preceded and followed by space
+    // Remove orphaned version letters/digits at end of titles
+    // (e.g. "Game Title f12" left from "Game Title v1.2.3f12" if version regex missed)
+    .replace(/\s+[a-h]\d*$/gi, '') // Remove version letter+optional digits at end
+    .replace(/\s+[a-h]\d*\s/gi, ' ') // Remove version letter+optional digits in middle
     
     // Remove year tags like (2025), [2024] etc
     .replace(/\(20\d{2}\)/g, '') // (2025)
@@ -868,7 +1019,12 @@ export function cleanGameTitlePreserveEdition(title: string): string {
     // Remove special characters and normalize
     .replace(/[^\w\s&]/g, ' ')       
     .replace(/\s+/g, ' ')          
-    .trim();
+    .trim()
+    // Normalize trailing sequel numerals like "Schedule I" -> "schedule 1".
+    .replace(/\b(xv|xiv|xiii|xii|xi|x|ix|viii|vii|vi|v|iv|iii|ii|i)\b(?=\s*$)/i, (match) => {
+      const mapped = TRAILING_ROMAN_TO_ARABIC[match.toLowerCase()];
+      return mapped || match;
+    });
 }
 
 /**

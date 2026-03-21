@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
-import { TrackedGame, User } from '../../../../lib/models';
+import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { sendTelegramMessage, sendTelegramPhoto, getTelegramConfig, formatGameUpdateMessage } from '../../../../utils/telegram';
 
-// POST: Approve a pending update (Admin only)
+// POST: Approve a pending update for the current user
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
@@ -15,15 +15,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if user is admin
     await connectDB();
-    const userDoc = await User.findById(user.id);
-    if (!userDoc || userDoc.role !== 'admin') {
-      return NextResponse.json(
-        { error: 'Forbidden: Admin access required to approve updates' },
-        { status: 403 }
-      );
-    }
 
     const { gameId, updateIndex } = await request.json();
 
@@ -34,7 +26,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // No need to call connectDB again - already called above for admin check
+    // No need to call connectDB again - already connected above
 
     // Find the game and get the pending update
     const game = await TrackedGame.findOne({
@@ -59,12 +51,22 @@ export async function POST(request: NextRequest) {
     const pendingUpdate = game.pendingUpdates[updateIndex];
 
     // Create version string
+    // detectedVersion may be a fullVersionString like '0.4.1f13 Build 22339408' or ' Build 22339408'
+    // Strip leading/trailing whitespace and any embedded 'Build XXXXX' before re-appending build
+    const rawDetected = String(pendingUpdate.detectedVersion || '').trim();
+    const versionPart = rawDetected
+      .replace(/\s*Build\s+\d+\s*/gi, '') // remove embedded Build XXXXX
+      .trim();
     let versionString = '';
-    if (pendingUpdate.detectedVersion) versionString += `v${pendingUpdate.detectedVersion}`;
-    if (pendingUpdate.build) versionString += (versionString ? ' ' : '') + `Build ${pendingUpdate.build}`;
+    if (versionPart) versionString = versionPart;
+    if (pendingUpdate.build && !versionString.includes(String(pendingUpdate.build))) {
+      versionString = versionString ? `${versionString} Build ${pendingUpdate.build}` : `Build ${pendingUpdate.build}`;
+    }
     if (pendingUpdate.releaseType) versionString += (versionString ? ' ' : '') + pendingUpdate.releaseType;
     if (pendingUpdate.updateType) versionString += (versionString ? ' ' : '') + `(${pendingUpdate.updateType})`;
     if (!versionString) versionString = 'New Version';
+    // Derive the clean version-only part (without build suffix) for currentVersionNumber
+    const versionOnly = versionPart || versionString.replace(/\s*Build\s+\d+\s*/gi, '').trim();
 
     // Create the approved update for updateHistory
     const approvedUpdate = {
@@ -89,10 +91,16 @@ export async function POST(request: NextRequest) {
     await TrackedGame.findByIdAndUpdate(gameId, {
       $pull: { pendingUpdates: { _id: pendingUpdate._id } },
       lastKnownVersion: versionString,
-      currentVersionNumber: versionString,
+      currentVersionNumber: versionOnly || versionString,
       versionNumberVerified: true,
       versionNumberSource: 'user_approved',
       versionNumberLastUpdated: new Date(),
+      ...(pendingUpdate.build && {
+        currentBuildNumber: String(pendingUpdate.build),
+        buildNumberVerified: true,
+        buildNumberSource: 'user_approved',
+        buildNumberLastUpdated: new Date(),
+      }),
       lastVersionDate: pendingUpdate.dateFound,
       lastPubTimestamp: new Date(pendingUpdate.dateFound || new Date()).getTime(),
       dateAdded: new Date(), // Move game to top of list when update is approved

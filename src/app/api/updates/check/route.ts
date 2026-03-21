@@ -4,9 +4,9 @@ import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel } from '../../../../utils/sequelDetection';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
-import { cleanGameTitle, decodeHtmlEntities, extractReleaseGroup, is0xdeadcodeRelease, isOnlineFixRelease, resolveComparableVersionData } from '../../../../utils/steamApi';
+import { cleanGameTitle, decodeHtmlEntities, extractReleaseGroup, is0xdeadcodeRelease, isOnlineFixRelease, resolveComparableVersionData, resolvePubTimestampFromBuild, resolvePubTimestampFromVersion } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
-import { detectUpdatesWithAI, isAIDetectionAvailable, prepareCandidatesForAI } from '../../../../utils/aiUpdateDetection';
+
 import { calculateGameSimilarity } from '../../../../utils/titleMatching';
 
 interface GameSearchResult {
@@ -43,8 +43,6 @@ interface EnhancedMatch {
   similarity: number;
   versionInfo: VersionInfo;
   gate: string;
-  aiConfidence?: number;
-  aiReason?: string;
   enhancedScore?: number;
 }
 
@@ -97,21 +95,21 @@ function extractVersionInfo(title: string): VersionInfo {
   
   // Extract version patterns - comprehensive coverage for piracy releases with alpha/beta/letter suffix support
   const versionPatterns = [
-    /v(\d+\.\d+\.\d+\.\d+(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,   // v1.2.3.4a, v1.2.3.4c, v1.2.3.4.a, v1.2.3.4-alpha
-    /v(\d{4}[-.]?\d{2}[-.]?\d{2}(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // v2024-01-15a, v20240115c, v20240115-beta
-    /v(\d{2}\.\d{2}\.\d{2}\b(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i, // v30.09.25 (DD.MM.YY format)
-    /v(\d{8}(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,                // v20240115a, v20240115c, v20240115.a
-    /v(\d+(?:\.\d+)+(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,        // v1.2.3a, v1.2.3c, v1.2.3.a, v1.2.3-beta
-    /version\s*(\d+(?:\.\d+)+(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i, // version 1.2.3a, version 1.2.3c, version 1.2.3.a
-    /ver\.?\s*(\d+(?:\.\d+)+(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // ver 1.2a, ver 1.2c, ver. 1.2.a, ver. 1.2-alpha
-    /(\d+\.\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/,     // 1.2.3a, 1.2.3c, 1.2.3.a (standalone)
-    /\[(\d+\.\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)\]/i, // [1.2.3a], [1.2.3c], [1.2.3.a] (bracketed)
-    /\-(\d+\.\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)\-/i, // -1.2.3a-, -1.2.3c-, -1.2.3.a- (dashed)
-    /update\s*(\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // update 1.5a, update 1.5c, update 1.5.a
-    /patch\s*(\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,   // patch 1.2a, patch 1.2c, patch 1.2.a
-    /hotfix\s*(\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // hotfix 1.1a, hotfix 1.1c, hotfix 1.1.a
-    /rev\s*(\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,     // rev 2.1a, rev 2.1c, rev 2.1.a
-    /r(\d+(?:\.\d+)*(?:\.[a-z]|[a-z])?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i           // r1.5a, r1.5c, r1.5.a
+    /v(\d+\.\d+\.\d+\.\d+(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,   // v1.2.3.4a, v1.2.3.4f12, v1.2.3.4.a, v1.2.3.4-alpha
+    /v(\d{4}[-.]?\d{2}[-.]?\d{2}(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // v2024-01-15a, v20240115f12, v20240115-beta
+    /v(\d{2}\.\d{2}\.\d{2}\b(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i, // v30.09.25 (DD.MM.YY format)
+    /v(\d{8}(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,                // v20240115a, v20240115f12, v20240115.a
+    /v(\d+(?:\.\d+)+(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,        // v1.2.3a, v1.2.3f12, v0.4.4f12, v1.2.3.a, v1.2.3-beta
+    /version\s*(\d+(?:\.\d+)+(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i, // version 1.2.3a, version 1.2.3f12, version 1.2.3.a
+    /ver\.?\s*(\d+(?:\.\d+)+(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // ver 1.2a, ver 1.2f12, ver. 1.2.a, ver. 1.2-alpha
+    /(\d+\.\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/,     // 1.2.3a, 1.2.3f12, 1.2.3.a (standalone)
+    /\[(\d+\.\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)\]/i, // [1.2.3a], [1.2.3f12], [1.2.3.a] (bracketed)
+    /\-(\d+\.\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)\-/i, // -1.2.3a-, -1.2.3f12-, -1.2.3.a- (dashed)
+    /update\s*(\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // update 1.5a, update 1.5f12
+    /patch\s*(\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,   // patch 1.2a, patch 1.2f12
+    /hotfix\s*(\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,  // hotfix 1.1a, hotfix 1.1f12
+    /rev\s*(\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i,     // rev 2.1a, rev 2.1f12
+    /r(\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:[-_]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch)(?:\d+)?)?)/i           // r1.5a, r1.5f12
   ];
   
   // Extract build patterns - enhanced for scene releases
@@ -354,15 +352,79 @@ function detectSuspiciousVersion(oldVersion: string, newVersion: string): { isSu
 
 // Proper semantic version comparison: returns 1 if a > b, -1 if a < b, 0 if equal
 function compareSemanticVersions(a: string, b: string): number {
-  const aParts = a.split('.').map(Number);
-  const bParts = b.split('.').map(Number);
+  const aParts = parseComparableVersionParts(a);
+  const bParts = parseComparableVersionParts(b);
   const maxLength = Math.max(aParts.length, bParts.length);
   for (let i = 0; i < maxLength; i++) {
-    const aPart = aParts[i] || 0;
-    const bPart = bParts[i] || 0;
-    if (aPart > bPart) return 1;
-    if (aPart < bPart) return -1;
+    const aPart = aParts[i] || { number: 0, suffix: '' };
+    const bPart = bParts[i] || { number: 0, suffix: '' };
+
+    if (aPart.number > bPart.number) return 1;
+    if (aPart.number < bPart.number) return -1;
+
+    const suffixCmp = compareVersionSuffix(aPart.suffix, bPart.suffix);
+    if (suffixCmp !== 0) return suffixCmp;
   }
+  return 0;
+}
+
+function parseComparableVersionParts(version: string): Array<{ number: number; suffix: string }> {
+  return String(version || '')
+    .trim()
+    .replace(/^v\s*/i, '')
+    .split('.')
+    .filter(Boolean)
+    .map((part) => {
+      const normalized = part.toLowerCase().trim();
+      const match = normalized.match(/^(\d+)(?:[-_]?([a-z][a-z0-9-]*))?$/i);
+
+      if (match) {
+        return {
+          number: parseInt(match[1], 10),
+          suffix: (match[2] || '').toLowerCase(),
+        };
+      }
+
+      const numericPrefix = normalized.match(/^(\d+)/);
+      if (numericPrefix) {
+        return {
+          number: parseInt(numericPrefix[1], 10),
+          suffix: normalized.slice(numericPrefix[1].length).replace(/^[-_]+/, ''),
+        };
+      }
+
+      return { number: 0, suffix: normalized };
+    });
+}
+
+function suffixWeight(suffix: string): number {
+  const normalized = (suffix || '').toLowerCase();
+  if (!normalized) return 100;
+  if (normalized.startsWith('final') || normalized.startsWith('release')) return 95;
+  if (normalized.startsWith('rc')) return 85;
+  if (normalized.startsWith('beta')) return 75;
+  if (normalized.startsWith('alpha') || normalized.startsWith('pre') || normalized.startsWith('preview')) return 65;
+  // Letter-only ('f') or letter+digits ('f12') mean sequential post-release patches.
+  // v0.4.3 < v0.4.3a < v0.4.3f < v0.4.3f1 < v0.4.3f12 < v0.4.3g
+  // Weight above the base release (100) so any suffix is seen as newer than no suffix.
+  const letterDigitMatch = normalized.match(/^([a-z])(\d*)$/);
+  if (letterDigitMatch) {
+    const letterOffset = letterDigitMatch[1].charCodeAt(0) - 97;
+    const num = parseInt(letterDigitMatch[2] || '0', 10);
+    return 101 + letterOffset * 1000 + num;
+  }
+  return 70;
+}
+
+function compareVersionSuffix(aSuffix: string, bSuffix: string): number {
+  const aWeight = suffixWeight(aSuffix);
+  const bWeight = suffixWeight(bSuffix);
+
+  if (aWeight > bWeight) return 1;
+  if (aWeight < bWeight) return -1;
+
+  if (aSuffix > bSuffix) return 1;
+  if (aSuffix < bSuffix) return -1;
   return 0;
 }
 
@@ -375,7 +437,7 @@ function detectVersionScheme(info: VersionInfo): VersionScheme {
     return 'date';
   }
 
-  if (/^\d+\.\d+(?:\.\d+){0,2}$/.test(normalizedVersion)) {
+  if (/^\d+\.\d+(?:\.\d+){0,2}(?:[-_.]?(?:[a-z][a-z0-9-]*))?$/i.test(normalizedVersion)) {
     return 'semver';
   }
 
@@ -507,16 +569,16 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
   
   // Case 4: Regular version comparison (existing logic)
   if (oldVersion.version && newVersion.version && !oldIsDate && !newIsDate) {
-    const oldParts = oldVersion.version.split('.').map(Number);
-    const newParts = newVersion.version.split('.').map(Number);
+    const oldParts = parseComparableVersionParts(oldVersion.version);
+    const newParts = parseComparableVersionParts(newVersion.version);
     
     const maxLength = Math.max(oldParts.length, newParts.length);
     
     for (let i = 0; i < maxLength; i++) {
-      const oldPart = oldParts[i] || 0;
-      const newPart = newParts[i] || 0;
+      const oldPart = oldParts[i] || { number: 0, suffix: '' };
+      const newPart = newParts[i] || { number: 0, suffix: '' };
       
-      if (newPart > oldPart) {
+      if (newPart.number > oldPart.number) {
         isNewer = true;
         if (i === 0) {
           changeType = 'major';
@@ -532,7 +594,21 @@ function compareVersions(oldVersion: VersionInfo, newVersion: VersionInfo): { is
           significance = 2;
         }
         break;
-      } else if (newPart < oldPart) {
+      }
+
+      if (newPart.number === oldPart.number) {
+        const suffixCmp = compareVersionSuffix(newPart.suffix, oldPart.suffix);
+        if (suffixCmp > 0) {
+          isNewer = true;
+          changeType = i >= 2 ? 'patch' : (i === 1 ? 'minor' : 'major');
+          significance = i === 0 ? 10 : i === 1 ? 5 : 3;
+          break;
+        }
+
+        if (suffixCmp < 0) {
+          break;
+        }
+      } else if (newPart.number < oldPart.number) {
         break;
       }
     }
@@ -976,135 +1052,44 @@ export async function POST(request: Request) {
           const hasVerifiedBuild = game.buildNumberVerified && game.currentBuildNumber;
           logger.debug(`Game verification status: Version=${hasVerifiedVersion ? game.currentVersionNumber : 'No'}, Build=${hasVerifiedBuild ? game.currentBuildNumber : 'No'}`);
           
-          // Regex-First Detection Strategy — AI is only used as a tiebreaker for conflicts
-          const aiAvailable = await isAIDetectionAvailable();
-          
-          // Step 1: Always score all matches with enhanced regex detection first
+          // Score all matches with regex-based detection
           for (const match of sortedMatches) {
             let regexScore = match.similarity;
             let updateIndicators = 0;
             
-            // Enhanced update detection keywords
             const updateKeywords = [
               'update', 'patch', 'hotfix', 'build', 'version', 'v\\d', 'rev', 'fixed',
               'bugfix', 'new version', 'latest', 'improved', 'enhanced', 'repack',
               'director.*cut', 'goty', 'complete.*edition', 'final.*cut'
             ];
             
-            // Enhanced version pattern detection
             const versionPatterns = [
-              /v\d+\.\d+\.\d+/i,      // v1.2.3
-              /\d+\.\d+\.\d+/,        // 1.2.3
-              /build\s*\d+/i,         // build 1234
-              /patch\s*\d+/i,         // patch 12
-              /update\s*\d+/i,        // update 5
-              /rev\s*\d+/i,           // rev 123
-              /r\d+/i,                // r123
-              /v\d{8}/i,              // v20241007 (date version)
-              /\d{4}[-\.]\d{2}[-\.]\d{2}/  // 2024-10-07
+              /v\d+\.\d+\.\d+/i, /\d+\.\d+\.\d+/, /build\s*\d+/i, /patch\s*\d+/i,
+              /update\s*\d+/i, /rev\s*\d+/i, /r\d+/i, /v\d{8}/i, /\d{4}[-\.]\d{2}[-\.]\d{2}/
             ];
             
             const titleLower = match.game.title.toLowerCase();
             const gameTitle = game.title.toLowerCase();
             
-            // Check for update keywords not in original
             for (const keyword of updateKeywords) {
               const regex = new RegExp(keyword, 'i');
               if (regex.test(titleLower) && !regex.test(gameTitle)) {
                 updateIndicators++;
-                regexScore += 0.1; // Boost score for update keywords
+                regexScore += 0.1;
               }
             }
             
-            // Check for version patterns
             for (const pattern of versionPatterns) {
               if (pattern.test(match.game.title)) {
                 updateIndicators++;
-                regexScore += 0.15; // Higher boost for version patterns
+                regexScore += 0.15;
               }
             }
             
             match.enhancedScore = Math.min(regexScore, 1.0);
-            match.aiReason = `Regex analysis: ${updateIndicators} update indicators`;
-          }
-          
-          // Step 2: Only use AI as tiebreaker when top matches are too close to call
-          if (aiAvailable && aiPreferences.enabled && sortedMatches.length > 1) {
-            // Sort by regex score first
-            sortedMatches.sort((a, b) => (b.enhancedScore || b.similarity) - (a.enhancedScore || a.similarity));
-            
-            const topScore = sortedMatches[0]?.enhancedScore || sortedMatches[0]?.similarity || 0;
-            const secondScore = sortedMatches[1]?.enhancedScore || sortedMatches[1]?.similarity || 0;
-            const scoreDiff = topScore - secondScore;
-            
-            // Only call AI if the top two matches are within 0.1 of each other (conflict)
-            if (scoreDiff < 0.1) {
-              try {
-                logger.debug(`🤖 Regex conflict detected (diff=${scoreDiff.toFixed(3)}), using AI as tiebreaker for top ${Math.min(5, sortedMatches.length)} candidates`);
-                
-                // Only send the conflicting candidates to AI
-                const conflictingMatches = sortedMatches.filter(m => 
-                  (topScore - (m.enhancedScore || m.similarity)) < 0.1
-                );
-                
-                const candidates = prepareCandidatesForAI(
-                  conflictingMatches.map(m => ({
-                    title: m.game.title,
-                    link: m.game.link,
-                    date: m.game.date,
-                    similarity: m.similarity
-                  })),
-                  game.title,
-                  { 
-                    maxCandidates: Math.min(5, conflictingMatches.length), 
-                    minSimilarity: 0.75,
-                    includeDate: true 
-                  }
-                );
-
-                const aiResults = await detectUpdatesWithAI(
-                  game.title,
-                  candidates,
-                  {
-                    lastKnownVersion: game.lastKnownVersion,
-                    releaseGroup: game.releaseGroup,
-                    gameLink: game.gameLink
-                  },
-                  {
-                    minConfidence: 0.5,
-                    requireVersionPattern: false,
-                    debugLogging: aiPreferences.debugLogging,
-                    maxCandidates: 5
-                  }
-                );
-
-                // Use AI results to break the tie — boost the AI-preferred match
-                for (const match of conflictingMatches) {
-                  const aiResult = aiResults.find(ai => ai.title === match.game.title);
-                  if (aiResult && aiResult.isUpdate) {
-                    // AI tiebreaker: add a small boost based on AI confidence
-                    match.enhancedScore = (match.enhancedScore || match.similarity) + aiResult.confidence * 0.15;
-                    match.aiConfidence = aiResult.confidence;
-                    match.aiReason = `AI tiebreaker: ${aiResult.reason}`;
-                    logger.debug(`🤖 AI tiebreaker boost for "${match.game.title}": +${(aiResult.confidence * 0.15).toFixed(3)}`);
-                  } else if (aiResult && !aiResult.isUpdate) {
-                    // AI says it's NOT an update — slight penalty
-                    match.enhancedScore = (match.enhancedScore || match.similarity) * 0.9;
-                    match.aiConfidence = aiResult.confidence;
-                    match.aiReason = `AI tiebreaker (not update): ${aiResult.reason}`;
-                  }
-                }
-                
-                logger.info(`🤖 AI tiebreaker resolved conflict among ${conflictingMatches.length} candidates`);
-              } catch (aiError) {
-                logger.warn(`⚠️ AI tiebreaker failed, using regex scores only: ${aiError instanceof Error ? aiError.message : 'unknown error'}`);
-              }
-            } else {
-              logger.debug(`✅ Clear regex winner (diff=${scoreDiff.toFixed(3)}), no AI needed`);
-            }
           }
 
-          // Sort by enhanced scores (AI-weighted or regex-enhanced)
+          // Sort by enhanced scores
           sortedMatches.sort((a, b) => {
             // First priority: 0xdeadcode releases if user prefers them
             if (releaseGroupPreferences.prioritize0xdeadcode) {
@@ -1146,9 +1131,6 @@ export async function POST(request: Request) {
           
           if (bestMatch) {
             logger.debug(`Selected best match: "${bestMatch.title}" (similarity: ${bestSimilarity.toFixed(2)}, enhanced: ${(selectedMatch?.enhancedScore || 0).toFixed(2)}, gate: ${bestGate})`);
-            if (selectedMatch?.aiConfidence) {
-              logger.debug(`🤖 AI confidence: ${selectedMatch.aiConfidence.toFixed(2)} - ${selectedMatch.aiReason}`);
-            }
           }
         }
         
@@ -1220,11 +1202,52 @@ export async function POST(request: Request) {
           const currentScheme = detectVersionScheme(currentVersionInfo);
           const newScheme = detectVersionScheme(newVersionInfo);
           const schemesMismatchOrUnknown = currentScheme !== newScheme || currentScheme === 'unknown' || newScheme === 'unknown';
-          const currentPubTimestamp = typeof game.lastPubTimestamp === 'number'
-            ? game.lastPubTimestamp
-            : parsePubTimestamp(game.lastVersionDate);
-          const newPubTimestamp = parsePubTimestamp(bestMatch.date);
+          let currentPubTimestamp = typeof game.lastPubTimestamp === 'number' ? game.lastPubTimestamp : 0;
+
+          if (game.steamAppId && (game.currentBuildNumber || currentVersionInfo.build)) {
+            const currentBuildForTimestamp = game.currentBuildNumber || currentVersionInfo.build;
+            if (currentBuildForTimestamp) {
+              const resolvedCurrentPubTs = await resolvePubTimestampFromBuild(game.steamAppId, currentBuildForTimestamp);
+              if (typeof resolvedCurrentPubTs === 'number' && resolvedCurrentPubTs > 0) {
+                currentPubTimestamp = resolvedCurrentPubTs;
+              }
+            }
+          }
+
+          if (currentPubTimestamp <= 0 && game.steamAppId && (game.currentVersionNumber || currentVersionInfo.version)) {
+            const currentVersionForTimestamp = game.currentVersionNumber || currentVersionInfo.version;
+            if (currentVersionForTimestamp) {
+              const resolvedCurrentPubTsFromVersion = await resolvePubTimestampFromVersion(game.steamAppId, currentVersionForTimestamp);
+              if (typeof resolvedCurrentPubTsFromVersion === 'number' && resolvedCurrentPubTsFromVersion > 0) {
+                currentPubTimestamp = resolvedCurrentPubTsFromVersion;
+              }
+            }
+          }
+
+          if (currentPubTimestamp <= 0) {
+            currentPubTimestamp = parsePubTimestamp(game.lastVersionDate);
+          }
+          let newPubTimestamp = parsePubTimestamp(bestMatch.date);
+
+          if (newPubTimestamp <= 0 && game.steamAppId && newVersionInfo.build) {
+            const resolvedPubTs = await resolvePubTimestampFromBuild(game.steamAppId, newVersionInfo.build);
+            if (typeof resolvedPubTs === 'number' && resolvedPubTs > 0) {
+              newPubTimestamp = resolvedPubTs;
+              logger.debug(`🕒 Resolved missing pub timestamp from SteamDB build ${newVersionInfo.build}: ${newPubTimestamp}`);
+            }
+          }
+
+          if (newPubTimestamp <= 0 && game.steamAppId && newVersionInfo.version) {
+            const resolvedPubTsFromVersion = await resolvePubTimestampFromVersion(game.steamAppId, newVersionInfo.version);
+            if (typeof resolvedPubTsFromVersion === 'number' && resolvedPubTsFromVersion > 0) {
+              newPubTimestamp = resolvedPubTsFromVersion;
+              logger.debug(`🕒 Resolved missing pub timestamp from SteamDB version ${newVersionInfo.version}: ${newPubTimestamp}`);
+            }
+          }
+
           const canFallbackToPubTimestamp = currentPubTimestamp > 0 && newPubTimestamp > 0;
+          const pubTimestampDelta = canFallbackToPubTimestamp ? (newPubTimestamp - currentPubTimestamp) : 0;
+          const shouldUseStringFallback = !canFallbackToPubTimestamp || pubTimestampDelta === 0;
           
           // More flexible update detection - don't require version if we have other indicators
           const hasVersionInfo = newVersionInfo.version || newVersionInfo.build;
@@ -1237,16 +1260,26 @@ export async function POST(request: Request) {
             continue;
           }
           
-          // Special handling for 0xdeadcode releases (online fixes)
-          if (is0xdeadcodeUpdate && releaseGroupPreferences.prefer0xdeadcodeForOnlineFixes) {
-            isActuallyNewer = true;
-            comparisonReason = '0xdeadcode online fix release (user prefers 0xdeadcode)';
-            logger.info(`0xdeadcode release detected with user preference: ${decodedTitle}`);
-          } else if (is0xdeadcodeUpdate) {
-            isActuallyNewer = true;
-            comparisonReason = '0xdeadcode online fix release';
-            logger.info(`0xdeadcode release detected: ${decodedTitle}`);
-          } else if ((hasVerifiedVersion || hasVerifiedBuild) && hasVersionInfo) {
+          if (canFallbackToPubTimestamp && pubTimestampDelta !== 0) {
+            isActuallyNewer = pubTimestampDelta > 0;
+            comparisonReason = pubTimestampDelta > 0
+              ? `Publication timestamp precedence: ${currentPubTimestamp} → ${newPubTimestamp}`
+              : `Publication timestamp precedence (older): ${currentPubTimestamp} → ${newPubTimestamp}`;
+            logger.debug(`🕒 Using publication timestamp precedence for update decision: ${comparisonReason}`);
+          }
+
+          // Only use string/version comparison if pubdate could not decide.
+          if (shouldUseStringFallback) {
+            // Special handling for 0xdeadcode releases (online fixes)
+            if (is0xdeadcodeUpdate && releaseGroupPreferences.prefer0xdeadcodeForOnlineFixes) {
+              isActuallyNewer = true;
+              comparisonReason = '0xdeadcode online fix release (user prefers 0xdeadcode)';
+              logger.info(`0xdeadcode release detected with user preference: ${decodedTitle}`);
+            } else if (is0xdeadcodeUpdate) {
+              isActuallyNewer = true;
+              comparisonReason = '0xdeadcode online fix release';
+              logger.info(`0xdeadcode release detected: ${decodedTitle}`);
+            } else if ((hasVerifiedVersion || hasVerifiedBuild) && hasVersionInfo) {
             const hasComparableVersion = !!(newVersionInfo.version && currentVersionInfo.version);
             const currentBuild = parseInt(currentVersionInfo.build || '0');
             const newBuild = parseInt(newVersionInfo.build || '0');
@@ -1280,107 +1313,109 @@ export async function POST(request: Request) {
               isActuallyNewer = true;
               comparisonReason = `Publication timestamp fallback: ${currentPubTimestamp} → ${newPubTimestamp} (scheme mismatch ${currentScheme} vs ${newScheme})`;
             }
-          } else if (hasVerifiedBuild) {
-            // Only compare builds
-            const currentBuild = parseInt(game.currentBuildNumber || '0');
-            const newBuild = parseInt(newVersionInfo.build || '0');
-            
-            if (newBuild > currentBuild) {
-              isActuallyNewer = true;
-              comparisonReason = `Build: ${currentBuild} → ${newBuild}`;
-            }
-          } else {
-            // Enhanced comparison with date-version awareness and release hierarchy
-            if (hasVersionInfo) {
-              comparison = compareVersions(currentVersionInfo, newVersionInfo);
+            } else if (hasVerifiedBuild) {
+              // Only compare builds
+              const currentBuild = parseInt(game.currentBuildNumber || '0');
+              const newBuild = parseInt(newVersionInfo.build || '0');
               
-              // Check if update should be skipped due to release hierarchy
-              if (comparison.skipDueToHierarchy) {
-                logger.info(`⏭️ Skipping update due to release hierarchy: ${decodedTitle}`);
-                continue; // Skip this update entirely
+              if (newBuild > currentBuild) {
+                isActuallyNewer = true;
+                comparisonReason = `Build: ${currentBuild} → ${newBuild}`;
               }
+            } else {
+              // Enhanced comparison with date-version awareness and release hierarchy
+              if (hasVersionInfo) {
+                comparison = compareVersions(currentVersionInfo, newVersionInfo);
               
-              // Handle date-version preference logic
-              if (comparison.shouldWaitForRegular) {
-                logger.info(`Date-based version found but waiting for regular version: ${decodedTitle} (found ${newVersionInfo.version})`);
-                continue; // Skip this update for now, wait for a regular version
-              }
+                // Check if update should be skipped due to release hierarchy
+                if (comparison.skipDueToHierarchy) {
+                  logger.info(`⏭️ Skipping update due to release hierarchy: ${decodedTitle}`);
+                  continue; // Skip this update entirely
+                }
               
-              // Check if this is a date-based version that we should wait for
-              if (newVersionInfo.isDateVersion && newVersionInfo.versionDate) {
-                const daysSinceVersion = Math.floor((Date.now() - newVersionInfo.versionDate.getTime()) / (1000 * 60 * 60 * 24));
+                // Handle date-version preference logic
+                if (comparison.shouldWaitForRegular) {
+                  logger.info(`Date-based version found but waiting for regular version: ${decodedTitle} (found ${newVersionInfo.version})`);
+                  continue; // Skip this update for now, wait for a regular version
+                }
+              
+                // Check if this is a date-based version that we should wait for
+                if (newVersionInfo.isDateVersion && newVersionInfo.versionDate) {
+                  const daysSinceVersion = Math.floor((Date.now() - newVersionInfo.versionDate.getTime()) / (1000 * 60 * 60 * 24));
                 
-                // If it's a very recent date version (< 2 days), check if there are newer posts with regular versions
-                if (daysSinceVersion < 2) {
-                  // Look for newer posts in the recent games list that might have regular versions
-                  const newerPostsWithRegularVersions = recentGames.filter(recentGame => {
-                    if (!recentGame.date) return false;
-                    const postDate = new Date(recentGame.date);
-                    const gamePostDate = bestMatch.date ? new Date(bestMatch.date) : new Date();
+                  // If it's a very recent date version (< 2 days), check if there are newer posts with regular versions
+                  if (daysSinceVersion < 2) {
+                    // Look for newer posts in the recent games list that might have regular versions
+                    const newerPostsWithRegularVersions = recentGames.filter(recentGame => {
+                      if (!recentGame.date) return false;
+                      const postDate = new Date(recentGame.date);
+                      const gamePostDate = bestMatch.date ? new Date(bestMatch.date) : new Date();
                     
-                    // Check if this post is newer than our current candidate
-                    if (postDate <= gamePostDate) return false;
+                      // Check if this post is newer than our current candidate
+                      if (postDate <= gamePostDate) return false;
                     
-                    // Check if this newer post has a regular version and similar title
-                    const newerTitle = decodeHtmlEntities(recentGame.title);
-                    const similarity = calculateGameSimilarity(cleanTitle, newerTitle);
-                    if (similarity < 0.8) return false;
+                      // Check if this newer post has a regular version and similar title
+                      const newerTitle = decodeHtmlEntities(recentGame.title);
+                      const similarity = calculateGameSimilarity(cleanTitle, newerTitle);
+                      if (similarity < 0.8) return false;
                     
-                    const newerVersionInfo = extractVersionInfo(newerTitle);
-                    return newerVersionInfo.hasRegularVersion;
-                  });
+                      const newerVersionInfo = extractVersionInfo(newerTitle);
+                      return newerVersionInfo.hasRegularVersion;
+                    });
                   
-                  if (newerPostsWithRegularVersions.length > 0) {
-                    logger.info(`Found newer post with regular version, skipping date version: ${decodedTitle}`);
-                    continue; // Skip the date version since we have a newer regular version
+                    if (newerPostsWithRegularVersions.length > 0) {
+                      logger.info(`Found newer post with regular version, skipping date version: ${decodedTitle}`);
+                      continue; // Skip the date version since we have a newer regular version
+                    }
                   }
                 }
-              }
               
-              // Handle date-to-regular transitions that need verification
-              if (comparison.changeType === 'date_to_regular_needs_verification') {
-                // Current game has date version, new post has regular version
-                // We need to verify if the regular version is actually newer by checking post dates
-                if (canFallbackToPubTimestamp) {
-                  if (newPubTimestamp > currentPubTimestamp) {
-                    isActuallyNewer = true;
-                    comparisonReason = `Regular version from newer post timestamp: ${currentPubTimestamp} → ${newPubTimestamp} (${currentVersionInfo.version} → ${newVersionInfo.version})`;
-                    logger.info(`Date-to-regular version update verified by post date: ${decodedTitle}`);
+                // Handle date-to-regular transitions that need verification
+                if (comparison.changeType === 'date_to_regular_needs_verification') {
+                  // Current game has date version, new post has regular version
+                  // We need to verify if the regular version is actually newer by checking post dates
+                  if (canFallbackToPubTimestamp) {
+                    if (newPubTimestamp > currentPubTimestamp) {
+                      isActuallyNewer = true;
+                      comparisonReason = `Regular version from newer post timestamp: ${currentPubTimestamp} → ${newPubTimestamp} (${currentVersionInfo.version} → ${newVersionInfo.version})`;
+                      logger.info(`Date-to-regular version update verified by post date: ${decodedTitle}`);
+                    } else {
+                      // Post date is older or same, so the regular version might be older
+                      logger.info(`Regular version from older post timestamp, skipping: ${decodedTitle} (${newPubTimestamp} <= ${currentPubTimestamp})`);
+                      // Continue to check if we can verify via SteamDB
+                    }
                   } else {
-                    // Post date is older or same, so the regular version might be older
-                    logger.info(`Regular version from older post timestamp, skipping: ${decodedTitle} (${newPubTimestamp} <= ${currentPubTimestamp})`);
-                    // Continue to check if we can verify via SteamDB
+                    // No post dates available, fall back to treating it as potentially newer
+                    // but with lower confidence (requires user confirmation)
+                    isActuallyNewer = true;
+                    comparisonReason = `Regular version found (date verification unavailable): ${currentVersionInfo.version} → ${newVersionInfo.version}`;
+                    logger.info(`Date-to-regular version update (unverified): ${decodedTitle}`);
+                  }
+                }
+              
+                // If we have a date-based version that's older than 2 days, check post dates as fallback
+                else if (newVersionInfo.isDateVersion && !comparison.isNewer) {
+                  // Fallback to post date comparison for date-based versions
+                  if (canFallbackToPubTimestamp && newPubTimestamp > currentPubTimestamp) {
+                    isActuallyNewer = true;
+                    comparisonReason = `Newer post timestamp: ${currentPubTimestamp} → ${newPubTimestamp} (date-based version)`;
+                    logger.info(`Date-based version update by post date: ${decodedTitle}`);
+                  }
+                } else if (schemesMismatchOrUnknown) {
+                  // Schemes are incompatible — skip string comparison and rely solely on pub_timestamp
+                  if (canFallbackToPubTimestamp && newPubTimestamp > currentPubTimestamp) {
+                    isActuallyNewer = true;
+                    comparisonReason = `Publication timestamp fallback: ${currentPubTimestamp} → ${newPubTimestamp} (scheme mismatch ${currentScheme} vs ${newScheme})`;
                   }
                 } else {
-                  // No post dates available, fall back to treating it as potentially newer
-                  // but with lower confidence (requires user confirmation)
-                  isActuallyNewer = true;
-                  comparisonReason = `Regular version found (date verification unavailable): ${currentVersionInfo.version} → ${newVersionInfo.version}`;
-                  logger.info(`Date-to-regular version update (unverified): ${decodedTitle}`);
+                  isActuallyNewer = comparison.isNewer && comparison.significance >= 1;
+                  comparisonReason = `Enhanced comparison: ${comparison.changeType} (significance: ${comparison.significance})`;
                 }
+              } else if (hasUpdateKeywords || isDifferentReleaseGroup) {
+                // Accept updates based on keywords or different release groups
+                isActuallyNewer = true;
+                comparisonReason = hasUpdateKeywords ? 'Update keywords detected' : 'Different release group';
               }
-              
-              // If we have a date-based version that's older than 2 days, check post dates as fallback
-              else if (newVersionInfo.isDateVersion && !comparison.isNewer) {
-                // Fallback to post date comparison for date-based versions
-                if (canFallbackToPubTimestamp && newPubTimestamp > currentPubTimestamp) {
-                  isActuallyNewer = true;
-                  comparisonReason = `Newer post timestamp: ${currentPubTimestamp} → ${newPubTimestamp} (date-based version)`;
-                  logger.info(`Date-based version update by post date: ${decodedTitle}`);
-                }
-              } else {
-                isActuallyNewer = comparison.isNewer && comparison.significance >= 1;
-                comparisonReason = `Enhanced comparison: ${comparison.changeType} (significance: ${comparison.significance})`;
-
-                if (!isActuallyNewer && schemesMismatchOrUnknown && canFallbackToPubTimestamp && newPubTimestamp > currentPubTimestamp) {
-                  isActuallyNewer = true;
-                  comparisonReason = `Publication timestamp fallback: ${currentPubTimestamp} → ${newPubTimestamp} (scheme mismatch ${currentScheme} vs ${newScheme})`;
-                }
-              }
-            } else if (hasUpdateKeywords || isDifferentReleaseGroup) {
-              // Accept updates based on keywords or different release groups
-              isActuallyNewer = true;
-              comparisonReason = hasUpdateKeywords ? 'Update keywords detected' : 'Different release group';
             }
           }
           
@@ -1402,13 +1437,36 @@ export async function POST(request: Request) {
             logger.info(`Update found: ${decodedTitle} (different link: ${isDifferentLink}, newer: ${isActuallyNewer})`);
             
             // Check if we already have this update (use fresh DB query to avoid race conditions)
-            const freshGame = await TrackedGame.findById(game._id).lean() as { updateHistory?: Array<{ gameLink: string; notificationSent?: boolean }>; pendingUpdates?: Array<{ newLink?: string; gameLink?: string }> } | null;
-            const existingUpdate = freshGame?.updateHistory?.find((update: { gameLink: string }) => 
-              update.gameLink === bestMatch.link
+            const freshGame = await TrackedGame.findById(game._id).lean() as {
+              updateHistory?: Array<{ version?: string; build?: string; gameLink: string; notificationSent?: boolean }>;
+              pendingUpdates?: Array<{ detectedVersion?: string; build?: string; version?: string; newLink?: string; gameLink?: string }>;
+            } | null;
+
+            const candidateBuild = String(newVersionInfo.build || '').trim();
+            const candidateDetectedVersion = String(newVersionInfo.fullVersionString || newVersionInfo.version || '').trim().toLowerCase();
+
+            const isSameSignature = (entryBuild?: string, entryVersion?: string) => {
+              const normalizedBuild = String(entryBuild || '').trim();
+              const normalizedVersion = String(entryVersion || '').trim().toLowerCase();
+
+              if (candidateBuild && normalizedBuild) {
+                return candidateBuild === normalizedBuild;
+              }
+
+              if (candidateDetectedVersion && normalizedVersion) {
+                return normalizedVersion.includes(candidateDetectedVersion) || candidateDetectedVersion.includes(normalizedVersion);
+              }
+
+              return !candidateBuild && !candidateDetectedVersion;
+            };
+
+            const existingUpdate = freshGame?.updateHistory?.find((update) =>
+              update.gameLink === bestMatch.link && isSameSignature(update.build, update.version)
             );
             
-            const existingPending = freshGame?.pendingUpdates?.some((pending: { newLink?: string; gameLink?: string }) => 
-              pending.newLink === bestMatch.link || pending.gameLink === bestMatch.link
+            const existingPending = freshGame?.pendingUpdates?.some((pending) =>
+              (pending.newLink === bestMatch.link || pending.gameLink === bestMatch.link) &&
+              isSameSignature(pending.build, pending.detectedVersion || pending.version)
             );
             
             // If update exists and notification was already sent, skip it
@@ -1425,25 +1483,28 @@ export async function POST(request: Request) {
                 if (newVersionInfo.releaseType) versionString += ` ${newVersionInfo.releaseType}`;
               }
               
-
-              // Get AI detection data if available
-              const aiData = selectedMatch?.aiConfidence ? {
-                aiDetectionConfidence: selectedMatch.aiConfidence,
-                aiDetectionReason: selectedMatch.aiReason,
-                detectionMethod: 'ai_enhanced'
-              } : {};
-
               // Check for suspicious version patterns - block auto-approval if suspicious
               const hasSuspiciousVersion = comparison?.suspiciousVersion?.isSuspicious || false;
 
               // Auto-approve if:
-              // - We have verified info and it's clearly higher, or
-              // - Similarity is 100% and significance >= 2 (robust match)
-              // - AND version is NOT suspicious
-              // NOTE: AI alone cannot auto-approve — it's only used as a tiebreaker
+              // - We have verified info and it's clearly higher
+              // - Similarity is 100% and significant
+              // - Publication timestamp precedence confirms newer
+              // - Version/build comparison is clearly newer
+              // Suspicious versions are never auto-approved.
+              const pubTimestampConfirmed =
+                comparisonReason.startsWith('Publication timestamp precedence') ||
+                comparisonReason.startsWith('Publication timestamp fallback') ||
+                comparisonReason.startsWith('Newer post timestamp');
+
               const shouldAutoApprove = !hasSuspiciousVersion && (
                 ((hasVerifiedVersion || hasVerifiedBuild) && isActuallyNewer && bestSimilarity >= 0.85) ||
-                (bestSimilarity === 1.0 && isActuallyNewer)
+                (bestSimilarity === 1.0 && isActuallyNewer) ||
+                (pubTimestampConfirmed && isActuallyNewer && bestSimilarity >= 0.8) ||
+                // Trust the version/build comparison directly when it has high enough significance
+                // (e.g. build number higher, suffix patch like v0.4.3f → v0.4.3g, minor/major bump)
+                (comparison?.isNewer && !comparison?.suspiciousVersion?.isSuspicious &&
+                  (comparison?.significance ?? 0) >= 2 && isActuallyNewer && bestSimilarity >= 0.85)
               );
 
               // Detect if this is an Online-Fix release
@@ -1468,7 +1529,6 @@ export async function POST(request: Request) {
                   autoApproved: true,
                   verificationReason: comparisonReason,
                   isOnlineFix: isOnlineFix,
-                  ...aiData  // Include AI detection data if available
                 };
 
                 const updateFields: Record<string, unknown> = {
@@ -1503,13 +1563,17 @@ export async function POST(request: Request) {
                 }
 
                 // Atomic conditional update to prevent duplicate auto-approvals
+                const hasCandidateSignature = !!(candidateBuild || candidateDetectedVersion);
+
                 const autoApproveWriteResult = await TrackedGame.findOneAndUpdate(
-                  {
-                    _id: game._id,
-                    'updateHistory.gameLink': { $ne: bestMatch.link },
-                    'pendingUpdates.newLink': { $ne: bestMatch.link },
-                    'pendingUpdates.gameLink': { $ne: bestMatch.link }
-                  },
+                  hasCandidateSignature
+                    ? { _id: game._id }
+                    : {
+                        _id: game._id,
+                        'updateHistory.gameLink': { $ne: bestMatch.link },
+                        'pendingUpdates.newLink': { $ne: bestMatch.link },
+                        'pendingUpdates.gameLink': { $ne: bestMatch.link }
+                      },
                   updateFields,
                   { new: true }
                 );
@@ -1554,118 +1618,7 @@ export async function POST(request: Request) {
                   logger.info(`Update found for ${game.title} but notifications are disabled`);
                 }
               } else {
-                // Check if the detected game has version or build information before adding to pending
-                const hasVersionOrBuild = newVersionInfo.version || newVersionInfo.build || 
-                  /\b(v?\d+(?:\.\d+)+|\d{6,}|build\s*\d+|b\d{4,}|#\d{4,})\b/i.test(decodedTitle);
-                
-                if (!hasVersionOrBuild) {
-                  logger.debug(`Skipping game without version/build info: "${decodedTitle}"`);
-                  continue; // Skip adding to pending if no version/build information
-                }
-                
-                // Add to pending updates with AI data
-                const aiConfidence = selectedMatch?.aiConfidence || 0;
-                const aiReason = selectedMatch?.aiReason || '';
-                
-                const aiData = aiConfidence > 0 ? {
-                  aiDetectionConfidence: aiConfidence,
-                  aiDetectionReason: aiReason,
-                  detectionMethod: 'ai_enhanced'
-                } : {};
-
-                const cleanedDecodedTitle = cleanGameTitle(decodedTitle);
-
-                // Check for suspicious version and add to reason if found
-                let suspiciousReason = '';
-                if (comparison?.suspiciousVersion?.isSuspicious) {
-                  suspiciousReason = ` ⚠️ SUSPICIOUS: ${comparison.suspiciousVersion.reason}`;
-                }
-                const pendingUpdate = {
-                  version: decodedTitle, // Full title with version for display
-                  detectedVersion: newVersionInfo.fullVersionString || newVersionInfo.version || newVersionInfo.build || '', // Clean version number
-                  newTitle: cleanedDecodedTitle, // Cleaned game title for database
-                  newLink: bestMatch.link,
-                  gameLink: bestMatch.link, // Also save as gameLink for compatibility
-                  newImage: bestMatch.image || '',
-                  build: newVersionInfo.build || '',
-                  releaseType: newVersionInfo.releaseType || '',
-                  updateType: newVersionInfo.updateType || '',
-                  changeType: comparison?.changeType || '',
-                  significance: comparison?.significance || 0,
-                  previousVersion: game.currentVersionNumber || game.lastKnownVersion || '',
-                  dateFound: new Date(),
-                  confidence: newVersionInfo.confidence || (aiConfidence > 0 ? aiConfidence : bestSimilarity),
-                  reason: `${comparisonReason} | Similarity: ${Math.round(bestSimilarity * 100)}%${aiConfidence > 0 ? ` | AI: ${Math.round(aiConfidence * 100)}%` : ''}${suspiciousReason}`,
-                  downloadLinks: bestMatch.downloadLinks || [],
-                  isOnlineFix: isOnlineFix,
-                  ...aiData  // Include AI detection data if available
-                };
-
-                // Use atomic conditional update to prevent race-condition duplicates
-                const updatedGame = await TrackedGame.findOneAndUpdate(
-                  {
-                    _id: game._id,
-                    'pendingUpdates.newLink': { $ne: bestMatch.link },
-                    'pendingUpdates.gameLink': { $ne: bestMatch.link },
-                    'updateHistory.gameLink': { $ne: bestMatch.link }
-                  },
-                  {
-                    $push: { pendingUpdates: pendingUpdate },
-                    lastChecked: new Date()
-                  },
-                  { new: true }
-                );
-
-                if (!updatedGame) {
-                  logger.info(`Skipping duplicate pending update (atomic check): ${bestMatch.link}`);
-                  continue;
-                }
-
-                logger.info(`Added pending update for ${game.title}: ${versionString}`);
-                updatesFound++;
-
-                // Send Telegram approval request to admins
-                // Use 127.0.0.1 instead of localhost to avoid IPv6 issues
-                try {
-                  const updateIndex = updatedGame.pendingUpdates.length - 1;
-                  await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://127.0.0.1:3000'}/api/telegram/approve-pending`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      gameId: game._id.toString(),
-                      updateIndex,
-                      gameTitle: game.title,
-                      newTitle: pendingUpdate.newTitle,
-                      detectedVersion: pendingUpdate.detectedVersion,
-                      reason: pendingUpdate.reason
-                    })
-                  });
-                  logger.info(`Sent Telegram approval request for ${game.title}`);
-                } catch (telegramError) {
-                  logger.error('Failed to send Telegram approval request:', telegramError);
-                }
-                
-                // Send notification only if enabled for this game
-                if (game.notificationsEnabled) {
-                  try {
-                    const notificationData = createUpdateNotificationData({
-                      gameTitle: game.title,
-                      version: versionString,
-                      gameLink: bestMatch.link,
-                      imageUrl: bestMatch.image,
-                      updateType: 'pending',
-                      downloadLinks: undefined,
-                      isPending: true
-                    });
-                    
-                    await sendUpdateNotification(game.userId.toString(), notificationData);
-                    logger.info(`Pending update notification sent for ${game.title}`);
-                  } catch (notificationError) {
-                    logger.error('Failed to send pending update notification:', notificationError);
-                  }
-                } else {
-                  logger.info(`Pending update found for ${game.title} but notifications are disabled`);
-                }
+                logger.debug(`⏩ Skipping update that did not meet auto-approval criteria: "${decodedTitle}" | ${comparisonReason}`);
               }
             }
           }

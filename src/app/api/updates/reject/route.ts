@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
-import { TrackedGame, User } from '../../../../lib/models';
+import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 
-// POST: Reject a pending update (Admin only)
+// POST: Reject a pending update for the current user
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
@@ -14,15 +14,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if user is admin
     await connectDB();
-    const userDoc = await User.findById(user.id);
-    if (!userDoc || userDoc.role !== 'admin') {
-      return NextResponse.json(
-        { error: 'Forbidden: Admin access required to reject updates' },
-        { status: 403 }
-      );
-    }
 
     const { gameId, updateIndex } = await request.json();
 
@@ -33,7 +25,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // No need to call connectDB again - already called above for admin check
+    // No need to call connectDB again - already connected above
 
     // Find the game and get the pending update
     const game = await TrackedGame.findOne({

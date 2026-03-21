@@ -1,4 +1,4 @@
-import { searchSteamGames, calculateGameSimilarity, cleanGameTitle } from './steamApi';
+import { searchSteamGames, calculateGameSimilarity, cleanGameTitle, buildSteamSearchQueryVariants } from './steamApi';
 
 // Use the same interface as steamApi.ts for consistency
 interface SteamGameResult {
@@ -34,10 +34,24 @@ export async function autoVerifyWithSteam(
   try {
     // Attempting auto Steam verification
     
-    // Search Steam API with the game title
-    const searchResponse = await searchSteamGames(gameTitle, 5);
-    
-    if (!searchResponse.results || searchResponse.results.length === 0) {
+    const queryVariants = buildSteamSearchQueryVariants(gameTitle);
+    const mergedResults: SteamGameResult[] = [];
+    const seenAppIds = new Set<string>();
+
+    for (const query of queryVariants) {
+      const searchResponse = await searchSteamGames(query, 5);
+      if (!searchResponse.results || searchResponse.results.length === 0) {
+        continue;
+      }
+
+      for (const result of searchResponse.results) {
+        if (!result.appid || seenAppIds.has(result.appid)) continue;
+        seenAppIds.add(result.appid);
+        mergedResults.push(result);
+      }
+    }
+
+    if (mergedResults.length === 0) {
       return {
         success: false,
         confidence: 0,
@@ -49,7 +63,7 @@ export async function autoVerifyWithSteam(
     let bestMatch: SteamGameResult | null = null;
     let bestConfidence = 0;
     
-    for (const result of searchResponse.results) {
+    for (const result of mergedResults) {
       // Skip error messages or invalid results
       if (!result.appid || result.name.includes('No games found')) {
         continue;

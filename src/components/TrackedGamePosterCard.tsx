@@ -97,8 +97,12 @@ export function TrackedGamePosterCard({
   const router = useRouter();
 
   const handleOpenDetails = () => {
-    if (!appid) return;
-    router.push(`/appid/${appid}`);
+    if (appid) {
+      router.push(`/appid/${appid}`);
+      return;
+    }
+
+    router.push(`/unverified/${gameId}`);
   };
 
   // Collapsed view (poster card)
@@ -106,7 +110,7 @@ export function TrackedGamePosterCard({
     <div className={`relative group self-start ${className}`}>
       {/* Poster Image Container */}
       <div 
-        className={`relative rounded-lg overflow-hidden bg-gray-800 shadow-lg transition-all duration-300 group-hover:shadow-2xl group-hover:scale-105 max-h-[400px] flex items-center ${appid ? 'cursor-pointer' : 'cursor-not-allowed opacity-80'}`}
+        className="relative rounded-lg overflow-hidden bg-gray-800 shadow-lg transition-all duration-300 group-hover:shadow-2xl group-hover:scale-105 max-h-[400px] flex items-center cursor-pointer"
         onClick={handleOpenDetails}
       >
         {/* Image */}
@@ -163,6 +167,11 @@ export function TrackedGamePosterCard({
           {hasUpdate && (
             <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded animate-pulse">
               UPDATE
+            </span>
+          )}
+          {!appid && (
+            <span className="bg-yellow-500 text-black text-xs font-bold px-2 py-1 rounded ml-2">
+              NO APPID
             </span>
           )}
         </div>

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../lib/db';
 import { TrackedGame } from '../../../lib/models';
 import { getCurrentUser } from '../../../lib/auth';
-import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, resolveVersionFromDate, resolveComparableVersionData, calculateGamePriority, detectAndResolveGameConflicts } from '../../../utils/steamApi';
+import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, resolveVersionFromDate, resolveComparableVersionData, calculateGamePriority, detectAndResolveGameConflicts, resolvePubTimestampFromBuild, resolveLatestPubTimestamp } from '../../../utils/steamApi';
 import logger from '../../../utils/logger';
 import { autoVerifyWithSteam } from '../../../utils/autoSteamVerification';
 import { updateScheduler } from '../../../lib/scheduler';
@@ -263,6 +263,22 @@ export async function POST(request: NextRequest) {
         replacementTarget.lastKnownVersion = [newVersion, newBuild ? `Build ${newBuild}` : ''].filter(Boolean).join(' · ');
       }
 
+      if (replacementTarget.steamAppId) {
+        let resolvedPubTs: number | null = null;
+
+        if (replacementTarget.currentBuildNumber) {
+          resolvedPubTs = await resolvePubTimestampFromBuild(replacementTarget.steamAppId, replacementTarget.currentBuildNumber);
+        }
+
+        if (!resolvedPubTs) {
+          resolvedPubTs = await resolveLatestPubTimestamp(replacementTarget.steamAppId);
+        }
+
+        if (typeof resolvedPubTs === 'number' && resolvedPubTs > 0) {
+          replacementTarget.lastPubTimestamp = resolvedPubTs;
+        }
+      }
+
       await replacementTarget.save();
 
       return NextResponse.json({
@@ -456,6 +472,22 @@ export async function POST(request: NextRequest) {
         const versionLabel = hasVersion ? trackedGame.currentVersionNumber : '';
         const buildLabel = hasBuild ? `Build ${trackedGame.currentBuildNumber}` : '';
         trackedGame.lastKnownVersion = [versionLabel, buildLabel].filter(Boolean).join(' · ');
+      }
+
+      if (trackedGame.steamAppId) {
+        let resolvedPubTs: number | null = null;
+
+        if (trackedGame.currentBuildNumber) {
+          resolvedPubTs = await resolvePubTimestampFromBuild(trackedGame.steamAppId, trackedGame.currentBuildNumber);
+        }
+
+        if (!resolvedPubTs) {
+          resolvedPubTs = await resolveLatestPubTimestamp(trackedGame.steamAppId);
+        }
+
+        if (typeof resolvedPubTs === 'number' && resolvedPubTs > 0) {
+          trackedGame.lastPubTimestamp = resolvedPubTs;
+        }
       }
 
       // Save the updates
