@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
-import { TrackedGame } from '../../../../lib/models';
+import { TrackedGame, User } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { sendTelegramMessage, sendTelegramPhoto, getTelegramConfig, formatGameUpdateMessage } from '../../../../utils/telegram';
 
