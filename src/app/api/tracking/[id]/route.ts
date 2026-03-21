@@ -51,7 +51,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     }
 
     const body = await request.json();
-    const { version, gameLink, title } = body;
+    const { version, gameLink, title, source, image } = body;
 
     if (!version || typeof version !== 'string' || !version.trim()) {
       return NextResponse.json({ error: 'version is required' }, { status: 400 });
@@ -83,7 +83,10 @@ export async function PATCH(request: Request, context: RouteContext) {
     });
 
     game.lastKnownVersion = newVersion;
+    game.originalTitle = newVersion;
     if (newLink) game.gameLink = newLink;
+    if (source && typeof source === 'string') game.source = source.trim();
+    if (image && typeof image === 'string') game.image = image.trim();
     game.latestApprovedUpdate = { version: newVersion, dateFound: now, gameLink: newLink };
     game.hasNewUpdate = false;
     game.newUpdateSeen = true;
