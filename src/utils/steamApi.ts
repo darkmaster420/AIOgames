@@ -264,9 +264,9 @@ export async function resolveVersionFromBuild(appId: string | number, buildId: s
     const found = builds.find(b => String(b.build_id) === target);
     if (!found) return null;
     if (found.version) return normalizeVersionString(found.version);
-    // Fallback: try to extract from title/description like "v1.2.3" or "1.2.3"
+    // Fallback: try to extract from title/description like "v1.2.3", "1.2.3", "v0.4.4f10"
     const text = `${found.title || ''} ${found.description || ''}`;
-    const m = text.match(/v?(\d+\.\d+(?:\.\d+){0,2})/i);
+    const m = text.match(/v?(\d+\.\d+(?:\.\d+){0,2}(?:[a-z]\d*)?)/i);
     return m ? normalizeVersionString(m[1]) : null;
   } catch {
     return null;

@@ -441,14 +441,14 @@ function simplifyPatchItem(item: RssItem) {
   const buildMatch = `${item.description || ''} ${item.title || ''}`.match(/Build\s+[#:]?(\d{5,})/i);
   const build = buildMatch ? buildMatch[1] : null;
   
-  // Extract version from title or description (e.g., "v1.2.3" or "1.2.3")
-  const versionMatch = `${item.title || ''} ${item.description || ''}`.match(/(v?\d+\.\d+(?:\.\d+){0,2})/i);
+  // Extract version from title or description (e.g., "v1.2.3", "1.2.3", "v0.4.4f10")
+  const versionMatch = `${item.title || ''} ${item.description || ''}`.match(/(v?\d+\.\d+(?:\.\d+){0,2}(?:[a-z]\d*)?)/i);
   const version = versionMatch ? versionMatch[1] : null;
 
   const normalizedVersion = version ? version.replace(/^v\s*/i, '') : '';
   let versionScheme: VersionScheme = 'unknown';
 
-  if (/^\d+\.\d+(?:\.\d+){0,2}$/.test(normalizedVersion)) {
+  if (/^\d+\.\d+(?:\.\d+){0,2}(?:[a-z]\d*)?$/.test(normalizedVersion)) {
     versionScheme = 'semver';
   } else if (/^\d{8}$/.test(normalizedVersion) || /^\d{4}[-.]\d{2}[-.]\d{2}$/.test(normalizedVersion)) {
     versionScheme = 'date';
