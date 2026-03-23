@@ -458,13 +458,22 @@ function DashboardInner() {
       });
 
       const grouped = new Map<string, DisplayGame>();
+      const isRecentUploads = !searchQuery.trim();
 
       for (const game of refinedGames) {
         const appId = extractAppId(game);
         const cleanedTitle = cleanGameTitle(game.originalTitle || game.title || '').toLowerCase();
-        const groupKey = appId ? `appid:${appId}` : `title:${cleanedTitle || game.id}`;
+        const groupKey = isRecentUploads
+          ? (appId ? `appid:${appId}` : `title:${cleanedTitle || game.id}`)
+          : game.id;
 
         const existing = grouped.get(groupKey);
+
+        if (!isRecentUploads || !existing) {
+          grouped.set(groupKey, { ...game, displayKey: groupKey, postCount: 1 });
+          continue;
+        }
+
         const candidateDate = game.date ? new Date(game.date).getTime() : 0;
         const existingDate = existing?.date ? new Date(existing.date).getTime() : 0;
         const candidateHasImage = Boolean(game.image);
@@ -473,11 +482,6 @@ function DashboardInner() {
         const PREFERRED_SOURCES = ['skidrowreloaded', 'skidrow'];
         const candidatePreferred = PREFERRED_SOURCES.some(s => (game.source || '').toLowerCase().includes(s) || (game.siteType || '').toLowerCase().includes(s));
         const existingPreferred = existing ? PREFERRED_SOURCES.some(s => (existing.source || '').toLowerCase().includes(s) || (existing.siteType || '').toLowerCase().includes(s)) : false;
-
-        if (!existing) {
-          grouped.set(groupKey, { ...game, displayKey: groupKey, postCount: 1 });
-          continue;
-        }
 
         const shouldReplace =
           // Preferred source always wins over non-preferred regardless of date
@@ -506,7 +510,7 @@ function DashboardInner() {
         const dateB = b.date ? new Date(b.date).getTime() : 0;
         return dateB - dateA;
       });
-    }, [games, refineText, extractAppId]);
+    }, [games, refineText, extractAppId, searchQuery]);
 
     useEffect(() => {
       if (displayGames.length === 0) {
