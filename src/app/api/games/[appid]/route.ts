@@ -26,6 +26,7 @@ interface SteamSpyData {
   tags?: Record<string, number>;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface SteamGameDetails {
   [appid: string]: {
     success: boolean;
@@ -116,7 +117,7 @@ export async function GET(
         if (response.ok) {
           return await response.json();
         }
-      } catch (error) {
+      } catch {
         clearTimeout(timeout);
       }
       return null;
@@ -143,7 +144,7 @@ export async function GET(
             return json[appid].data;
           }
         }
-      } catch (error) {
+      } catch {
         clearTimeout(timeout);
       }
       return null;

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-export async function POST(request: NextRequest) {
+export async function POST(_request: NextRequest) {
   // Public user registration is disabled
   // Only admins can create new users via /api/admin/users/create
   return NextResponse.json(

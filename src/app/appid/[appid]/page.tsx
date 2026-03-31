@@ -535,6 +535,7 @@ export default function AppIdDetailPage() {
           <div className="space-y-6">
             <section className="overflow-hidden card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-xl shadow-lg">
               {game.header_image && (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={game.header_image}
                   alt={game.name}
@@ -728,6 +729,7 @@ export default function AppIdDetailPage() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start gap-3">
                             {result.image && (
+                              // eslint-disable-next-line @next/next/no-img-element
                               <img
                                 src={result.image}
                                 alt={result.originalTitle || result.title}

@@ -130,6 +130,7 @@ export default function UnverifiedGamePage() {
           <div className="grid md:grid-cols-[180px_1fr] gap-5">
             <div>
               {game.image ? (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={game.image}
                   alt={displayTitle}

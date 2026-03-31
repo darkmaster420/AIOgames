@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { signIn, useSession } from 'next-auth/react';
 import { useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 import { validateEmailOrUsername, normalizeLoginInput } from '../../../utils/authUtils';
 
 import { Suspense } from 'react';

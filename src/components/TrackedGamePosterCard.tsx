@@ -60,40 +60,21 @@ interface TrackedGamePosterCardProps {
   className?: string;
 }
 
-export function TrackedGamePosterCard({
-  gameId,
-  appid,
-  gogProductId,
-  title,
-  originalTitle,
-  description,
-  image,
-  hasUpdate = false,
-  gameLink,
-  lastKnownVersion,
-  currentBuildNumber,
-  currentVersionNumber,
-  steamVerified,
-  steamName,
-  gogVerified,
-  buildNumberVerified = false,
-  notificationsEnabled,
-  gogName,
-  gogVersion,
-  gogBuildId,
-  gogLastChecked,
-  gogLatestVersion: gogLatestVersionProp,
-  gogLatestBuildId: gogLatestBuildIdProp,
-  gogLatestDate: gogLatestDateProp,
-  steamdbUpdate,
-  updateHistory = [],
-  pendingUpdates = [],
-  onUntrack,
-  onCheckUpdate,
-  onRefresh,
-  isCheckingUpdate = false,
-  className = '',
-}: TrackedGamePosterCardProps) {
+export function TrackedGamePosterCard(props: TrackedGamePosterCardProps) {
+  const {
+    gameId,
+    appid,
+    title,
+    image,
+    hasUpdate = false,
+    gameLink,
+    steamVerified,
+    steamName,
+    onUntrack,
+    onCheckUpdate,
+    isCheckingUpdate = false,
+    className = '',
+  } = props;
   const router = useRouter();
 
   const handleOpenDetails = () => {

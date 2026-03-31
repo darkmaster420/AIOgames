@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { TelegramBotClient, TelegramUpdate, parseCommand, handleTelegramCommand, findUserByTelegramChat } from '../../../../lib/telegramBot';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import connectDB from '../../../../lib/db';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { TrackedGame, User } from '../../../../lib/models';
 import logger from '../../../../utils/logger';
 
@@ -48,6 +50,7 @@ async function answerCallback(callbackId: string, text: string, botToken: string
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function notifyAdmins(message: string, messageIds: { [key: string]: number }, botToken: string): Promise<void> {
   const promises = Object.entries(messageIds).map(async ([chatId, messageId]) => {
     try {
@@ -69,6 +72,7 @@ async function notifyAdmins(message: string, messageIds: { [key: string]: number
   await Promise.all(promises);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function updateAdminMessages(messageIds: { [key: string]: number }, status: string, botToken: string): Promise<void> {
   const promises = Object.entries(messageIds).map(async ([chatId, messageId]) => {
     try {
@@ -94,6 +98,7 @@ async function updateAdminMessages(messageIds: { [key: string]: number }, status
   await Promise.all(promises);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function approveUpdate(gameId: string, updateIndex: number): Promise<void> {
   const game = await TrackedGame.findById(gameId);
   if (!game || !game.pendingUpdates[updateIndex]) {

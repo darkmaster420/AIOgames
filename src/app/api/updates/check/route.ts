@@ -1055,7 +1055,6 @@ export async function POST(request: Request) {
           // Score all matches with regex-based detection
           for (const match of sortedMatches) {
             let regexScore = match.similarity;
-            let updateIndicators = 0;
             
             const updateKeywords = [
               'update', 'patch', 'hotfix', 'build', 'version', 'v\\d', 'rev', 'fixed',
@@ -1074,14 +1073,12 @@ export async function POST(request: Request) {
             for (const keyword of updateKeywords) {
               const regex = new RegExp(keyword, 'i');
               if (regex.test(titleLower) && !regex.test(gameTitle)) {
-                updateIndicators++;
                 regexScore += 0.1;
               }
             }
             
             for (const pattern of versionPatterns) {
               if (pattern.test(match.game.title)) {
-                updateIndicators++;
                 regexScore += 0.15;
               }
             }

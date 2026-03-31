@@ -265,6 +265,7 @@ export default function TrackingDashboard() {
   };
 
   // Handle Steam verification updates
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleVerificationUpdate = (gameId: string, verified: boolean, steamAppId?: number, steamName?: string) => {
     setTrackedGames(prev => prev.map(game => 
       game._id === gameId 

@@ -144,6 +144,7 @@ export async function POST(req: NextRequest) {
  * Get the pending approvals map (for webhook handler)
  * Note: This is an internal function, not exported from the route
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function getPendingApprovals() {
   return pendingApprovalsVotes;
 }

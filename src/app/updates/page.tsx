@@ -111,6 +111,7 @@ export default function UpdatesPage() {
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const getDisplayChangeType = (changeType: string | undefined, significance: number) => {
     const normalized = String(changeType || '').trim().toLowerCase();
 

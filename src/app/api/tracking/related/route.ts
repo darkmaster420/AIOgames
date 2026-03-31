@@ -182,7 +182,7 @@ export async function POST(request: NextRequest) {
  * GET /api/tracking/related
  * Get all pending related games for the current user
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     const user = await getCurrentUser();
     if (!user) {
