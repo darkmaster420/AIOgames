@@ -8,7 +8,7 @@ import { AddCustomGame } from '../components/AddCustomGame';
 import { useNotification } from '../contexts/NotificationContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { SITES } from '../lib/sites';
-import { cleanGameTitle } from '../utils/steamApi';
+import { cleanGameTitle, buildSteamSearchQueryVariants } from '../utils/steamApi';
 import { calculateGameSimilarity } from '../utils/titleMatching';
 
 type TrackedGameInfo = {
@@ -413,19 +413,29 @@ function DashboardInner() {
       }
 
       try {
-        const params = new URLSearchParams({ action: 'search', q: cleanTitle });
-        const response = await fetch(`/api/steam?${params.toString()}`);
-        if (!response.ok) {
+        const variants = buildSteamSearchQueryVariants(cleanTitle);
+        let allResults: SteamSearchResult[] = [];
+
+        for (const query of variants) {
+          const params = new URLSearchParams({ action: 'search', q: query });
+          const response = await fetch(`/api/steam?${params.toString()}`);
+          if (!response.ok) continue;
+
+          const payload = await response.json();
+          const results: SteamSearchResult[] = Array.isArray(payload?.results) ? payload.results : [];
+          for (const r of results) {
+            if (!allResults.some(existing => String(existing.appid) === String(r.appid))) {
+              allResults.push(r);
+            }
+          }
+          if (allResults.length > 0) break;
+        }
+
+        if (allResults.length === 0) {
           return null;
         }
 
-        const payload = await response.json();
-        const results: SteamSearchResult[] = Array.isArray(payload?.results) ? payload.results : [];
-        if (results.length === 0) {
-          return null;
-        }
-
-        const best = results
+        const best = allResults
           .slice(0, 8)
           .map((result) => {
             const score = calculateGameSimilarity(cleanTitle, result.name || '');
@@ -790,7 +800,10 @@ function DashboardInner() {
         {games.length > 0 && (
           <div className="mb-3 p-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300 rounded text-xs flex items-center justify-between">
             <span>
-              🎮 {displayGames.length} posters from {games.length} posts{searchQuery ? ` for "${searchQuery}"` : ''}
+              🎮 {searchQuery
+                ? `${displayGames.length} results for "${searchQuery}"`
+                : `${displayGames.filter(g => extractAppId(g) || typeof resolvedAppIds[g.displayKey] === 'string').length} verified games`
+              }
               {recentGamesCache && !searchQuery && ` (cached ${Math.round((Date.now() - recentGamesCache.timestamp) / 1000 / 60)} min ago)`}
             </span>
             {!searchQuery && (
@@ -841,6 +854,13 @@ function DashboardInner() {
               </div>
             ) : (
               displayGames
+                .filter((game: DisplayGame) => {
+                  if (searchQuery.trim()) return true;
+                  const inlineAppId = extractAppId(game);
+                  if (inlineAppId) return true;
+                  const resolved = resolvedAppIds[game.displayKey];
+                  return typeof resolved === 'string';
+                })
                 .map((game: DisplayGame) => {
                   const trackState = getTrackState(game);
                   const resolvedAppId = extractAppId(game) || resolvedAppIds[game.displayKey] || undefined;

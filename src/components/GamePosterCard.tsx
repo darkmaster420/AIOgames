@@ -68,7 +68,7 @@ export function GamePosterCard({
     <div className={`relative group ${className}`}>
       {/* Poster Image Container */}
       <div 
-        className={`relative rounded-lg overflow-hidden bg-gray-800 shadow-lg transition-all duration-300 group-hover:shadow-2xl group-hover:scale-105 max-h-[400px] flex items-center ${
+        className={`relative rounded-lg overflow-hidden bg-gray-800 shadow-lg transition-all duration-300 group-hover:shadow-2xl group-hover:scale-105 h-[300px] sm:h-[350px] ${
           isTracked ? 'ring-2 ring-green-500/70' : hasTrackedVariant ? 'ring-2 ring-amber-400/70' : ''
         } ${link ? 'cursor-pointer' : ''}`}
         onClick={handleOpenLink}
@@ -80,7 +80,7 @@ export function GamePosterCard({
           width={460}
           height={690}
           responsive
-          className="w-full h-auto max-h-[400px] object-contain"
+          className="w-full h-full object-cover"
         />
         
         {/* Gradient Overlay */}

@@ -694,6 +694,10 @@ export function cleanGameTitle(title: string): string {
     .replace(/\b(gog\sversion|steam\sversion|epic\sversion|origin\sversion)\b/gi, '')
     .replace(/\b(drm\sfree|no\sdrm|steam\srip|gog\srip)\b/gi, '')
     
+    // Remove platform indicators and standalone download
+    .replace(/\b(pc|mac|linux|windows|macos|android|ios)\b/gi, '')
+    .replace(/\bdownload\b/gi, '')
+    
     // Remove DLC and content indicators  
     .replace(/\b(all dlc|with dlc|dlc included|\+\s*all\s*dlc|\+\s*dlc|dlc pack)\b/gi, '')
     .replace(/\b(season pass|deluxe content|bonus content|soundtrack included)\b/gi, '')
