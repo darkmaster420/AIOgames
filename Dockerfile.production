@@ -13,6 +13,8 @@ RUN npm ci
 # Build the app
 FROM base AS builder
 WORKDIR /app
+RUN chown -R node:node /app/.next
+USER node
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
