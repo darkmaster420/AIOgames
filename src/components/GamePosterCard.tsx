@@ -8,6 +8,7 @@ import { ExternalLinkIcon } from './ExternalLinkIcon';
 interface GamePosterCardProps {
   postId?: string;
   siteType?: string;
+  embeddedDownloadLinks?: Array<{ url: string; label?: string; service?: string }>;
   link?: string;
   title: string;
   image: string;
@@ -28,6 +29,7 @@ interface GamePosterCardProps {
 export function GamePosterCard({
   postId,
   siteType,
+  embeddedDownloadLinks,
   link,
   title,
   image,
@@ -134,6 +136,7 @@ export function GamePosterCard({
                 <GameDownloadLinks 
                   postId={postId}
                   siteType={siteType}
+                  embeddedDownloadLinks={embeddedDownloadLinks}
                   gameTitle={title}
                   className="w-full"
                 />

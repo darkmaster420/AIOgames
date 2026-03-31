@@ -41,6 +41,7 @@ type Game = {
   appId?: number | string;
   steamAppId?: number | string;
   steam_appid?: number | string;
+  downloadLinks?: Array<{ url: string; label?: string; service?: string }>;
 };
 
 type DisplayGame = Game & {
@@ -414,7 +415,7 @@ function DashboardInner() {
 
       try {
         const variants = buildSteamSearchQueryVariants(cleanTitle);
-        let allResults: SteamSearchResult[] = [];
+        const allResults: SteamSearchResult[] = [];
 
         for (const query of variants) {
           const params = new URLSearchParams({ action: 'search', q: query });
@@ -870,6 +871,7 @@ function DashboardInner() {
                       key={game.displayKey}
                       postId={game.originalId?.toString()}
                       siteType={game.siteType}
+                      embeddedDownloadLinks={game.downloadLinks}
                       link={cardLink}
                       title={game.originalTitle || game.title}
                       image={game.image}

@@ -19,6 +19,8 @@ interface GameDownloadLinksProps {
   // For any game from main dashboard
   postId?: string;
   siteType?: string;
+  // Embedded download links (e.g. from goggames where links are in the initial response)
+  embeddedDownloadLinks?: Array<{ url: string; label?: string; service?: string }>;
   gameTitle?: string;
   className?: string;
 }
@@ -29,6 +31,7 @@ export function GameDownloadLinks({
   pendingUpdateId, 
   postId, 
   siteType, 
+  embeddedDownloadLinks,
   gameTitle,
   className = '' 
 }: GameDownloadLinksProps) {
@@ -48,6 +51,18 @@ export function GameDownloadLinks({
   }>({ gameTitle: '', currentVersion: '', type: '' });
 
   const fetchDownloadLinks = async () => {
+    // If embedded download links are available, use them directly (e.g. goggames)
+    if (embeddedDownloadLinks && embeddedDownloadLinks.length > 0) {
+      setDownloadLinks(embeddedDownloadLinks.map((link, i) => ({
+        service: link.service || 'Direct',
+        url: link.url,
+        type: 'direct',
+        displayName: link.label || link.service || `Download ${i + 1}`,
+        icon: '🔗'
+      })));
+      return;
+    }
+
     setLoading(true);
     setError('');
     
