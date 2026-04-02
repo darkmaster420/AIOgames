@@ -70,7 +70,7 @@ export function GamePosterCard({
     <div className={`relative group ${className}`}>
       {/* Poster Image Container */}
       <div 
-        className={`relative rounded-lg overflow-hidden bg-gray-800 shadow-lg transition-all duration-300 group-hover:shadow-2xl group-hover:scale-105 h-[300px] sm:h-[350px] ${
+        className={`relative rounded-lg overflow-hidden bg-gray-800 shadow-lg transition-all duration-300 group-hover:shadow-2xl group-hover:scale-105 h-[350px] sm:h-[420px] ${
           isTracked ? 'ring-2 ring-green-500/70' : hasTrackedVariant ? 'ring-2 ring-amber-400/70' : ''
         } ${link ? 'cursor-pointer' : ''}`}
         onClick={handleOpenLink}

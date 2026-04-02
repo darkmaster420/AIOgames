@@ -91,7 +91,7 @@ export function TrackedGamePosterCard(props: TrackedGamePosterCardProps) {
     <div className={`relative group self-start ${className}`}>
       {/* Poster Image Container */}
       <div 
-        className="relative rounded-lg overflow-hidden bg-gray-800 shadow-lg transition-all duration-300 group-hover:shadow-2xl group-hover:scale-105 max-h-[400px] flex items-center cursor-pointer"
+        className="relative rounded-lg overflow-hidden bg-gray-800 shadow-lg transition-all duration-300 group-hover:shadow-2xl group-hover:scale-105 h-[350px] sm:h-[420px] flex items-center cursor-pointer"
         onClick={handleOpenDetails}
       >
         {/* Image */}
@@ -101,7 +101,7 @@ export function TrackedGamePosterCard(props: TrackedGamePosterCardProps) {
           width={460}
           height={690}
           responsive
-          className="w-full h-auto max-h-[400px] object-contain"
+          className="w-full h-full object-cover"
         />
         
         {/* Gradient Overlay */}
