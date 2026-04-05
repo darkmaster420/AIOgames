@@ -92,7 +92,10 @@ export async function GET(req: NextRequest) {
     } else {
       // Get download links from the most recent update
       if (game.updateHistory && game.updateHistory.length > 0) {
-        const latestUpdate = game.updateHistory[game.updateHistory.length - 1];
+        // Find the most recent update by date (array order may vary)
+        const latestUpdate = [...game.updateHistory].sort((a: { dateFound?: string | Date }, b: { dateFound?: string | Date }) => 
+          new Date(b.dateFound || 0).getTime() - new Date(a.dateFound || 0).getTime()
+        )[0];
         if (latestUpdate.downloadLinks) {
           downloadLinks = latestUpdate.downloadLinks;
           context = {
@@ -126,7 +129,9 @@ export async function GET(req: NextRequest) {
           // Try latest update's gameLink first
           let targetUrl: string | null = null;
           if (game.updateHistory && game.updateHistory.length > 0) {
-            const latestUpdate = game.updateHistory[game.updateHistory.length - 1];
+            const latestUpdate = [...game.updateHistory].sort((a: { dateFound?: string | Date }, b: { dateFound?: string | Date }) => 
+              new Date(b.dateFound || 0).getTime() - new Date(a.dateFound || 0).getTime()
+            )[0];
             if (latestUpdate.gameLink) {
               targetUrl = latestUpdate.gameLink;
               targetSource = 'latest-update-url';

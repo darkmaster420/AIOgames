@@ -1539,7 +1539,13 @@ export async function POST(request: Request) {
                   title: cleanGameTitle(decodedTitle), // Clean the title before saving
                   originalTitle: bestMatch.title, // Update original title to the new post title
                   hasNewUpdate: true,
-                  newUpdateSeen: false
+                  newUpdateSeen: false,
+                  latestApprovedUpdate: {
+                    version: versionString,
+                    dateFound: bestMatch.date || new Date().toISOString(),
+                    gameLink: bestMatch.link,
+                    downloadLinks: bestMatch.downloadLinks || []
+                  }
                 };
 
                 // Update version or build numbers based on what was detected
@@ -1700,10 +1706,13 @@ export async function GET() {
     return NextResponse.json({
       totalTracked,
       lastGlobalCheck: lastChecked?.lastChecked,
-      recentUpdates: recentUpdates.map((game: { title: string; updateHistory: { version: string; dateFound: string }[] }) => ({
-        title: game.title,
-        latestUpdate: game.updateHistory[game.updateHistory.length - 1]
-      }))
+      recentUpdates: recentUpdates.map((game: { title: string; updateHistory: { version: string; dateFound: string }[] }) => {
+        const sorted = [...game.updateHistory].sort((a, b) => new Date(b.dateFound || 0).getTime() - new Date(a.dateFound || 0).getTime());
+        return {
+          title: game.title,
+          latestUpdate: sorted[0]
+        };
+      })
     });
 
   } catch (error) {

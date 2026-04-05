@@ -68,11 +68,14 @@ export async function GET() {
     .limit(20)
     .select('title updateHistory');
 
-    const notifications = recentUpdates.map((game: { title: string; updateHistory: { version: string; dateFound: string }[] }) => ({
-      gameTitle: game.title,
-      latestUpdate: game.updateHistory[game.updateHistory.length - 1],
-      totalUpdates: game.updateHistory.length
-    }));
+    const notifications = recentUpdates.map((game: { title: string; updateHistory: { version: string; dateFound: string }[] }) => {
+      const sorted = [...game.updateHistory].sort((a, b) => new Date(b.dateFound || 0).getTime() - new Date(a.dateFound || 0).getTime());
+      return {
+        gameTitle: game.title,
+        latestUpdate: sorted[0],
+        totalUpdates: game.updateHistory.length
+      };
+    });
 
     return NextResponse.json({
       totalNotifications: notifications.length,
