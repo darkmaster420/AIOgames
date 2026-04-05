@@ -183,6 +183,7 @@ export async function GET(
       categories: steamStoreData?.categories,
       genres: steamStoreData?.genres,
       price_overview: steamStoreData?.price_overview,
+      drm_notice: steamStoreData?.drm_notice || '',
       isTracked: false,
       dataSource: steamStoreData ? 'steam+steamspy' : 'steamspy',
     };

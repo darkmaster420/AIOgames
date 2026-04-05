@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
 import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
+import mongoose from 'mongoose';
 import { detectSequel } from '../../../../utils/sequelDetection';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
 import { cleanGameTitle, decodeHtmlEntities, extractReleaseGroup, is0xdeadcodeRelease, isOnlineFixRelease, resolveComparableVersionData, resolvePubTimestampFromBuild, resolvePubTimestampFromVersion } from '../../../../utils/steamApi';
@@ -1420,16 +1421,30 @@ export async function POST(request: Request) {
           const isDifferentLink = game.gameLink !== bestMatch.link;
           
           // Only treat a different link as an update if the version is actually newer
-          // This prevents the same version from another site being flagged as an update
-          const isVersionSame = !!(
+          // This prevents the same version from another site being flagged as an update,
+          // except when user prefers Online-Fix/0xdeadcode and the new post is one of those.
+          let isVersionSame = !!(
             currentVersionInfo &&
             ((newVersionInfo.version && currentVersionInfo.version && newVersionInfo.version === currentVersionInfo.version) ||
              (newVersionInfo.build && currentVersionInfo.build && newVersionInfo.build === currentVersionInfo.build)) &&
             (!newVersionInfo.build || !currentVersionInfo.build || newVersionInfo.build === currentVersionInfo.build)
           );
-          
+
+          // --- Online-Fix/0xdeadcode preference override ---
+          const userPrefersOnlineFix = fullUser?.preferences?.releaseGroups?.prefer0xdeadcodeForOnlineFixes;
+          const isNewOnlineFix = isOnlineFixRelease(decodedTitle) || is0xdeadcodeRelease(decodedTitle);
+          if (
+            isVersionSame &&
+            isDifferentLink &&
+            userPrefersOnlineFix &&
+            isNewOnlineFix
+          ) {
+            logger.info('User prefers Online-Fix/0xdeadcode: overriding isVersionSame to allow update');
+            isVersionSame = false;
+          }
+
           logger.debug(`Update analysis: Different link=${isDifferentLink}, Newer=${isActuallyNewer}, VersionSame=${isVersionSame}, Reason=${comparisonReason}`);
-          
+
           if (isActuallyNewer || (isDifferentLink && !isVersionSame)) {
             logger.info(`Update found: ${decodedTitle} (different link: ${isDifferentLink}, newer: ${isActuallyNewer})`);
             
@@ -1675,6 +1690,28 @@ export async function POST(request: Request) {
 export async function GET() {
   try {
     const user = await getCurrentUser();
+      let fullUser = null as null | {
+        preferences?: {
+          releaseGroups?: {
+            prefer0xdeadcodeForOnlineFixes?: boolean;
+          }
+        }
+      };
+      if (user && user.id) {
+        // Fetch full user doc for preferences
+        try {
+          fullUser = await mongoose.model('User').findById(user.id).lean() as {
+            preferences?: {
+              releaseGroups?: {
+                prefer0xdeadcodeForOnlineFixes?: boolean;
+              }
+            }
+          };
+        } catch (e) {
+          logger.warn('Could not fetch full user doc for preferences:', e);
+        }
+      }
+              const _userPrefersOnlineFix = fullUser?.preferences?.releaseGroups?.prefer0xdeadcodeForOnlineFixes;
     if (!user) {
       return NextResponse.json(
         { error: 'Unauthorized' },

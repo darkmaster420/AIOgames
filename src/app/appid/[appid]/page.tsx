@@ -11,6 +11,7 @@ import { SmartVersionVerification } from '../../../components/SmartVersionVerifi
 import { NotificationToggle } from '../../../components/NotificationToggle';
 import { cleanGameTitle } from '../../../utils/steamApi';
 import { ExternalLinkIcon } from '../../../components/ExternalLinkIcon';
+import { SteamScreenshotCarousel } from '../../../components/SteamScreenshotCarousel';
 
 interface GameDetailsResponse {
   appid: number;
@@ -35,8 +36,11 @@ interface GameDetailsResponse {
     score?: number;
     url?: string;
   };
+  screenshots?: Array<{ id: number; path_thumbnail: string; path_full: string }>;
+  movies?: Array<{ id: number; name: string; thumbnail: string; webm: { 480: string; max: string }; mp4: { 480: string; max: string } }>;
   genres?: Array<{ id: string; description: string }>;
   categories?: Array<{ id: number; description: string }>;
+  drm_notice?: string;
   owners?: string;
   userscore?: number;
   positive?: number;
@@ -534,52 +538,70 @@ export default function AppIdDetailPage() {
         {!loading && !error && game && (
           <div className="space-y-6">
             <section className="overflow-hidden card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-xl shadow-lg">
-              {game.header_image && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={game.header_image}
-                  alt={game.name}
-                  className="h-auto w-full object-cover"
-                />
-              )}
+              <div className="flex flex-col sm:flex-row gap-4 p-6">
+                {/* Header image — top-left corner */}
+                {game.header_image && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={game.header_image}
+                    alt={game.name}
+                    className="shrink-0 w-full sm:w-56 lg:w-72 h-auto max-h-32 rounded-lg object-cover"
+                  />
+                )}
 
-              <div className="space-y-4 p-6">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-2xl font-bold tracking-tight sm:text-3xl text-gradient">{game.name}</h1>
-                  <span className="status-badge bg-slate-100/80 text-slate-700 border border-slate-200/50 dark:bg-slate-800/50 dark:text-slate-300 dark:border-slate-600/50">AppID {game.appid}</span>
-                  <span className="status-badge bg-slate-100/80 text-slate-700 border border-slate-200/50 dark:bg-slate-800/50 dark:text-slate-300 dark:border-slate-600/50">{game.dataSource || 'steam'}</span>
-                  {game.isTracked && (
-                    <span className="status-badge status-online">Tracked</span>
-                  )}
-                  {game.steamVerified && (
-                    <span className="status-badge bg-primary-100/80 text-primary-800 border border-primary-200/50 dark:bg-primary-900/30 dark:text-primary-300 dark:border-primary-700/50">Steam Verified</span>
-                  )}
-                  {game.hasNewUpdate && (
-                    <span className="status-badge bg-red-100/80 text-red-800 border border-red-200/50 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700/50">Update Pending</span>
-                  )}
-                </div>
+                <div className="flex-1 space-y-4 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="text-2xl font-bold tracking-tight sm:text-3xl text-gradient">{game.name}</h1>
+                    <span className="status-badge bg-slate-100/80 text-slate-700 border border-slate-200/50 dark:bg-slate-800/50 dark:text-slate-300 dark:border-slate-600/50">AppID {game.appid}</span>
+                    <span className="status-badge bg-slate-100/80 text-slate-700 border border-slate-200/50 dark:bg-slate-800/50 dark:text-slate-300 dark:border-slate-600/50">{game.dataSource || 'steam'}</span>
+                    {game.isTracked && (
+                      <span className="status-badge status-online">Tracked</span>
+                    )}
+                    {game.steamVerified && (
+                      <span className="status-badge bg-primary-100/80 text-primary-800 border border-primary-200/50 dark:bg-primary-900/30 dark:text-primary-300 dark:border-primary-700/50">Steam Verified</span>
+                    )}
+                    {game.hasNewUpdate && (
+                      <span className="status-badge bg-red-100/80 text-red-800 border border-red-200/50 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700/50">Update Pending</span>
+                    )}
+                  </div>
 
-                {summary && <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">{summary}</p>}
+                  {summary && <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">{summary}</p>}
 
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <div className="rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-white/30 dark:border-white/10 p-3">
-                    <div className="text-xs text-slate-500 dark:text-slate-400">Developers</div>
-                    <div className="mt-1 text-sm text-slate-800 dark:text-slate-100">{developerText}</div>
-                  </div>
-                  <div className="rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-white/30 dark:border-white/10 p-3">
-                    <div className="text-xs text-slate-500 dark:text-slate-400">Publishers</div>
-                    <div className="mt-1 text-sm text-slate-800 dark:text-slate-100">{publisherText}</div>
-                  </div>
-                  <div className="rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-white/30 dark:border-white/10 p-3">
-                    <div className="text-xs text-slate-500 dark:text-slate-400">Genres</div>
-                    <div className="mt-1 text-sm text-slate-800 dark:text-slate-100">{genreText}</div>
-                  </div>
-                  <div className="rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-white/30 dark:border-white/10 p-3">
-                    <div className="text-xs text-slate-500 dark:text-slate-400">Release Date</div>
-                    <div className="mt-1 text-sm text-slate-800 dark:text-slate-100">{game.release_date?.date || 'Unknown'}</div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-white/30 dark:border-white/10 p-3">
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Developers</div>
+                      <div className="mt-1 text-sm text-slate-800 dark:text-slate-100">{developerText}</div>
+                    </div>
+                    <div className="rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-white/30 dark:border-white/10 p-3">
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Publishers</div>
+                      <div className="mt-1 text-sm text-slate-800 dark:text-slate-100">{publisherText}</div>
+                    </div>
+                    <div className="rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-white/30 dark:border-white/10 p-3">
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Genres</div>
+                      <div className="mt-1 text-sm text-slate-800 dark:text-slate-100">{genreText}</div>
+                    </div>
+                    <div className="rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-white/30 dark:border-white/10 p-3">
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Release Date</div>
+                      <div className="mt-1 text-sm text-slate-800 dark:text-slate-100">{game.release_date?.date || 'Unknown'}</div>
+                    </div>
+                    <div className="rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-white/30 dark:border-white/10 p-3">
+                      <div className="text-xs text-slate-500 dark:text-slate-400">DRM</div>
+                      <div className="mt-1 text-sm text-slate-800 dark:text-slate-100">{game.drm_notice || 'None listed'}</div>
+                    </div>
                   </div>
                 </div>
               </div>
+
+              {/* Screenshot carousel */}
+              {game.screenshots && game.screenshots.length > 0 && (
+                <div className="px-6 pb-6">
+                  <SteamScreenshotCarousel
+                    screenshots={game.screenshots}
+                    movies={game.movies}
+                    gameName={game.name}
+                  />
+                </div>
+              )}
             </section>
 
             {game.isTracked && game.trackedGameId && (
