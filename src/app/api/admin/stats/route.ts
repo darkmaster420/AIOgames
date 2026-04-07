@@ -82,7 +82,6 @@ export async function GET() {
           $group: {
             _id: null,
             totalUpdates: { $sum: { $size: '$updateHistory' } },
-            totalPendingUpdates: { $sum: { $size: '$pendingUpdates' } },
             avgGamesPerUser: { $avg: 1 }
           }
         }
@@ -95,7 +94,6 @@ export async function GET() {
         totalTrackedGames,
         activeUsers: activeUsers[0]?.activeUsers || 0,
         totalUpdates: systemStats[0]?.totalUpdates || 0,
-        pendingUpdates: systemStats[0]?.totalPendingUpdates || 0,
         newUsersThisWeek: recentUsers.length
       },
       recentUsers: recentUsers.map(user => ({

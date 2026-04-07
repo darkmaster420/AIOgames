@@ -80,12 +80,11 @@ export interface UpdateNotificationData {
   steamName?: string;
   gogName?: string;
   version?: string;
-  updateType: 'update' | 'sequel' | 'pending';
+  updateType: 'update' | 'sequel';
   gameLink?: string;
   imageUrl?: string;
   downloadLinks?: Array<{ service: string; url: string; type?: string }>;
   previousVersion?: string;
-  isPending?: boolean;
   source?: string;
 }
 
@@ -97,12 +96,11 @@ export function createUpdateNotificationData(params: {
   steamName?: string;
   gogName?: string;
   version?: string;
-  updateType: 'update' | 'sequel' | 'pending';
+  updateType: 'update' | 'sequel';
   gameLink?: string;
   imageUrl?: string;
   downloadLinks?: Array<{ service: string; url: string; type?: string }>;
   previousVersion?: string;
-  isPending?: boolean;
   source?: string;
 }): UpdateNotificationData {
   return {
@@ -113,9 +111,8 @@ export function createUpdateNotificationData(params: {
     updateType: params.updateType,
     gameLink: params.gameLink,
     imageUrl: params.imageUrl,
-    downloadLinks: params.isPending ? undefined : params.downloadLinks, // Don't include download links for pending updates
+    downloadLinks: params.downloadLinks,
     previousVersion: params.previousVersion,
-    isPending: params.isPending,
     source: params.source,
   };
 }
@@ -216,8 +213,8 @@ export async function sendUpdateNotification(
                 previousVersion: updateData.previousVersion,
                 gameLink: updateData.gameLink || '/tracking',
                 source: updateData.source || 'Game Tracker',
-                changeType: updateData.isPending ? 'pending' : 'automatic', // Use 'pending' for pending updates
-                downloadLinks: updateData.isPending ? undefined : updateData.downloadLinks, // Don't send download links for pending
+                changeType: 'automatic',
+                downloadLinks: updateData.downloadLinks,
                 imageUrl: updateData.imageUrl
               });
           

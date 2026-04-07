@@ -12,7 +12,6 @@ interface AdminStats {
   totalTrackedGames: number;
   activeUsers: number;
   totalUpdates: number;
-  pendingUpdates: number;
   newUsersThisWeek: number;
 }
 
@@ -384,10 +383,6 @@ export default function AdminDashboard() {
                   <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
                     <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">{stats.totalUpdates}</div>
                     <div className="text-sm text-gray-600 dark:text-gray-400">Total Updates</div>
-                  </div>
-                  <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
-                    <div className="text-2xl font-bold text-red-600 dark:text-red-400">{stats.pendingUpdates}</div>
-                    <div className="text-sm text-gray-600 dark:text-gray-400">Pending Updates</div>
                   </div>
                   <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
                     <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{stats.newUsersThisWeek}</div>

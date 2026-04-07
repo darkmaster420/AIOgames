@@ -47,7 +47,7 @@ export async function GET() {
       userId: user.id,
       isActive: true 
     })
-    .select('gameId title originalTitle cleanedTitle priority source image description gameLink lastKnownVersion steamAppId steamName steamVerified gogVerified gogProductId gogName gogVersion gogBuildId gogLastChecked buildNumberVerified currentBuildNumber buildNumberSource versionNumberVerified currentVersionNumber versionNumberSource lastVersionDate dateAdded lastChecked notificationsEnabled checkFrequency updateHistory pendingUpdates isActive')
+    .select('gameId title originalTitle cleanedTitle priority source image description gameLink lastKnownVersion steamAppId steamName steamVerified gogVerified gogProductId gogName gogVersion gogBuildId gogLastChecked buildNumberVerified currentBuildNumber buildNumberSource versionNumberVerified currentVersionNumber versionNumberSource lastVersionDate dateAdded lastChecked notificationsEnabled checkFrequency updateHistory isActive')
     .sort({ dateAdded: -1 });
     
     return NextResponse.json({

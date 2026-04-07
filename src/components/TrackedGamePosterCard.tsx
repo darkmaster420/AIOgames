@@ -12,15 +12,6 @@ interface UpdateHistoryItem {
   isLatest?: boolean;
 }
 
-interface PendingUpdate {
-  _id: string;
-  newTitle: string;
-  detectedVersion: string;
-  reason: string;
-  dateFound: string;
-  aiDetectionReason?: string;
-}
-
 interface TrackedGamePosterCardProps {
   gameId: string;
   appid?: number;
@@ -52,7 +43,6 @@ interface TrackedGamePosterCardProps {
     date?: string;
   };
   updateHistory?: UpdateHistoryItem[];
-  pendingUpdates?: PendingUpdate[];
   onUntrack: () => void;
   onCheckUpdate: () => void;
   onRefresh?: () => void;

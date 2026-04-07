@@ -25,21 +25,6 @@ interface GameSearchResult {
   }>;
 }
 
-interface PendingUpdate {
-  version: string;
-  gameLink: string;
-  _id?: string;
-  newTitle?: string;
-  detectedVersion?: string;
-  reason?: string;
-  dateFound?: string;
-  downloadLinks?: Array<{
-    service: string;
-    url: string;
-    type: string;
-  }>;
-}
-
 interface VersionInfo {
   version: string;
   build: string;
@@ -85,7 +70,6 @@ interface TrackedGameDocument {
   currentVersionNumber?: string;
   buildNumberVerified?: boolean;
   currentBuildNumber?: string;
-  pendingUpdates?: PendingUpdate[];
   steamVerified?: boolean;
   steamAppId?: number;
   steamName?: string;
@@ -1142,7 +1126,6 @@ export async function POST(request: Request) {
           
           // Check if we already have this update in pending or history (fresh DB query to avoid race conditions)
           const freshGame = await TrackedGame.findById(game._id).lean() as {
-            pendingUpdates?: Array<{ detectedVersion?: string; build?: string; version?: string; gameLink?: string; newLink?: string }>;
             updateHistory?: Array<{ version?: string; build?: string; gameLink: string }>;
           } | null;
 
@@ -1164,18 +1147,13 @@ export async function POST(request: Request) {
             return !candidateBuild && !candidateDetectedVersion;
           };
 
-          const existingPending = freshGame?.pendingUpdates?.some((pending) =>
-            (pending.gameLink === result.link || pending.newLink === result.link) &&
-            isSameSignature(pending.build, pending.detectedVersion || pending.version)
-          );
-
           const existingInHistory = freshGame?.updateHistory?.some((update) =>
             update.gameLink === result.link &&
             isSameSignature(update.build, update.version)
           );
           
-          if (existingPending || existingInHistory) {
-            logger.info(`⏩ Skipping duplicate update (already in ${existingInHistory ? 'updateHistory' : 'pendingUpdates'}): ${result.link}`);
+          if (existingInHistory) {
+            logger.info(`⏩ Skipping duplicate update (already in updateHistory): ${result.link}`);
           } else {
             // Check if we can auto-approve based on verified version/build numbers
             const autoApproveResult = await canAutoApprove(game, newVersionInfo, comparison);
@@ -1226,6 +1204,9 @@ export async function POST(request: Request) {
                 title: cleanedDecodedTitle,
                 originalTitle: decodedTitle,
                 gameLink: result.link,
+                // Update source info so download links fetch from the correct site
+                ...(result.id && { gameId: result.id }),
+                ...(result.source && { source: result.source }),
                 ...(result.image && { image: result.image }),
                 $push: {
                   updateHistory: {
@@ -1273,9 +1254,7 @@ export async function POST(request: Request) {
                   ? { _id: game._id }
                   : {
                       _id: game._id,
-                      'updateHistory.gameLink': { $ne: result.link },
-                      'pendingUpdates.gameLink': { $ne: result.link },
-                      'pendingUpdates.newLink': { $ne: result.link }
+                      'updateHistory.gameLink': { $ne: result.link }
                     },
                 updateFields,
                 { new: true }

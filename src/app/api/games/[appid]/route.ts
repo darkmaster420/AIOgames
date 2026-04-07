@@ -249,17 +249,6 @@ export async function GET(
                 isLatest: update.isLatest,
               }));
           }
-
-          // Include pending updates
-          if (trackedGame.pendingUpdates && trackedGame.pendingUpdates.length > 0) {
-            response.pendingUpdates = trackedGame.pendingUpdates.map((update: {_id: {toString: () => string}; newTitle?: string; detectedVersion?: string; dateFound?: Date; reason?: string}) => ({
-              _id: update._id.toString(),
-              newTitle: update.newTitle,
-              detectedVersion: update.detectedVersion,
-              dateFound: update.dateFound,
-              reason: update.reason,
-            }));
-          }
         }
       } catch (dbError) {
         console.error('Error checking tracked game status:', dbError);

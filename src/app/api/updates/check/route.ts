@@ -1451,7 +1451,6 @@ export async function POST(request: Request) {
             // Check if we already have this update (use fresh DB query to avoid race conditions)
             const freshGame = await TrackedGame.findById(game._id).lean() as {
               updateHistory?: Array<{ version?: string; build?: string; gameLink: string; notificationSent?: boolean }>;
-              pendingUpdates?: Array<{ detectedVersion?: string; build?: string; version?: string; newLink?: string; gameLink?: string }>;
             } | null;
 
             const candidateBuild = String(newVersionInfo.build || '').trim();
@@ -1476,16 +1475,11 @@ export async function POST(request: Request) {
               update.gameLink === bestMatch.link && isSameSignature(update.build, update.version)
             );
             
-            const existingPending = freshGame?.pendingUpdates?.some((pending) =>
-              (pending.newLink === bestMatch.link || pending.gameLink === bestMatch.link) &&
-              isSameSignature(pending.build, pending.detectedVersion || pending.version)
-            );
-            
             // If update exists and notification was already sent, skip it
             if (existingUpdate && existingUpdate.notificationSent) {
               logger.info(`Skipping update that already had notification sent: ${bestMatch.link}`);
-            } else if (existingUpdate || existingPending) {
-              logger.info(`Skipping duplicate update (already in ${existingUpdate ? 'updateHistory' : 'pendingUpdates'}): ${bestMatch.link}`);
+            } else if (existingUpdate) {
+              logger.info(`Skipping duplicate update (already in updateHistory): ${bestMatch.link}`);
             } else {
               // Create version string
               let versionString = decodedTitle;
@@ -1553,6 +1547,9 @@ export async function POST(request: Request) {
                   gameLink: bestMatch.link,
                   title: cleanGameTitle(decodedTitle), // Clean the title before saving
                   originalTitle: bestMatch.title, // Update original title to the new post title
+                  // Update source info so download links fetch from the correct site
+                  ...(bestMatch.id && { gameId: bestMatch.id }),
+                  ...(bestMatch.source && { source: bestMatch.source }),
                   hasNewUpdate: true,
                   newUpdateSeen: false,
                   latestApprovedUpdate: {
@@ -1588,9 +1585,7 @@ export async function POST(request: Request) {
                     ? { _id: game._id }
                     : {
                         _id: game._id,
-                        'updateHistory.gameLink': { $ne: bestMatch.link },
-                        'pendingUpdates.newLink': { $ne: bestMatch.link },
-                        'pendingUpdates.gameLink': { $ne: bestMatch.link }
+                        'updateHistory.gameLink': { $ne: bestMatch.link }
                       },
                   updateFields,
                   { new: true }
@@ -1616,8 +1611,7 @@ export async function POST(request: Request) {
                       gameLink: bestMatch.link,
                       imageUrl: bestMatch.image,
                       updateType: 'update',
-                      downloadLinks: downloadLinks,
-                      isPending: false
+                      downloadLinks: downloadLinks
                     });
                     
                     await sendUpdateNotification(game.userId.toString(), notificationData);

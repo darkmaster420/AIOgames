@@ -126,7 +126,7 @@ export default function UnverifiedGamePage() {
           </Link>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-slate-900/60 backdrop-blur p-5">
+        <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-5">
           <div className="grid md:grid-cols-[180px_1fr] gap-5">
             <div>
               {game.image ? (
@@ -166,7 +166,7 @@ export default function UnverifiedGamePage() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-slate-900/60 backdrop-blur p-5 space-y-4">
+        <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-5 space-y-4">
           <h3 className="text-lg font-semibold text-white">Steam Verification</h3>
           <p className="text-sm text-gray-300">Use this to find and link the correct Steam app. Once linked, the game can be managed via appid page.</p>
 
@@ -179,7 +179,7 @@ export default function UnverifiedGamePage() {
           />
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-slate-900/60 backdrop-blur p-5">
+        <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-5">
           {canOpenAppPage ? (
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>

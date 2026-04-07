@@ -17,7 +17,6 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const gameId = searchParams.get('gameId');
     const updateIndex = searchParams.get('updateIndex');
-    const pendingUpdateId = searchParams.get('pendingUpdateId');
 
     if (!gameId) {
       return NextResponse.json(
@@ -52,30 +51,7 @@ export async function GET(req: NextRequest) {
       type: 'current'
     };
 
-    if (pendingUpdateId) {
-      // Get download links from a pending update
-      const pendingUpdate = game.pendingUpdates.find((update: {
-        _id: { toString: () => string };
-        downloadLinks?: Array<{
-          service: string;
-          url: string;
-          type: string;
-        }>;
-        newTitle: string;
-        detectedVersion: string;
-      }) => 
-        update._id.toString() === pendingUpdateId
-      );
-      
-      if (pendingUpdate && pendingUpdate.downloadLinks) {
-        downloadLinks = pendingUpdate.downloadLinks;
-        context = {
-          gameTitle: pendingUpdate.newTitle,
-          currentVersion: pendingUpdate.detectedVersion || 'Pending Update',
-          type: 'pending'
-        };
-      }
-    } else if (updateIndex !== null && updateIndex !== undefined) {
+    if (updateIndex !== null && updateIndex !== undefined) {
       // Get download links from a specific update in history
       const index = parseInt(updateIndex);
       if (index >= 0 && index < game.updateHistory.length) {

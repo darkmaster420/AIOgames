@@ -98,53 +98,6 @@ async function updateAdminMessages(messageIds: { [key: string]: number }, status
   await Promise.all(promises);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function approveUpdate(gameId: string, updateIndex: number): Promise<void> {
-  const game = await TrackedGame.findById(gameId);
-  if (!game || !game.pendingUpdates[updateIndex]) {
-    logger.error(`Game or pending update not found: ${gameId}, index ${updateIndex}`);
-    return;
-  }
-
-  const pendingUpdate = game.pendingUpdates[updateIndex];
-
-  // Move to update history
-  game.updateHistory.push({
-    version: pendingUpdate.detectedVersion || pendingUpdate.version,
-    build: pendingUpdate.build,
-    releaseType: pendingUpdate.releaseType,
-    updateType: pendingUpdate.updateType,
-    changeType: pendingUpdate.changeType,
-    significance: pendingUpdate.significance,
-    dateFound: pendingUpdate.dateFound,
-    gameLink: pendingUpdate.newLink,
-    previousVersion: pendingUpdate.previousVersion,
-    downloadLinks: pendingUpdate.downloadLinks || [],
-    steamEnhanced: pendingUpdate.steamEnhanced,
-    steamAppId: game.steamAppId
-  });
-
-  // Update latestApprovedUpdate
-  game.latestApprovedUpdate = {
-    version: pendingUpdate.detectedVersion || pendingUpdate.version,
-    dateFound: new Date(),
-    gameLink: pendingUpdate.newLink,
-    downloadLinks: pendingUpdate.downloadLinks || []
-  };
-
-  // Update game metadata
-  game.lastKnownVersion = pendingUpdate.detectedVersion || pendingUpdate.version;
-  game.gameLink = pendingUpdate.newLink;
-  game.image = pendingUpdate.newImage || game.image;
-  game.lastVersionDate = new Date();
-
-  // Remove from pending
-  game.pendingUpdates.splice(updateIndex, 1);
-
-  await game.save();
-  logger.info(`Update approved and applied for game ${game.title}`);
-}
-
 export async function POST(request: NextRequest) {
   try {
     const update: TelegramUpdate & { callback_query?: TelegramCallback } = await request.json();

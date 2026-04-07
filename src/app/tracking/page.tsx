@@ -77,21 +77,6 @@ interface TrackedGame {
       type: string;
     }>;
   };
-  pendingUpdates?: Array<{
-    _id: string;
-    newTitle: string;
-    detectedVersion: string;
-    reason: string;
-    dateFound: string;
-    aiDetectionConfidence?: number;
-    aiDetectionReason?: string;
-    detectionMethod?: string;
-    downloadLinks?: Array<{
-      service: string;
-      url: string;
-      type: string;
-    }>;
-  }>;
   isActive: boolean;
 }
 
@@ -1284,7 +1269,6 @@ export default function TrackingDashboard() {
                 gogLatestDate={gogLatest[game._id]?.date}
                 steamdbUpdate={game.steamdbUpdate}
                 updateHistory={game.updateHistory}
-                pendingUpdates={game.pendingUpdates}
                 onUntrack={async () => {
                   const confirmed = await confirm(
                     'Remove Game from Tracking',

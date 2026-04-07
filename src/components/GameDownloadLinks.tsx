@@ -15,7 +15,6 @@ interface GameDownloadLinksProps {
   // For tracked games
   gameId?: string;
   updateIndex?: number;
-  pendingUpdateId?: string;
   // For any game from main dashboard
   postId?: string;
   siteType?: string;
@@ -28,7 +27,6 @@ interface GameDownloadLinksProps {
 export function GameDownloadLinks({ 
   gameId, 
   updateIndex, 
-  pendingUpdateId, 
   postId, 
   siteType, 
   embeddedDownloadLinks,
@@ -73,7 +71,6 @@ export function GameDownloadLinks({
         // For tracked games, use existing API
         const params = new URLSearchParams({ gameId });
         if (updateIndex !== undefined) params.append('updateIndex', updateIndex.toString());
-        if (pendingUpdateId) params.append('pendingUpdateId', pendingUpdateId);
         url = `/api/games/downloads?${params}`;
       } else if (postId && siteType) {
         // For any game, use new gameapi endpoint
@@ -357,17 +354,15 @@ export function GameDownloadLinks({
 }
 
 // Keep the original component for backward compatibility
-export function DownloadLinks({ gameId, updateIndex, pendingUpdateId, className }: {
+export function DownloadLinks({ gameId, updateIndex, className }: {
   gameId: string;
   updateIndex?: number;
-  pendingUpdateId?: string;
   className?: string;
 }) {
   return (
     <GameDownloadLinks 
       gameId={gameId}
       updateIndex={updateIndex}
-      pendingUpdateId={pendingUpdateId}
       className={className}
     />
   );

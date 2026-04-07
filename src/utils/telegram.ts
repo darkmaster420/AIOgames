@@ -6,7 +6,7 @@
   if (changeType === 'user_approved') {
     text += `🎯 <b>New Update Approved!</b>\n\n`;
   } else {
-    text += `🎮 <b>New Pending Update!</b>\n\n`;
+    text += `🎮 <b>New Update!</b>\n\n`;
   }
 
   text += `📍 <b>${title}</b>\n`;
@@ -259,15 +259,11 @@ export function formatGameUpdateMessage(gameData: {
   downloadLinks?: Array<{ service: string; url: string; type?: string }>;
   imageUrl?: string;
 }): TelegramMessage | TelegramPhotoMessage {
-  const { title, version, gameLink, source, changeType, downloadLinks, imageUrl } = gameData;
+  const { title, version, gameLink, source, downloadLinks, imageUrl } = gameData;
   
   // Simple clean header
   let text = '';
-  if (changeType === 'pending') {
-    text = `🔔 <b>New Pending Update!</b>\n\n`;
-  } else {
-    text = `✅ <b>New Update!</b>\n\n`;
-  }
+  text = `✅ <b>New Update!</b>\n\n`;
 
   // Game title
   text += `📍 <b>${title}</b>\n`;
@@ -304,13 +300,8 @@ export function formatGameUpdateMessage(gameData: {
     text += `🔗 <b>Source:</b> ${sourceName}\n`;
   }
 
-  // Pending action note
-  if (changeType === 'pending') {
-    text += `\n⏳ <b>Action Required:</b> Review and approve in your tracking page\n`;
-  }
-  
-  // Download links for approved updates
-  if (changeType !== 'pending' && downloadLinks && downloadLinks.length > 0) {
+  // Download links
+  if (downloadLinks && downloadLinks.length > 0) {
     text += `\n📥 <b>Download Links:</b>\n`;
     downloadLinks.forEach(link => {
       const typeLabel = link.type === 'magnet' ? 'torrent' : link.type || 'hosting';

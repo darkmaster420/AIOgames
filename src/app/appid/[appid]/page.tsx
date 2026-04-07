@@ -81,14 +81,7 @@ interface GameDetailsResponse {
     dateFound?: string;
     gameLink?: string;
     isLatest?: boolean;
-  }>;
-  pendingUpdates?: Array<{
-    _id: string;
-    newTitle?: string;
-    detectedVersion?: string;
-    dateFound?: string;
-    reason?: string;
-  }>;
+  }>;  
   dataSource?: string;
   error?: string;
 }
@@ -586,7 +579,7 @@ export default function AppIdDetailPage() {
                     </div>
                     <div className="rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-white/30 dark:border-white/10 p-3">
                       <div className="text-xs text-slate-500 dark:text-slate-400">DRM</div>
-                      <div className="mt-1 text-sm text-slate-800 dark:text-slate-100">{game.drm_notice || 'None listed'}</div>
+                      <div className="mt-1 text-sm text-slate-800 dark:text-slate-100" dangerouslySetInnerHTML={{ __html: (game.drm_notice || 'None listed').replace(/<(?!br\s*\/?>)[^>]+>/gi, '') }} />
                     </div>
                   </div>
                 </div>
