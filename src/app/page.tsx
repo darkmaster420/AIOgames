@@ -833,7 +833,7 @@ function DashboardInner() {
 
         {/* Mobile-optimized Games Grid */}
         {(showRecentGames || searchQuery !== '') && (
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-4 sm:gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
             {loading ? (
               <div className="col-span-full flex flex-col items-center justify-center py-12 space-y-4">
                 <div className="relative">
