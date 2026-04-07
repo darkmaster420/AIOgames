@@ -687,12 +687,17 @@ export function cleanGameTitle(title: string): string {
     .replace(/\b(cpy|steampunks|ali213|3dm|reloaded|razor1911|prophet|hoodlum|fairlight)\b/gi, '')
     .replace(/\b(darksiders|masquerade|goldberg|ova\sgames|simplex|darkzer0)\b/gi, '')
     .replace(/\b(chronos|flt|unleashed|deviance|vitality|outlaws|tinyiso)\b/gi, '')
+    .replace(/\b(hypervisor)\b/gi, '') // Crack types
     
     // Remove release format indicators
     .replace(/\b(free download|full version|complete edition|full game)\b/gi, '')
     .replace(/\b(portable|standalone|multilanguage|multi\slang|english only)\b/gi, '')
     .replace(/\b(gog\sversion|steam\sversion|epic\sversion|origin\sversion)\b/gi, '')
     .replace(/\b(drm\sfree|no\sdrm|steam\srip|gog\srip)\b/gi, '')
+    
+    // Remove edition suffixes (e.g. "Fighters Edition", "Deluxe Edition", "Ultimate Edition")
+    .replace(/\b(game of the year|goty)\s+edition\b/gi, '')
+    .replace(/\b\w+\s+edition\b/gi, '')
     
     // Remove platform indicators and standalone download
     .replace(/\b(pc|mac|linux|windows|macos|android|ios)\b/gi, '')
@@ -903,6 +908,7 @@ export function cleanGameTitlePreserveEdition(title: string): string {
     .replace(/\b(cpy|steampunks|ali213|3dm|reloaded|razor1911|prophet|hoodlum|fairlight)\b/gi, '')
     .replace(/\b(darksiders|masquerade|goldberg|ova\sgames|simplex|darkzer0)\b/gi, '')
     .replace(/\b(chronos|flt|unleashed|deviance|vitality|outlaws|tinyiso)\b/gi, '')
+    .replace(/\b(hypervisor)\b/gi, '') // Crack types
     
     // Remove release format indicators
     .replace(/\b(free download|full version|complete edition|full game)\b/gi, '')
