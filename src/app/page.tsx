@@ -73,6 +73,7 @@ function DashboardInner() {
   const [showRecentGames, setShowRecentGames] = useState(false);
   const [resolvedAppIds, setResolvedAppIds] = useState<Record<string, string | null>>({});
   const [steamAppIdByTitleCache, setSteamAppIdByTitleCache] = useState<Record<string, string | null>>({});
+  const [showAllGames, setShowAllGames] = useState(false);
   
   // Client-side cache for recent games (10 minutes)
   const [recentGamesCache, setRecentGamesCache] = useState<{
@@ -803,19 +804,44 @@ function DashboardInner() {
             <span>
               🎮 {searchQuery
                 ? `${displayGames.length} results for "${searchQuery}"`
-                : `${displayGames.filter(g => extractAppId(g) || typeof resolvedAppIds[g.displayKey] === 'string').length} verified games`
+                : showAllGames
+                  ? `${displayGames.length} games`
+                  : `${displayGames.filter(g => extractAppId(g) || typeof resolvedAppIds[g.displayKey] === 'string').length} verified games`
               }
               {recentGamesCache && !searchQuery && ` (cached ${Math.round((Date.now() - recentGamesCache.timestamp) / 1000 / 60)} min ago)`}
             </span>
-            {!searchQuery && (
-              <button
-                onClick={() => loadRecentGames(true)}
-                disabled={loading}
-                className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 font-medium disabled:opacity-50"
-              >
-                {loading ? '⏳ Refreshing...' : '🔄 Refresh'}
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              {!searchQuery && (
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">Show Unverified Results</span>
+                  <button
+                    role="switch"
+                    aria-checked={showAllGames}
+                    onClick={() => setShowAllGames(prev => !prev)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 dark:focus:ring-offset-gray-900 ${
+                      showAllGames
+                        ? 'bg-blue-500'
+                        : 'bg-gray-300 dark:bg-gray-600'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                        showAllGames ? 'translate-x-[18px]' : 'translate-x-[3px]'
+                      }`}
+                    />
+                  </button>
+                </label>
+              )}
+              {!searchQuery && (
+                <button
+                  onClick={() => loadRecentGames(true)}
+                  disabled={loading}
+                  className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 font-medium disabled:opacity-50"
+                >
+                  {loading ? '⏳ Refreshing...' : '🔄 Refresh'}
+                </button>
+              )}
+            </div>
           </div>
         )}
         
@@ -833,7 +859,7 @@ function DashboardInner() {
 
         {/* Mobile-optimized Games Grid */}
         {(showRecentGames || searchQuery !== '') && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 sm:gap-6">
             {loading ? (
               <div className="col-span-full flex flex-col items-center justify-center py-12 space-y-4">
                 <div className="relative">
@@ -857,6 +883,7 @@ function DashboardInner() {
               displayGames
                 .filter((game: DisplayGame) => {
                   if (searchQuery.trim()) return true;
+                  if (showAllGames) return true;
                   const inlineAppId = extractAppId(game);
                   if (inlineAppId) return true;
                   const resolved = resolvedAppIds[game.displayKey];
