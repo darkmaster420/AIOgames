@@ -85,6 +85,7 @@ export const STEAM_API_BASE =
   (typeof process !== 'undefined' && (process.env.NEXT_PUBLIC_STEAM_API_BASE || process.env.STEAM_API_BASE)) ||
   getDefaultBase();
 const REQUEST_TIMEOUT = 10000; // 10 seconds
+const SEARCH_TIMEOUT = 20000; // 20 seconds for search (can be slower)
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
 // Shorter TTL for frequently changing builds from SteamDB via Worker
 const BUILDS_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
@@ -95,9 +96,9 @@ const steamCache = new Map<string, { data: unknown; timestamp: number; ttl: numb
 /**
  * Generic fetch wrapper with timeout and error handling
  */
-async function steamApiFetch(url: string): Promise<unknown> {
+async function steamApiFetch(url: string, timeout: number = REQUEST_TIMEOUT): Promise<unknown> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
     const response = await fetch(url, {
@@ -503,11 +504,18 @@ export async function searchSteamGames(query: string, limit: number = 10): Promi
     const encodedQuery = encodeURIComponent(query.trim());
     const url = `${STEAM_API_BASE}?action=search&q=${encodedQuery}`;
     
-    const response = await steamApiFetch(url) as {
-      results?: SteamGameResult[];
-      total?: number;
-      source?: string;
-    };
+    let response: { results?: SteamGameResult[]; total?: number; source?: string };
+    try {
+      response = await steamApiFetch(url, SEARCH_TIMEOUT) as typeof response;
+    } catch (firstError) {
+      // Retry once on timeout
+      if (firstError instanceof Error && firstError.message.includes('timeout')) {
+        console.warn(`Steam search timeout for "${query}", retrying...`);
+        response = await steamApiFetch(url, SEARCH_TIMEOUT) as typeof response;
+      } else {
+        throw firstError;
+      }
+    }
     
     const result: SteamSearchResponse = {
       query: query.trim(),
