@@ -900,6 +900,7 @@ function DashboardInner() {
                       siteType={game.siteType}
                       embeddedDownloadLinks={game.downloadLinks}
                       link={cardLink}
+                      sourceLink={game.link}
                       title={game.originalTitle || game.title}
                       image={game.image}
                       badge={game.source}

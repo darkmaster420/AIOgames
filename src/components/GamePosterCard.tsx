@@ -10,6 +10,7 @@ interface GamePosterCardProps {
   siteType?: string;
   embeddedDownloadLinks?: Array<{ url: string; label?: string; service?: string }>;
   link?: string;
+  sourceLink?: string;
   title: string;
   image: string;
   year?: string;
@@ -31,6 +32,7 @@ export function GamePosterCard({
   siteType,
   embeddedDownloadLinks,
   link,
+  sourceLink,
   title,
   image,
   year,
@@ -144,9 +146,9 @@ export function GamePosterCard({
             )}
             
             {/* View Original Post */}
-            {link && (
+            {(sourceLink || link) && (
               <a
-                href={link}
+                href={sourceLink || link}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
