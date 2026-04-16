@@ -1,16 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUser } from '../../../../lib/auth';
+
+// In-memory cache for gameapi download link responses
+const linksCache = new Map<string, { data: unknown; timestamp: number }>();
+const LINKS_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
 // GET: Get download links for any game using the gameapi
 export async function GET(req: NextRequest) {
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
 
     const { searchParams } = new URL(req.url);
     const postId = searchParams.get('postId');
@@ -25,6 +21,13 @@ export async function GET(req: NextRequest) {
     }
 
     try {
+      // Check cache first
+      const cacheKey = `${siteType}:${postId}`;
+      const cached = linksCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp) < LINKS_CACHE_TTL) {
+        return NextResponse.json(cached.data);
+      }
+
       // Fetch download links from the gameapi using the /post endpoint
       // postId should be the originalId (numeric WordPress post ID) from the gameapi
       const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
@@ -87,7 +90,7 @@ export async function GET(req: NextRequest) {
         source: siteType
       };
 
-      return NextResponse.json({
+      const responseData = {
         postId,
         siteType,
         context,
@@ -99,7 +102,14 @@ export async function GET(req: NextRequest) {
           date: post?.date,
           description: post?.description
         }
-      });
+      };
+
+      // Cache successful responses
+      if (downloadLinks.length > 0) {
+        linksCache.set(cacheKey, { data: responseData, timestamp: Date.now() });
+      }
+
+      return NextResponse.json(responseData);
 
     } catch (fetchError) {
       console.error('Error fetching from gameapi:', fetchError);

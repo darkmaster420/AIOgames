@@ -5,8 +5,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-const SEARCH_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-const APPID_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours (appid results don't change)
+const APPID_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 type SteamRoutePayload = Record<string, unknown>;
 

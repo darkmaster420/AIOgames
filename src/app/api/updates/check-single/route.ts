@@ -212,15 +212,35 @@ async function canAutoApprove(game: TrackedGameDocument, newVersionInfo: Version
   }
 
   // Then try verified build number
-  if (game.buildNumberVerified && game.currentBuildNumber && newVersionInfo.build) {
-  logger.debug(`Checking verified build number: ${game.currentBuildNumber} vs ${newVersionInfo.build}`);
-    const currentBuild = parseInt(game.currentBuildNumber);
-    const newBuild = parseInt(newVersionInfo.build);
-    if (!isNaN(currentBuild) && !isNaN(newBuild) && newBuild > currentBuild) {
-      return {
-        canApprove: true,
-        reason: `Verified build number is higher (${currentBuild} -> ${newBuild})`
-      };
+  if (game.buildNumberVerified && game.currentBuildNumber) {
+    if (newVersionInfo.build) {
+      logger.debug(`Checking verified build number: ${game.currentBuildNumber} vs ${newVersionInfo.build}`);
+      const currentBuild = parseInt(game.currentBuildNumber);
+      const newBuild = parseInt(newVersionInfo.build);
+      if (!isNaN(currentBuild) && !isNaN(newBuild) && newBuild > currentBuild) {
+        return {
+          canApprove: true,
+          reason: `Verified build number is higher (${currentBuild} -> ${newBuild})`
+        };
+      }
+    } else if (newVersionInfo.version) {
+      // New post has version but no build - try version comparison
+      const currentInfo = extractVersionInfo(game.currentBuildNumber);
+      if (currentInfo.version || game.currentVersionNumber) {
+        const currentVersion = currentInfo.version || game.currentVersionNumber || '';
+        if (currentVersion && newVersionInfo.version) {
+          const comparison = compareVersions(
+            { ...currentInfo, version: currentVersion },
+            newVersionInfo
+          );
+          if (comparison.isNewer && comparison.significance >= 2) {
+            return {
+              canApprove: true,
+              reason: `Version is newer (${currentVersion} -> ${newVersionInfo.version}), build not available in new post`
+            };
+          }
+        }
+      }
     }
   }
 
@@ -1241,9 +1261,17 @@ export async function POST(request: Request) {
               if (newVersionInfo.build) {
                 updateFields.currentBuildNumber = newVersionInfo.build;
                 updateFields.buildNumberVerified = true;
-                updateFields.buildNumberSource = 'automatic';
+                // Distinguish SteamDB-enriched builds from title-extracted builds
+                const titleExtracted = extractVersionInfo(result.title || '');
+                updateFields.buildNumberSource = (titleExtracted.build === newVersionInfo.build) ? 'automatic' : 'steamdb_auto';
                 updateFields.buildNumberLastUpdated = new Date();
                 logger.debug(`✅ Updated build number to: ${newVersionInfo.build}`);
+              } else if (newVersionInfo.version) {
+                // New update has version but no build - clear stale build data
+                updateFields.currentBuildNumber = '';
+                updateFields.buildNumberVerified = false;
+                updateFields.buildNumberSource = '';
+                logger.debug(`✅ Cleared stale build number (new update has version only: ${newVersionInfo.version})`);
               }
 
               // Atomic conditional update to prevent duplicate auto-approvals

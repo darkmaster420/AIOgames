@@ -1312,13 +1312,23 @@ export async function POST(request: Request) {
               comparisonReason = `Publication timestamp fallback: ${currentPubTimestamp} → ${newPubTimestamp} (scheme mismatch ${currentScheme} vs ${newScheme})`;
             }
             } else if (hasVerifiedBuild) {
-              // Only compare builds
+              // Compare builds, but also check versions if available
               const currentBuild = parseInt(game.currentBuildNumber || '0');
               const newBuild = parseInt(newVersionInfo.build || '0');
               
               if (newBuild > currentBuild) {
                 isActuallyNewer = true;
                 comparisonReason = `Build: ${currentBuild} → ${newBuild}`;
+              } else if (newVersionInfo.version && currentVersionInfo.version && !schemesMismatchOrUnknown) {
+                // Fall back to version comparison if builds can't determine
+                const versionCmp = compareSemanticVersions(newVersionInfo.version, currentVersionInfo.version);
+                if (versionCmp > 0) {
+                  isActuallyNewer = true;
+                  comparisonReason = `Version (build unavailable): ${currentVersionInfo.version} → ${newVersionInfo.version}`;
+                }
+              } else if (canFallbackToPubTimestamp && newPubTimestamp > currentPubTimestamp) {
+                isActuallyNewer = true;
+                comparisonReason = `Publication timestamp fallback: ${currentPubTimestamp} → ${newPubTimestamp}`;
               }
             } else {
               // Enhanced comparison with date-version awareness and release hierarchy
@@ -1572,9 +1582,17 @@ export async function POST(request: Request) {
                 if (newVersionInfo.build) {
                   updateFields.currentBuildNumber = newVersionInfo.build;
                   updateFields.buildNumberVerified = true;
-                  updateFields.buildNumberSource = 'automatic';
+                  // Distinguish SteamDB-enriched builds from title-extracted builds
+                  const titleExtracted = extractVersionInfo(decodedTitle);
+                  updateFields.buildNumberSource = (titleExtracted.build === newVersionInfo.build) ? 'automatic' : 'steamdb_auto';
                   updateFields.buildNumberLastUpdated = new Date();
                   logger.info(`Updated build number to: ${newVersionInfo.build}`);
+                } else if (newVersionInfo.version) {
+                  // New update has version but no build - clear stale build data
+                  updateFields.currentBuildNumber = '';
+                  updateFields.buildNumberVerified = false;
+                  updateFields.buildNumberSource = '';
+                  logger.info(`Cleared stale build number (new update has version only: ${newVersionInfo.version})`);
                 }
 
                 // Atomic conditional update to prevent duplicate auto-approvals
