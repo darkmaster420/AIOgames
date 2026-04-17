@@ -21,17 +21,6 @@ interface Game {
   [key: string]: unknown;
 }
 
-/**
- * Light title strip for IGDB search — just removes scene group suffixes
- * without the aggressive cleaning that cleanGameTitle does.
- */
-function stripSceneGroup(title: string): string {
-  return title
-    .replace(/[-–]\s*(FCKDRM|TENOKE|GoldBerg|P2P|PLAZA|CODEX|SKIDROW|RUNE|FLT|EMPRESS|DODI|RAZOR1911|RELOADED|DARKSiDERS|HOODLUM|CPY|ALI213|3DM|PROPHET|FAIRLIGHT|SIMPLEX|DARKZER0|CHRONOS|UNLEASHED|DEVIANCE|TINYISO|VITALITY|OUTLAWS)\s*$/i, '')
-    .replace(/\s*-\s*[A-Z0-9]{2,10}\s*$/, '') // Catch remaining -GROUP patterns
-    .trim();
-}
-
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -53,11 +42,11 @@ export async function GET(request: NextRequest) {
         console.log(`[Recent] Cache hit but ${stillNeedImages.length} games still need images, retrying IGDB...`);
         const imageMap = new Map<string, string>();
         for (const game of stillNeedImages) {
-          const igdbTitle = stripSceneGroup((game.originalTitle || game.title) as string);
-          if (!igdbTitle || imageMap.has(igdbTitle)) continue;
-          const igdbImage = await resolveIGDBImage(igdbTitle);
+          const searchTitle = (game.title as string).trim();
+          if (!searchTitle || imageMap.has(searchTitle)) continue;
+          const igdbImage = await resolveIGDBImage(searchTitle);
           if (igdbImage) {
-            imageMap.set(igdbTitle, igdbImage);
+            imageMap.set(searchTitle, igdbImage);
           }
           await new Promise(r => setTimeout(r, 300));
         }
@@ -65,8 +54,8 @@ export async function GET(request: NextRequest) {
           console.log(`[Recent] Re-enrichment resolved ${imageMap.size} new images`);
           enrichedResults = enrichedResults.map((game: Game) => {
             if (!game.image) {
-              const igdbTitle = stripSceneGroup((game.originalTitle || game.title) as string);
-              const igdbImage = imageMap.get(igdbTitle);
+              const searchTitle = (game.title as string).trim();
+              const igdbImage = imageMap.get(searchTitle);
               if (igdbImage) return { ...game, image: igdbImage } as Game;
             }
             return game;
@@ -104,16 +93,16 @@ export async function GET(request: NextRequest) {
       
       const imageMap = new Map<string, string>();
       for (const game of gamesNeedingImages) {
-        // Use light strip (scene group only) for IGDB — keeps DLC names, subtitles intact
-        const igdbTitle = stripSceneGroup((game.originalTitle || game.title) as string);
-        if (!igdbTitle) continue;
+        // Use the cleaned title for image searches
+        const searchTitle = (game.title as string).trim();
+        if (!searchTitle) continue;
         
         // Skip if we already resolved this title
-        if (imageMap.has(igdbTitle)) continue;
+        if (imageMap.has(searchTitle)) continue;
 
-        const igdbImage = await resolveIGDBImage(igdbTitle);
+        const igdbImage = await resolveIGDBImage(searchTitle);
         if (igdbImage) {
-          imageMap.set(igdbTitle, igdbImage);
+          imageMap.set(searchTitle, igdbImage);
         }
 
         // 300ms delay between requests to stay under IGDB rate limit (4 req/sec)
@@ -123,8 +112,8 @@ export async function GET(request: NextRequest) {
       // Apply resolved images
       enrichedResults = results.map((game: Game) => {
         if (!game.image) {
-          const igdbTitle = stripSceneGroup((game.originalTitle || game.title) as string);
-          const igdbImage = imageMap.get(igdbTitle);
+          const searchTitle = (game.title as string).trim();
+          const igdbImage = imageMap.get(searchTitle);
           if (igdbImage) {
             return { ...game, image: igdbImage } as Game;
           }
