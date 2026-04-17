@@ -5,11 +5,11 @@
 import logger from './logger';
 
 /**
- * Get Steam box art URL
- * Uses library_600x900_2x.jpg for vertical box art
+ * Get Steam header image URL
+ * Uses shared.fastly.steamstatic.com for reliable CDN delivery
  */
 export function getSteamBoxArt(appId: string | number): string {
-  return `https://steamcdn-a.akamaihd.net/steam/apps/${appId}/library_600x900_2x.jpg`;
+  return `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`;
 }
 
 /**
