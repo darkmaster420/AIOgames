@@ -5,8 +5,7 @@ import { getCurrentUser } from '../../../lib/auth';
 import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, resolveVersionFromDate, resolveComparableVersionData, calculateGamePriority, detectAndResolveGameConflicts, resolvePubTimestampFromBuild, resolveLatestPubTimestamp } from '../../../utils/steamApi';
 import logger from '../../../utils/logger';
 import { autoVerifyWithSteam } from '../../../utils/autoSteamVerification';
-import { getSteamBoxArt } from '../../../utils/boxArt';
-import { searchIGDB } from '../../../utils/igdb';
+import { resolveIGDBImage } from '../../../utils/igdb';
 import { updateScheduler } from '../../../lib/scheduler';
 import { analyzeGameTitle } from '../../../utils/versionDetection';
 import { searchGOGDBIndex, getLatestGOGVersion, initializeGOGDB } from '../../../utils/gogdbIndex';
@@ -357,8 +356,11 @@ export async function POST(request: NextRequest) {
         trackedGame.steamAppId = parseInt(autoSteamAppId);
         trackedGame.steamName = autoSteamName;
         if (!trackedGame.image) {
-          trackedGame.image = getSteamBoxArt(autoSteamAppId);
-          logger.info(`🎨 Set Steam header image for ${trackedGame.title}`);
+          const igdbImage = await resolveIGDBImage(cleanedTitle || cleanGameTitle(title));
+          if (igdbImage) {
+            trackedGame.image = igdbImage;
+            logger.info(`🎨 Set IGDB image for ${trackedGame.title}`);
+          }
         }
         await trackedGame.save();
         logger.info(`Steam verification complete: ${autoSteamName} (${autoSteamAppId})`);
@@ -385,8 +387,11 @@ export async function POST(request: NextRequest) {
           trackedGame.steamAppId = autoVerification.steamAppId;
           trackedGame.steamName = autoVerification.steamName;
           if (!trackedGame.image) {
-            trackedGame.image = getSteamBoxArt(autoVerification.steamAppId);
-            logger.info(`🎨 Set Steam header image for ${trackedGame.title}`);
+            const igdbImage = await resolveIGDBImage(cleanedTitle || cleanGameTitle(title));
+            if (igdbImage) {
+              trackedGame.image = igdbImage;
+              logger.info(`🎨 Set IGDB image for ${trackedGame.title}`);
+            }
           }
           await trackedGame.save();
           
@@ -396,9 +401,9 @@ export async function POST(request: NextRequest) {
           // IGDB fallback: try to get an image from IGDB when Steam fails
           if (!trackedGame.image) {
             try {
-              const igdbResults = await searchIGDB(cleanedTitle || cleanGameTitle(title));
-              if (igdbResults.length > 0 && igdbResults[0].image) {
-                trackedGame.image = igdbResults[0].image;
+              const igdbImage = await resolveIGDBImage(cleanedTitle || cleanGameTitle(title));
+              if (igdbImage) {
+                trackedGame.image = igdbImage;
                 await trackedGame.save();
                 logger.info(`🎨 Set IGDB fallback image for "${title}"`);
               }

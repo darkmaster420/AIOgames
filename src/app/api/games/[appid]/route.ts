@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '../../../../lib/auth';
 import { TrackedGame } from '../../../../lib/models';
 import connectDB from '../../../../lib/db';
+import { resolveIGDBImage } from '../../../../utils/igdb';
 
 interface SteamSpyData {
   appid: number;
@@ -157,11 +158,62 @@ export async function GET(
     ]);
 
     // If we have neither source, return error
+    // If we have neither Steam source, try DB + IGDB fallback
     if (!steamSpyData && !steamStoreData) {
-      return NextResponse.json(
-        { error: 'Game not found or unavailable from all sources' },
-        { status: 404 }
-      );
+      // Check if we have this game tracked in our DB
+      let trackedGame = null;
+      try {
+        await connectDB();
+        trackedGame = await TrackedGame.findOne({
+          steamAppId: parseInt(appid),
+          isActive: { $ne: false },
+        });
+      } catch { /* continue */ }
+
+      if (!trackedGame) {
+        return NextResponse.json(
+          { error: 'Game not found or unavailable from all sources' },
+          { status: 404 }
+        );
+      }
+
+      // Build a minimal response from tracked data + IGDB
+      const igdbImage = await resolveIGDBImage(trackedGame.steamName || trackedGame.title || '');
+      const response: Record<string, unknown> = {
+        appid: parseInt(appid),
+        name: trackedGame.steamName || trackedGame.title || 'Unknown',
+        type: 'game',
+        description: '',
+        short_description: '',
+        header_image: igdbImage || trackedGame.image || '',
+        background: '',
+        screenshots: [],
+        movies: [],
+        developers: [],
+        publishers: [],
+        isTracked: false,
+        dataSource: 'db+igdb',
+      };
+
+      // Check if the requesting user owns this tracked game
+      const user = await getCurrentUser();
+      if (user && trackedGame.userId?.toString() === user.id) {
+        response.isTracked = true;
+        response.trackedGameId = trackedGame._id.toString();
+        response.gameId = trackedGame.gameId;
+        response.title = trackedGame.title;
+        response.originalTitle = trackedGame.originalTitle;
+        response.source = trackedGame.source;
+        response.image = trackedGame.image;
+        response.gameLink = trackedGame.gameLink;
+        response.lastKnownVersion = trackedGame.lastKnownVersion;
+        response.hasNewUpdate = trackedGame.hasNewUpdate || false;
+        response.steamVerified = trackedGame.steamVerified;
+        response.steamAppId = trackedGame.steamAppId;
+        response.steamName = trackedGame.steamName;
+      }
+
+      return NextResponse.json(response);
     }
 
     // Build response prioritizing available data

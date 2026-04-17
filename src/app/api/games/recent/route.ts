@@ -1,5 +1,6 @@
 import { NextResponse, NextRequest } from 'next/server';
 import { cleanGameTitle } from '../../../../utils/steamApi';
+import { resolveIGDBImage } from '../../../../utils/igdb';
 
 // Simple in-memory cache (per server instance). For multi-instance you'd need Redis or KV.
 let cachedRecent: { data: unknown; timestamp: number; siteKey: string } | null = null;
@@ -66,6 +67,19 @@ export async function GET(request: NextRequest) {
         originalTitle: game.title, // Store the original title
         title: cleanGameTitle(game.title) // Clean the title
       }));
+
+      // Enrich games that have no image with IGDB covers
+      const enrichPromises = results.map(async (game: Game) => {
+        if (!game.image) {
+          const cleanTitle = cleanGameTitle(game.originalTitle || game.title);
+          const igdbImage = await resolveIGDBImage(cleanTitle);
+          if (igdbImage) {
+            return { ...game, image: igdbImage };
+          }
+        }
+        return game;
+      });
+      results = await Promise.all(enrichPromises);
       
       // Apply local site filtering if a specific site is requested
       if (site && site !== 'all') {

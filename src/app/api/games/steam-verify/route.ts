@@ -4,7 +4,7 @@ import connectDB from '@/lib/db';
 import { TrackedGame } from '@/lib/models';
 import { searchSteamGames, buildSteamSearchQueryVariants, resolvePubTimestampFromBuild, resolvePubTimestampFromVersion, resolveLatestPubTimestamp } from '@/utils/steamApi';
 import { analyzeGameTitle } from '@/utils/versionDetection';
-import { getSteamBoxArt } from '@/utils/boxArt';
+import { resolveIGDBImage } from '@/utils/igdb';
 
 /**
  * POST /api/games/steam-verify
@@ -109,11 +109,14 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Game not found' }, { status: 404 });
     }
 
-    // If no image exists and we have a Steam app ID, add Steam box art
-    if (!updatedGame.image && steamAppId) {
-      updatedGame.image = getSteamBoxArt(steamAppId);
-      console.log(`🎨 Added Steam box art for ${updatedGame.title}: App ID ${steamAppId}`);
-      await updatedGame.save();
+    // If no image exists, try IGDB for a cover image
+    if (!updatedGame.image && updatedGame.title) {
+      const igdbImage = await resolveIGDBImage(updatedGame.title);
+      if (igdbImage) {
+        updatedGame.image = igdbImage;
+        console.log(`🎨 Added IGDB cover for ${updatedGame.title}`);
+        await updatedGame.save();
+      }
     }
 
     // After manual Steam verification, perform semantic version and build detection
