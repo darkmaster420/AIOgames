@@ -8,6 +8,7 @@ import {
   TelegramMessage,
   TelegramPhotoMessage
 } from './telegram';
+import { resolveIGDBImage } from './igdb';
 
 // Rate limiting for Telegram notifications to prevent API limits
 const telegramRateLimit = new Map<string, number>(); // userId -> lastSentTime
@@ -184,6 +185,19 @@ export async function sendUpdateNotification(
     }
 
     const notificationPrefs = user.preferences?.notifications;
+    
+    // If no image, try to resolve one via IGDB/RAWG or Steam header
+    if (!updateData.imageUrl) {
+      try {
+        const resolvedImage = await resolveIGDBImage(updateData.gameTitle);
+        if (resolvedImage) {
+          updateData.imageUrl = resolvedImage;
+          console.log(`[Notifications] Resolved image for "${updateData.gameTitle}" via IGDB/RAWG`);
+        }
+      } catch (err) {
+        console.warn(`[Notifications] Image resolve failed for "${updateData.gameTitle}":`, err);
+      }
+    }
     
     // Send Telegram notification if configured
     const telegramConfig = getTelegramConfig(user);
