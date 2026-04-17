@@ -243,8 +243,12 @@ const RAWG_API_KEY = process.env.RAWG_API_KEY;
  * Results cached for 1 week to conserve the 20k monthly request limit.
  */
 async function resolveRAWGImage(title: string): Promise<string | null> {
-  if (!RAWG_API_KEY) return null;
+  if (!RAWG_API_KEY) {
+    console.warn('[RAWG] RAWG_API_KEY not configured, skipping fallback');
+    return null;
+  }
 
+  console.log(`[RAWG] Trying fallback for "${title}"...`);
   try {
     const response = await fetch(
       `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&search=${encodeURIComponent(title)}&page_size=3`,
@@ -326,6 +330,7 @@ export async function resolveIGDBImage(title: string): Promise<string | null> {
           gameImageCache.set(cacheKey, { url: imageUrl, timestamp: Date.now() });
           return imageUrl;
         }
+        console.log(`[IGDB] No cover found for "${title}", falling back to RAWG`);
         break; // No cover found on IGDB, fall through to RAWG
       } catch (err) {
         if (attempt === 2) {

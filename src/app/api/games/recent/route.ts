@@ -6,6 +6,9 @@ import { resolveIGDBImage } from '../../../../utils/igdb';
 let cachedRecent: { results: Game[]; timestamp: number; siteKey: string } | null = null;
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
+// Track titles that failed both IGDB and RAWG — don't retry until cache expires
+const failedImageTitles = new Set<string>();
+
 // Internal function to clear cache (exported for potential future use)
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function clearRecentGamesCache() {
@@ -36,17 +39,24 @@ export async function GET(request: NextRequest) {
       enrichedResults = cachedRecent.results;
       isFromCache = true;
 
-      // Re-try IGDB for any games still missing images (previous failures weren't cached)
-      const stillNeedImages = enrichedResults.filter((g: Game) => !g.image);
+      // Re-try for any games still missing images, skipping titles that already failed both IGDB+RAWG
+      const stillNeedImages = enrichedResults.filter((g: Game) => {
+        if (g.image) return false;
+        const searchTitle = (g.title as string).trim();
+        return searchTitle && !failedImageTitles.has(searchTitle.toLowerCase());
+      });
       if (stillNeedImages.length > 0) {
-        console.log(`[Recent] Cache hit but ${stillNeedImages.length} games still need images, retrying IGDB...`);
+        console.log(`[Recent] Cache hit but ${stillNeedImages.length} games still need images, retrying...`);
         const imageMap = new Map<string, string>();
         for (const game of stillNeedImages) {
           const searchTitle = (game.title as string).trim();
           if (!searchTitle || imageMap.has(searchTitle)) continue;
-          const igdbImage = await resolveIGDBImage(searchTitle);
-          if (igdbImage) {
-            imageMap.set(searchTitle, igdbImage);
+          const image = await resolveIGDBImage(searchTitle);
+          if (image) {
+            imageMap.set(searchTitle, image);
+          } else {
+            // Both IGDB and RAWG failed — stop retrying this title until fresh data
+            failedImageTitles.add(searchTitle.toLowerCase());
           }
           await new Promise(r => setTimeout(r, 300));
         }
@@ -122,6 +132,9 @@ export async function GET(request: NextRequest) {
       });
 
       console.log(`[Recent] IGDB enrichment done: ${imageMap.size} images resolved`);
+
+      // Reset failed titles on fresh data fetch
+      failedImageTitles.clear();
 
       // Cache the fully enriched results
       cachedRecent = { results: enrichedResults, timestamp: now, siteKey: cacheKey };
