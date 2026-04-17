@@ -18,7 +18,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.production
-    #ports: #optional
+    #ports: #recommend using a reverse proxy like Nginx or Traefik instead of exposing ports directly
     #  - "${PORT:-3000}:3000"
     environment:
       - NODE_ENV=production

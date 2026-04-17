@@ -231,75 +231,117 @@ export async function getIGDBGameDetails(igdbId: number): Promise<IGDBSearchResu
   }
 }
 
-// Lightweight image-only cache: title → IGDB cover URL (or null)
-const igdbImageCache = new Map<string, { url: string; timestamp: number }>();
-const IGDB_IMAGE_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+// Lightweight image-only cache: title → cover URL
+const gameImageCache = new Map<string, { url: string; timestamp: number }>();
+const IGDB_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours for IGDB results
+const RAWG_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 1 week for RAWG results (20k req/month limit)
+
+const RAWG_API_KEY = process.env.RAWG_API_KEY;
 
 /**
- * Lightweight IGDB image resolver — single search, cover field only.
- * Results are cached in-memory for 24 hours.
+ * Try RAWG.io as a fallback image source.
+ * Results cached for 1 week to conserve the 20k monthly request limit.
+ */
+async function resolveRAWGImage(title: string): Promise<string | null> {
+  if (!RAWG_API_KEY) return null;
+
+  try {
+    const response = await fetch(
+      `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&search=${encodeURIComponent(title)}&page_size=3`,
+      { signal: AbortSignal.timeout(8000) }
+    );
+
+    if (!response.ok) {
+      console.warn(`[RAWG] Search failed for "${title}": ${response.status}`);
+      return null;
+    }
+
+    const data: { results: { name: string; background_image: string | null }[] } = await response.json();
+    const withImage = data.results?.find(g => g.background_image);
+    if (withImage?.background_image) {
+      console.log(`[RAWG] Resolved image for "${title}": ${withImage.name}`);
+      return withImage.background_image;
+    }
+    return null;
+  } catch (err) {
+    console.warn(`[RAWG] Error for "${title}":`, err);
+    return null;
+  }
+}
+
+/**
+ * Resolve a game image — tries IGDB first, then RAWG as fallback.
+ * Only successful results are cached. Failures retry every request.
  */
 export async function resolveIGDBImage(title: string): Promise<string | null> {
   const cacheKey = title.toLowerCase().trim();
   if (!cacheKey) return null;
 
-  const cached = igdbImageCache.get(cacheKey);
-  if (cached && (Date.now() - cached.timestamp) < IGDB_IMAGE_CACHE_TTL) {
-    return cached.url;
+  // Check cache (uses the longer TTL of the two sources)
+  const cached = gameImageCache.get(cacheKey);
+  if (cached) {
+    const ttl = cached.url.includes('rawg.io') ? RAWG_CACHE_TTL : IGDB_CACHE_TTL;
+    if ((Date.now() - cached.timestamp) < ttl) {
+      return cached.url;
+    }
   }
 
+  // --- Try IGDB first ---
   const accessToken = await getIGDBToken();
   const clientId = IGDB_CLIENT_ID;
-  if (!clientId) {
-    console.warn('[IGDB] IGDB_CLIENT_ID not configured, skipping image resolve');
-    return null;
+
+  if (clientId) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const response = await fetch('https://api.igdb.com/v4/games', {
+          method: 'POST',
+          headers: {
+            'Client-ID': clientId,
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'text/plain',
+          },
+          body: `search "${title}"; fields name,cover.url; limit 5;`,
+        });
+
+        if (response.status === 429) {
+          const wait = Math.pow(2, attempt + 1) * 1000;
+          console.warn(`[IGDB] Rate limited for "${title}", waiting ${wait}ms (attempt ${attempt + 1}/3)`);
+          await new Promise(r => setTimeout(r, wait));
+          continue;
+        }
+
+        if (!response.ok) {
+          console.warn(`[IGDB] Image resolve failed for "${title}": ${response.status}`);
+          break; // Fall through to RAWG
+        }
+
+        const games: { id: number; name: string; cover?: { url: string } }[] = await response.json();
+        const withCover = games.find(g => g.cover?.url);
+        const imageUrl = withCover?.cover?.url
+          ? `https:${withCover.cover.url.replace('t_thumb', 't_cover_big')}`
+          : null;
+
+        if (imageUrl) {
+          console.log(`[IGDB] Resolved image for "${title}": ${withCover?.name}`);
+          gameImageCache.set(cacheKey, { url: imageUrl, timestamp: Date.now() });
+          return imageUrl;
+        }
+        break; // No cover found on IGDB, fall through to RAWG
+      } catch (err) {
+        if (attempt === 2) {
+          console.warn(`[IGDB] Image resolve error for "${title}" after 3 attempts:`, err);
+          break; // Fall through to RAWG
+        }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
   }
 
-  // Retry up to 3 times with backoff for rate limits
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const response = await fetch('https://api.igdb.com/v4/games', {
-        method: 'POST',
-        headers: {
-          'Client-ID': clientId,
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'text/plain',
-        },
-        body: `search "${title}"; fields name,cover.url; limit 5;`,
-      });
-
-      if (response.status === 429) {
-        const wait = Math.pow(2, attempt + 1) * 1000; // 2s, 4s, 8s
-        console.warn(`[IGDB] Rate limited for "${title}", waiting ${wait}ms (attempt ${attempt + 1}/3)`);
-        await new Promise(r => setTimeout(r, wait));
-        continue;
-      }
-
-      if (!response.ok) {
-        console.warn(`[IGDB] Image resolve failed for "${title}": ${response.status}`);
-        return null;
-      }
-
-      const games: { id: number; name: string; cover?: { url: string } }[] = await response.json();
-      const withCover = games.find(g => g.cover?.url);
-      const imageUrl = withCover?.cover?.url
-        ? `https:${withCover.cover.url.replace('t_thumb', 't_cover_big')}`
-        : null;
-
-      if (imageUrl) {
-        console.log(`[IGDB] Resolved image for "${title}": ${withCover?.name}`);
-        igdbImageCache.set(cacheKey, { url: imageUrl, timestamp: Date.now() });
-      }
-
-      return imageUrl;
-    } catch (err) {
-      if (attempt === 2) {
-        console.warn(`[IGDB] Image resolve error for "${title}" after 3 attempts:`, err);
-        // Don't cache network errors — allow retry on next request cycle
-        return null;
-      }
-      await new Promise(r => setTimeout(r, 1000));
-    }
+  // --- Fallback to RAWG ---
+  const rawgImage = await resolveRAWGImage(title);
+  if (rawgImage) {
+    gameImageCache.set(cacheKey, { url: rawgImage, timestamp: Date.now() });
+    return rawgImage;
   }
 
   return null;
