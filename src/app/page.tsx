@@ -893,6 +893,7 @@ function DashboardInner() {
                   const trackState = getTrackState(game);
                   const resolvedAppId = extractAppId(game) || resolvedAppIds[game.displayKey] || undefined;
                   const cardLink = resolvedAppId ? `/appid/${resolvedAppId}` : game.link;
+                  const cardImage = game.image || (resolvedAppId ? `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${resolvedAppId}/header.jpg` : '');
                   return (
                     <GamePosterCard
                       key={game.displayKey}
@@ -902,7 +903,7 @@ function DashboardInner() {
                       link={cardLink}
                       sourceLink={game.link}
                       title={game.originalTitle || game.title}
-                      image={game.image}
+                      image={cardImage}
                       badge={game.source}
                       badgeColor={trackState.isExactTracked ? 'green' : trackState.hasTrackedVariant ? 'yellow' : 'blue'}
                       hasUpdate={false}
