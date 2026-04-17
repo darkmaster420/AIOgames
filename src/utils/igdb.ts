@@ -232,50 +232,75 @@ export async function getIGDBGameDetails(igdbId: number): Promise<IGDBSearchResu
 }
 
 // Lightweight image-only cache: title → IGDB cover URL (or null)
-const igdbImageCache = new Map<string, { url: string | null; timestamp: number }>();
-const IGDB_IMAGE_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
+const igdbImageCache = new Map<string, { url: string; timestamp: number }>();
+const IGDB_IMAGE_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
 /**
  * Lightweight IGDB image resolver — single search, cover field only.
- * Results are cached in-memory for 6 hours.
+ * Results are cached in-memory for 24 hours.
  */
 export async function resolveIGDBImage(title: string): Promise<string | null> {
   const cacheKey = title.toLowerCase().trim();
+  if (!cacheKey) return null;
+
   const cached = igdbImageCache.get(cacheKey);
   if (cached && (Date.now() - cached.timestamp) < IGDB_IMAGE_CACHE_TTL) {
     return cached.url;
   }
 
-  try {
-    const accessToken = await getIGDBToken();
-    const clientId = IGDB_CLIENT_ID;
-    if (!clientId) return null;
-
-    const response = await fetch('https://api.igdb.com/v4/games', {
-      method: 'POST',
-      headers: {
-        'Client-ID': clientId,
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'text/plain',
-      },
-      body: `search "${title}"; fields name,cover.url; where category = 0; limit 3;`,
-    });
-
-    if (!response.ok) {
-      igdbImageCache.set(cacheKey, { url: null, timestamp: Date.now() });
-      return null;
-    }
-
-    const games: { id: number; name: string; cover?: { url: string } }[] = await response.json();
-    const withCover = games.find(g => g.cover?.url);
-    const imageUrl = withCover?.cover?.url
-      ? `https:${withCover.cover.url.replace('t_thumb', 't_cover_big')}`
-      : null;
-
-    igdbImageCache.set(cacheKey, { url: imageUrl, timestamp: Date.now() });
-    return imageUrl;
-  } catch {
-    igdbImageCache.set(cacheKey, { url: null, timestamp: Date.now() });
+  const accessToken = await getIGDBToken();
+  const clientId = IGDB_CLIENT_ID;
+  if (!clientId) {
+    console.warn('[IGDB] IGDB_CLIENT_ID not configured, skipping image resolve');
     return null;
   }
+
+  // Retry up to 3 times with backoff for rate limits
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await fetch('https://api.igdb.com/v4/games', {
+        method: 'POST',
+        headers: {
+          'Client-ID': clientId,
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'text/plain',
+        },
+        body: `search "${title}"; fields name,cover.url; limit 5;`,
+      });
+
+      if (response.status === 429) {
+        const wait = Math.pow(2, attempt + 1) * 1000; // 2s, 4s, 8s
+        console.warn(`[IGDB] Rate limited for "${title}", waiting ${wait}ms (attempt ${attempt + 1}/3)`);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+
+      if (!response.ok) {
+        console.warn(`[IGDB] Image resolve failed for "${title}": ${response.status}`);
+        return null;
+      }
+
+      const games: { id: number; name: string; cover?: { url: string } }[] = await response.json();
+      const withCover = games.find(g => g.cover?.url);
+      const imageUrl = withCover?.cover?.url
+        ? `https:${withCover.cover.url.replace('t_thumb', 't_cover_big')}`
+        : null;
+
+      if (imageUrl) {
+        console.log(`[IGDB] Resolved image for "${title}": ${withCover?.name}`);
+        igdbImageCache.set(cacheKey, { url: imageUrl, timestamp: Date.now() });
+      }
+
+      return imageUrl;
+    } catch (err) {
+      if (attempt === 2) {
+        console.warn(`[IGDB] Image resolve error for "${title}" after 3 attempts:`, err);
+        // Don't cache network errors — allow retry on next request cycle
+        return null;
+      }
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+
+  return null;
 }

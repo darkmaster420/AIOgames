@@ -367,9 +367,9 @@ export async function POST(req: NextRequest) {
           newTrackedGame.steamAppId = autoVerification.steamAppId;
           newTrackedGame.steamName = autoVerification.steamName;
           
-          // If no image from IGDB, use Steam box art (library_600x900_2x.jpg)
+          // If no image from IGDB, use Steam header image
           if (!newTrackedGame.image) {
-            newTrackedGame.image = `https://steamcdn-a.akamaihd.net/steam/apps/${autoVerification.steamAppId}/library_600x900_2x.jpg`;
+            newTrackedGame.image = `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${autoVerification.steamAppId}/header.jpg`;
             logger.info(`Using Steam box art for "${bestMatch.title}": appId ${autoVerification.steamAppId}`);
           }
           

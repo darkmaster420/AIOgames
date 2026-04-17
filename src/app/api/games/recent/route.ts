@@ -2,8 +2,8 @@ import { NextResponse, NextRequest } from 'next/server';
 import { cleanGameTitle } from '../../../../utils/steamApi';
 import { resolveIGDBImage } from '../../../../utils/igdb';
 
-// Simple in-memory cache (per server instance). For multi-instance you'd need Redis or KV.
-let cachedRecent: { data: unknown; timestamp: number; siteKey: string } | null = null;
+// Simple in-memory cache — stores fully enriched results (with IGDB images)
+let cachedRecent: { results: Game[]; timestamp: number; siteKey: string } | null = null;
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 // Internal function to clear cache (exported for potential future use)
@@ -21,6 +21,17 @@ interface Game {
   [key: string]: unknown;
 }
 
+/**
+ * Light title strip for IGDB search — just removes scene group suffixes
+ * without the aggressive cleaning that cleanGameTitle does.
+ */
+function stripSceneGroup(title: string): string {
+  return title
+    .replace(/[-–]\s*(FCKDRM|TENOKE|GoldBerg|P2P|PLAZA|CODEX|SKIDROW|RUNE|FLT|EMPRESS|DODI|RAZOR1911|RELOADED|DARKSiDERS|HOODLUM|CPY|ALI213|3DM|PROPHET|FAIRLIGHT|SIMPLEX|DARKZER0|CHRONOS|UNLEASHED|DEVIANCE|TINYISO|VITALITY|OUTLAWS)\s*$/i, '')
+    .replace(/\s*-\s*[A-Z0-9]{2,10}\s*$/, '') // Catch remaining -GROUP patterns
+    .trim();
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -28,80 +39,122 @@ export async function GET(request: NextRequest) {
     const forceRefresh = searchParams.get('refresh') === 'true';
 
     const now = Date.now();
-    const cacheKey = 'all'; // we fetch all then filter locally
-    let data: unknown;
+    const cacheKey = 'all';
+    let enrichedResults: Game[];
     let isFromCache = false;
 
     if (!forceRefresh && cachedRecent && (now - cachedRecent.timestamp) < CACHE_TTL_MS && cachedRecent.siteKey === cacheKey) {
-      data = cachedRecent.data;
+      enrichedResults = cachedRecent.results;
       isFromCache = true;
+
+      // Re-try IGDB for any games still missing images (previous failures weren't cached)
+      const stillNeedImages = enrichedResults.filter((g: Game) => !g.image);
+      if (stillNeedImages.length > 0) {
+        console.log(`[Recent] Cache hit but ${stillNeedImages.length} games still need images, retrying IGDB...`);
+        const imageMap = new Map<string, string>();
+        for (const game of stillNeedImages) {
+          const igdbTitle = stripSceneGroup((game.originalTitle || game.title) as string);
+          if (!igdbTitle || imageMap.has(igdbTitle)) continue;
+          const igdbImage = await resolveIGDBImage(igdbTitle);
+          if (igdbImage) {
+            imageMap.set(igdbTitle, igdbImage);
+          }
+          await new Promise(r => setTimeout(r, 300));
+        }
+        if (imageMap.size > 0) {
+          console.log(`[Recent] Re-enrichment resolved ${imageMap.size} new images`);
+          enrichedResults = enrichedResults.map((game: Game) => {
+            if (!game.image) {
+              const igdbTitle = stripSceneGroup((game.originalTitle || game.title) as string);
+              const igdbImage = imageMap.get(igdbTitle);
+              if (igdbImage) return { ...game, image: igdbImage } as Game;
+            }
+            return game;
+          });
+          cachedRecent = { results: enrichedResults, timestamp: cachedRecent!.timestamp, siteKey: cacheKey };
+        }
+      }
     } else {
       const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
       const apiUrl = `${baseUrl}/recent`;
       const response = await fetch(apiUrl, { next: { revalidate: 0 }, cache: 'no-store' });
       if (!response.ok) {
-        // Clear cache on API failure to prevent caching error responses
         cachedRecent = null;
         throw new Error(`API request failed: ${response.status}`);
       }
-      data = await response.json();
+      const data = await response.json();
       
-      // Only cache if the response is valid
-      const validationData = data as { success: boolean; results: unknown[] };
-      if (validationData.success && validationData.results && Array.isArray(validationData.results)) {
-        cachedRecent = { data, timestamp: now, siteKey: cacheKey };
-      } else {
-        // Don't cache invalid responses
+      const apiData = data as { success: boolean; results: Game[] };
+      if (!apiData.success || !apiData.results || !Array.isArray(apiData.results)) {
         cachedRecent = null;
+        console.error('Invalid API response structure:', data);
+        return NextResponse.json({ error: 'Invalid API response structure' }, { status: 500 });
       }
-    }
 
-    // Extract the results array from the API response structure
-    const apiData = data as { success: boolean; results: Game[] };
-    if (apiData.success && apiData.results && Array.isArray(apiData.results)) {
-      let results = apiData.results;
-      
-      // Add original titles and clean existing titles
-      results = results.map((game: Game) => ({
+      // Clean titles
+      const results = apiData.results.map((game: Game) => ({
         ...game,
-        originalTitle: game.title, // Store the original title
-        title: cleanGameTitle(game.title) // Clean the title
+        originalTitle: game.title,
+        title: cleanGameTitle(game.title)
       }));
 
-      // Enrich games that have no image with IGDB covers
-      const enrichPromises = results.map(async (game: Game) => {
+      // Enrich games that have no image with IGDB covers (sequential with delay to respect rate limits)
+      const gamesNeedingImages = results.filter((g: Game) => !g.image);
+      console.log(`[Recent] Enriching ${gamesNeedingImages.length}/${results.length} games with IGDB images...`);
+      
+      const imageMap = new Map<string, string>();
+      for (const game of gamesNeedingImages) {
+        // Use light strip (scene group only) for IGDB — keeps DLC names, subtitles intact
+        const igdbTitle = stripSceneGroup((game.originalTitle || game.title) as string);
+        if (!igdbTitle) continue;
+        
+        // Skip if we already resolved this title
+        if (imageMap.has(igdbTitle)) continue;
+
+        const igdbImage = await resolveIGDBImage(igdbTitle);
+        if (igdbImage) {
+          imageMap.set(igdbTitle, igdbImage);
+        }
+
+        // 300ms delay between requests to stay under IGDB rate limit (4 req/sec)
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      // Apply resolved images
+      enrichedResults = results.map((game: Game) => {
         if (!game.image) {
-          const cleanTitle = cleanGameTitle(game.originalTitle || game.title);
-          const igdbImage = await resolveIGDBImage(cleanTitle);
+          const igdbTitle = stripSceneGroup((game.originalTitle || game.title) as string);
+          const igdbImage = imageMap.get(igdbTitle);
           if (igdbImage) {
-            return { ...game, image: igdbImage };
+            return { ...game, image: igdbImage } as Game;
           }
         }
         return game;
       });
-      results = await Promise.all(enrichPromises);
-      
-      // Apply local site filtering if a specific site is requested
-      if (site && site !== 'all') {
-        results = results.filter((game: Game) => game.siteType === site);
-      }
 
-      // Calculate cache age and remaining TTL for headers
-      const cacheAge = isFromCache ? Math.floor((now - cachedRecent!.timestamp) / 1000) : 0;
-      const remainingTTL = Math.max(0, Math.floor((CACHE_TTL_MS - (now - (cachedRecent?.timestamp || now))) / 1000));
+      console.log(`[Recent] IGDB enrichment done: ${imageMap.size} images resolved`);
 
-      return NextResponse.json(results, {
-        headers: {
-          'Cache-Control': `public, max-age=${remainingTTL}, s-maxage=${remainingTTL}`,
-          'X-Cache-Status': isFromCache ? 'HIT' : 'MISS',
-          'X-Cache-Age': cacheAge.toString(),
-          'X-Cache-TTL': remainingTTL.toString()
-        }
-      });
-    } else {
-      console.error('Invalid API response structure:', data);
-      return NextResponse.json({ error: 'Invalid API response structure' }, { status: 500 });
+      // Cache the fully enriched results
+      cachedRecent = { results: enrichedResults, timestamp: now, siteKey: cacheKey };
     }
+
+    // Apply local site filtering
+    let finalResults = enrichedResults;
+    if (site && site !== 'all') {
+      finalResults = enrichedResults.filter((game: Game) => game.siteType === site);
+    }
+
+    const cacheAge = isFromCache ? Math.floor((now - cachedRecent!.timestamp) / 1000) : 0;
+    const remainingTTL = Math.max(0, Math.floor((CACHE_TTL_MS - (now - (cachedRecent?.timestamp || now))) / 1000));
+
+    return NextResponse.json(finalResults, {
+      headers: {
+        'Cache-Control': `public, max-age=${remainingTTL}, s-maxage=${remainingTTL}`,
+        'X-Cache-Status': isFromCache ? 'HIT' : 'MISS',
+        'X-Cache-Age': cacheAge.toString(),
+        'X-Cache-TTL': remainingTTL.toString()
+      }
+    });
   } catch (error) {
     console.error('Get recent games error:', error);
     return NextResponse.json({ error: 'Failed to fetch recent games' }, { status: 500 });
