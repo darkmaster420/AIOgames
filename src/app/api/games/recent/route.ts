@@ -4,7 +4,7 @@ import { resolveIGDBImage } from '../../../../utils/igdb';
 
 // Simple in-memory cache — stores fully enriched results (with IGDB images)
 let cachedRecent: { results: Game[]; timestamp: number; siteKey: string } | null = null;
-const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 // Track titles that failed both IGDB and RAWG — don't retry until cache expires
 const failedImageTitles = new Set<string>();

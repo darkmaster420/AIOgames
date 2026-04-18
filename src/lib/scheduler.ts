@@ -52,14 +52,14 @@ class UpdateScheduler {
       }
     }, 60 * 60 * 1000); // 1 hour
 
-    // Warm cache every hour to keep data fresh (aligned with 2-hour cache TTL)
+    // Warm cache every 25 minutes to keep data fresh (well within 2-hour cache TTL)
     this.cacheWarmInterval = setInterval(async () => {
       try {
         await this.warmCache();
       } catch (error) {
         logger.error('❌ Error in cache warming:', error);
       }
-    }, 60 * 60 * 1000); // 1 hour (optimized from 30 minutes)
+    }, 25 * 60 * 1000); // 25 minutes
 
     // Auto-migrate unclean titles every 6 hours
     this.titleMigrationInterval = setInterval(async () => {

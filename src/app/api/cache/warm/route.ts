@@ -40,20 +40,19 @@ export async function GET() {
       logger.warn('⚠️ GameAPI cache clear error:', cacheError instanceof Error ? cacheError.message : 'Unknown error');
     }
 
-    // Warm cache by fetching recent games
+    // Warm the in-memory cache by hitting /api/games/recent directly
+    // This populates the actual cache that serves homepage requests
     try {
-      const recentResponse = await fetch(`${baseUrl}/recent?limit=100`, {
+      const internalBaseUrl = process.env.NODE_ENV === 'production'
+        ? process.env.NEXT_PUBLIC_APP_URL || 'http://127.0.0.1:3000'
+        : `http://127.0.0.1:${process.env.PORT || 3000}`;
+      
+      const recentResponse = await fetch(`${internalBaseUrl}/api/games/recent`, {
         cache: 'no-store'
       });
       if (recentResponse.ok) {
         const recentData = await recentResponse.json();
-        
-        // Validate the response before considering it successful
-        if (!recentData.success || !recentData.results || !Array.isArray(recentData.results)) {
-          throw new Error('Invalid response structure from GameAPI');
-        }
-        
-        const gameCount = recentData.results.length;
+        const gameCount = Array.isArray(recentData) ? recentData.length : 0;
         
         const endTime = Date.now();
         const duration = endTime - startTime;
