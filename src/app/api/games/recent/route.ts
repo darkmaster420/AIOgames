@@ -1,6 +1,7 @@
 import { NextResponse, NextRequest } from 'next/server';
 import { cleanGameTitle } from '../../../../utils/steamApi';
 import { resolveIGDBImage } from '../../../../utils/igdb';
+import { getRecentUploads } from '../../../../lib/gameapi';
 
 // Simple in-memory cache — stores fully enriched results (with IGDB images)
 let cachedRecent: { results: Game[]; timestamp: number; siteKey: string } | null = null;
@@ -74,24 +75,16 @@ export async function GET(request: NextRequest) {
         }
       }
     } else {
-      const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
-      const apiUrl = `${baseUrl}/recent`;
-      const response = await fetch(apiUrl, { next: { revalidate: 0 }, cache: 'no-store' });
-      if (!response.ok) {
-        cachedRecent = null;
-        throw new Error(`API request failed: ${response.status}`);
-      }
-      const data = await response.json();
+      const data = await getRecentUploads();
       
-      const apiData = data as { success: boolean; results: Game[] };
-      if (!apiData.success || !apiData.results || !Array.isArray(apiData.results)) {
+      if (!data.success || !data.results || !Array.isArray(data.results)) {
         cachedRecent = null;
         console.error('Invalid API response structure:', data);
         return NextResponse.json({ error: 'Invalid API response structure' }, { status: 500 });
       }
 
       // Clean titles
-      const results = apiData.results.map((game: Game) => ({
+      const results = data.results.map((game: Game) => ({
         ...game,
         originalTitle: game.title,
         title: cleanGameTitle(game.title)

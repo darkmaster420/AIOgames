@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
 import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
+import { getPostDetails } from '../../../../lib/gameapi';
 
 // GET: Get download links for a specific game or update
 export async function GET(req: NextRequest) {
@@ -163,41 +164,28 @@ export async function GET(req: NextRequest) {
         if (postId && siteType) {
           console.log(`Attempting to fetch download links from gameapi: postId=${postId}, siteType=${siteType}, source=${targetSource}, gameId=${game.gameId}`);
           
-          const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
-          const gameapiUrl = `${baseUrl}/post?id=${encodeURIComponent(postId)}&site=${encodeURIComponent(siteType)}`;
-          
-          const gameapiResponse = await fetch(gameapiUrl, {
-            headers: {
-              'User-Agent': 'AIOGames-Tracker/1.0'
-            }
-          });
-
-          if (gameapiResponse.ok) {
-            const gameapiData = await gameapiResponse.json();
+          const gameapiData = await getPostDetails(postId, siteType);
             
-            if (gameapiData.success && gameapiData.post && gameapiData.post.downloadLinks) {
-              downloadLinks = gameapiData.post.downloadLinks.map((link: {
-                service: string;
-                url: string;
-                type: string;
-              }) => ({
-                service: link.service,
-                url: link.url,
-                type: link.type
-              }));
-              
-              context = {
-                gameTitle: game.title,
-                currentVersion: context.currentVersion || 'Latest from gameapi',
-                type: `gameapi-fallback-${targetSource}`
-              };
-              
-              console.log(`Successfully fetched ${downloadLinks.length} download links from gameapi (source: ${targetSource})`);
-            } else {
-              console.log(`gameapi response: success=${gameapiData.success}, has post=${!!gameapiData.post}, has downloadLinks=${!!gameapiData.post?.downloadLinks}`);
-            }
+          if (gameapiData.success && gameapiData.post && gameapiData.post.downloadLinks) {
+            downloadLinks = gameapiData.post.downloadLinks.map((link: {
+              service: string;
+              url: string;
+              type: string;
+            }) => ({
+              service: link.service,
+              url: link.url,
+              type: link.type
+            }));
+            
+            context = {
+              gameTitle: game.title,
+              currentVersion: context.currentVersion || 'Latest from gameapi',
+              type: `gameapi-fallback-${targetSource}`
+            };
+            
+            console.log(`Successfully fetched ${downloadLinks.length} download links from gameapi (source: ${targetSource})`);
           } else {
-            console.log(`gameapi response not ok: ${gameapiResponse.status} ${gameapiResponse.statusText}`);
+            console.log(`gameapi response: success=${gameapiData.success}, has post=${!!gameapiData.post}, has downloadLinks=${!!gameapiData.post?.downloadLinks}`);
           }
         } else {
           console.log(`Could not extract postId and siteType. gameId=${game.gameId}, gameLink=${game.gameLink}`);

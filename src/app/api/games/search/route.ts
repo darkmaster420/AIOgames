@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cleanGameTitle } from '../../../../utils/steamApi';
+import { searchGames } from '../../../../lib/gameapi';
 
 interface ApiGame {
   id: string;
@@ -55,20 +56,8 @@ export async function GET(request: NextRequest) {
       console.log(`[Search] Cache MISS for "${search}" (site: ${site}) - fetching from API`);
     }
 
-    // Build query parameters for the external API - it supports site filtering for search
-    const queryParams = new URLSearchParams({ search });
-    if (site && site !== 'all') {
-      queryParams.set('site', site);
-    }
-    
-    const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
-    const response = await fetch(`${baseUrl}/?${queryParams}`);
-    
-    if (!response.ok) {
-      throw new Error(`API request failed: ${response.status}`);
-    }
-    
-    const data = await response.json();
+    // Call gameapi directly (integrated module)
+    const data = await searchGames(search, site && site !== 'all' ? site : undefined);
     
     // Extract the results array from the API response structure
     if (data.success && data.results && Array.isArray(data.results)) {

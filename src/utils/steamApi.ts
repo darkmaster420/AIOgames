@@ -716,7 +716,7 @@ export function cleanGameTitle(title: string): string {
     .replace(/\b(season pass|deluxe content|bonus content|soundtrack included)\b/gi, '')
     .replace(/\b(psn\s*bonus|playstation\s*bonus|steam\s*bonus|epic\s*bonus|gog\s*bonus)\b/gi, '') // Platform bonuses
     .replace(/\b(pre-?order\s*bonus|preorder\s*bonus|pre-?purchase\s*bonus)\b/gi, '') // Pre-order bonuses
-    .replace(/\bdlc\b/gi, '') // Remove standalone DLC tag
+    .replace(/\bdlcs?\b/gi, '') // Remove standalone DLC/DLCs tag
     .replace(/\b(expansion pack|expansion|add-on content|add-on|addon|content pack|character pack)\b/gi, "") // Additional content indicators
     
     // Remove installation and format tags
@@ -751,7 +751,7 @@ export function cleanGameTitle(title: string): string {
     .replace(/v\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?(?:-[A-Z0-9]+)?/gi, '') // v1.2.3, v1.2.3c, v1.2.3f12, v1.33.a-CODEX
     .replace(/\bversion\s*\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?/gi, '') // version 1.2.3, version 1.2.3c, version 1.2.3f12
     .replace(/\bver\.?\s*\d+(?:\.\d+)*(?:\.[a-z]\d*|[a-z]\d*)?/gi, '') // ver 1.2, ver. 1.2.a, ver 1.2.3f12
-    .replace(/\bbuild\s*#?\d+/gi, '') // build 20035145, build #123
+    .replace(/\bbuild[-\s]*#?\d+/gi, '') // build 20035145, build #123, build-22742632
     .replace(/\bb\d{4,}/gi, '') // b20035145 (build numbers)
     .replace(/\bupdate\s*\d+(\.\d+)*/gi, '') // update 1.5
     .replace(/\brev\s*\d+/gi, '') // rev 123, revision numbers
@@ -764,6 +764,11 @@ export function cleanGameTitle(title: string): string {
     .replace(/\(20\d{2}\)/g, '') // (2025)
     .replace(/\[20\d{2}\]/g, '') // [2024]
     
+    // Remove bracketed/parenthetical content BEFORE + removal
+    // so entries like [v1.0.1/Build-22742632+2 DLCs] are removed as a whole unit
+    .replace(/\[[^\]]*\]/g, '')    
+    .replace(/\([^)]*\)/g, '')     
+    
     // Remove + symbols and surrounding content more aggressively
     .replace(/\s*\+\s*[^+]*$/gi, '') // Remove everything after the first + symbol
     .replace(/\s*\+\s*/g, ' ') // Replace remaining + with spaces
@@ -773,11 +778,7 @@ export function cleanGameTitle(title: string): string {
     .replace(/-[A-Z0-9]{3,}\s/gi, ' ') // Scene groups in middle
     .replace(/\b[A-Z0-9]{3,}-$/gi, '') // Alternative scene group format
     .replace(/\[(CODEX|PLAZA|SKIDROW|EMPRESS|FITGIRL|DODI|RUNE|TENOKE|CPY|ALI213|3DM|RELOADED|RAZOR1911|PROPHET|HOODLUM|FAIRLIGHT|SIMPLEX|DARKZER0|CHRONOS|FLT|UNLEASHED|DEVIANCE|VITALITY|OUTLAWS|TINYISO)\]/gi, '') // Bracketed scene groups
-    .replace(/\([A-Z0-9]{3,}\)/gi, '') // Parenthetical scene groups
-    
-    // Remove bracketed/parenthetical content (after year removal to avoid conflicts)
-    .replace(/\[[^\]]*\]/g, '')    
-    .replace(/\([^)]*\)/g, '')     
+    .replace(/\([A-Z0-9]{3,}\)/gi, '') // Parenthetical scene groups     
     
     // Remove trademark symbols
     .replace(/[®™©]/g, '')
@@ -927,7 +928,7 @@ export function cleanGameTitlePreserveEdition(title: string): string {
     // Remove DLC and content indicators  
     .replace(/\b(all dlc|with dlc|dlc included|\+\s*dlc|dlc pack)\b/gi, '')
     .replace(/\b(season pass|deluxe content|bonus content|soundtrack included)\b/gi, '')
-    .replace(/\bdlc\b/gi, '') // Remove standalone DLC tag
+    .replace(/\bdlcs?\b/gi, '') // Remove standalone DLC/DLCs tag
     .replace(/\b(expansion pack|expansion|add-on content|add-on|addon|content pack|character pack)\b/gi, "") // Additional content indicators
     
     // Remove installation and format tags
@@ -973,7 +974,7 @@ export function cleanGameTitlePreserveEdition(title: string): string {
     .replace(/v\d+\.\d+[a-z]?\d*/gi, '') // v1.2, v1.2f12 etc
     .replace(/\bversion\s*\d+(\.\d+)*[a-z]?\d*/gi, '') // version 1.2.3, version 1.2.3f12
     .replace(/\bver\.?\s*\d+(\.\d+)*[a-z]?\d*/gi, '') // ver 1.2, ver 1.2.3f12
-    .replace(/\bbuild\s*\d+/gi, '') // build 20035145
+    .replace(/\bbuild[-\s]*#?\d+/gi, '') // build 20035145, build-22742632
     .replace(/\bb\d{4,}/gi, '') // b20035145 (build numbers)
     .replace(/\bupdate\s*\d+(\.\d+)*/gi, '') // update 1.5
     
@@ -986,13 +987,13 @@ export function cleanGameTitlePreserveEdition(title: string): string {
     .replace(/\(20\d{2}\)/g, '') // (2025)
     .replace(/\[20\d{2}\]/g, '') // [2024]
     
-    // Remove scene groups
-    .replace(/-[A-Z0-9]{3,}$/gi, '') // Scene groups at end like -RUNE, -TENOKE
-    .replace(/-[A-Z0-9]{3,}\s/gi, ' ') // Scene groups in middle
-    
-    // Remove bracketed/parenthetical content
+    // Remove bracketed/parenthetical content BEFORE scene groups and + removal
     .replace(/\[[^\]]*\]/g, '')    
     .replace(/\([^)]*\)/g, '')     
+    
+    // Remove scene groups
+    .replace(/-[A-Z0-9]{3,}$/gi, '') // Scene groups at end like -RUNE, -TENOKE
+    .replace(/-[A-Z0-9]{3,}\s/gi, ' ') // Scene groups in middle     
     
     // Remove trademark symbols
     .replace(/[®™©]/g, '')

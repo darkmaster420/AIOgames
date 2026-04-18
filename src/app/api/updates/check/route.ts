@@ -7,6 +7,7 @@ import { detectSequel } from '../../../../utils/sequelDetection';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
 import { cleanGameTitle, decodeHtmlEntities, extractReleaseGroup, is0xdeadcodeRelease, isOnlineFixRelease, resolveComparableVersionData, resolvePubTimestampFromBuild, resolvePubTimestampFromVersion } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
+import { getPostDetails, getRecentUploads, clearGameApiCache } from '../../../../lib/gameapi';
 
 import { calculateGameSimilarity } from '../../../../utils/titleMatching';
 
@@ -15,7 +16,7 @@ interface GameSearchResult {
   title: string;
   link: string;
   date?: string;
-  image?: string;
+  image?: string | null;
   description?: string;
   source: string;
   downloadLinks?: Array<{
@@ -50,8 +51,6 @@ interface EnhancedMatch {
 // Helper function to fetch full download links from GameAPI
 async function fetchDownloadLinks(game: GameSearchResult): Promise<Array<{ service: string; url: string; type: string }>> {
   try {
-    const gameApiUrl = process.env.GAME_API_URL || 'https://gameapi.iforgor.cc';
-    
     // Extract the original ID and site type from the composite ID
     // Format: "siteType_originalId" (e.g., "skidrow_518912")
     const [siteType, originalId] = game.id.split('_');
@@ -61,21 +60,9 @@ async function fetchDownloadLinks(game: GameSearchResult): Promise<Array<{ servi
       return [];
     }
     
-    const postUrl = `${gameApiUrl}/post?id=${originalId}&site=${siteType}`;
-    logger.debug(`Fetching download links from: ${postUrl}`);
+    logger.debug(`Fetching download links for: ${siteType}/${originalId}`);
     
-    const response = await fetch(postUrl, {
-      headers: {
-        'User-Agent': 'AIOgames-Tracker/1.0'
-      }
-    });
-    
-    if (!response.ok) {
-      logger.warn(`Failed to fetch post details: ${response.status}`);
-      return [];
-    }
-    
-    const data = await response.json();
+    const data = await getPostDetails(originalId, siteType);
     
     if (data.success && data.post && data.post.downloadLinks) {
       logger.info(`Fetched ${data.post.downloadLinks.length} download links for ${game.title}`);
@@ -751,48 +738,31 @@ export async function POST(request: Request) {
 
     // First clear the cache to get fresh results
   logger.debug('Clearing game API cache before fetch');
-    const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
-    
-    try {
-      const clearCacheResponse = await fetch(`${baseUrl}/clearcache`, {
-        method: 'POST'
-      });
-      if (clearCacheResponse.ok) {
-  logger.debug('Cache cleared successfully');
-      } else {
-  logger.warn('Cache clear failed, continuing with potentially cached results');
-      }
-    } catch (cacheError) {
-  logger.warn('Cache clear error, continuing:', cacheError instanceof Error ? cacheError.message : 'Unknown error');
-    }
+    clearGameApiCache();
+    logger.debug('Cache cleared successfully');
 
     // Fetch recent games from the API (same as homepage)
   logger.info('Fetching recent games from feed');
     let recentGames: GameSearchResult[] = [];
     
     try {
-      const recentResponse = await fetch(`${baseUrl}/recent?limit=100`);
-      if (recentResponse.ok) {
-        const recentData = await recentResponse.json();
-        recentGames = recentData.results || [];
+      const recentData = await getRecentUploads();
+      recentGames = recentData.results || [];
         
-        // Filter out repacks if user preference is set
-        if (releaseGroupPreferences.avoidRepacks) {
-          const originalCount = recentGames.length;
-          recentGames = recentGames.filter((game: GameSearchResult) => {
-            const title = game.title.toLowerCase();
-            return !title.includes('repack') && !title.includes('-repack');
-          });
-          const filtered = originalCount - recentGames.length;
-          if (filtered > 0) {
-            logger.info(`Filtered out ${filtered} repack(s) based on user preference`);
-          }
+      // Filter out repacks if user preference is set
+      if (releaseGroupPreferences.avoidRepacks) {
+        const originalCount = recentGames.length;
+        recentGames = recentGames.filter((game: GameSearchResult) => {
+          const title = game.title.toLowerCase();
+          return !title.includes('repack') && !title.includes('-repack');
+        });
+        const filtered = originalCount - recentGames.length;
+        if (filtered > 0) {
+          logger.info(`Filtered out ${filtered} repack(s) based on user preference`);
         }
-        
-        logger.info(`Retrieved ${recentGames.length} recent games from feed`);
-      } else {
-        throw new Error(`Recent API failed: ${recentResponse.status}`);
       }
+        
+      logger.info(`Retrieved ${recentGames.length} recent games from feed`);
     } catch (fetchError) {
   logger.error('Failed to fetch recent games:', fetchError);
       return NextResponse.json({
@@ -961,7 +931,7 @@ export async function POST(request: Request) {
                             gameTitle: cleanedSequelTitle,
                             version: versionString,
                             gameLink: recentGame.link,
-                            imageUrl: recentGame.image,
+                            imageUrl: recentGame.image ?? undefined,
                             updateType: 'update',
                             downloadLinks: downloadLinks
                           });
@@ -1020,7 +990,7 @@ export async function POST(request: Request) {
                           gameTitle: `${game.title} (Sequel: ${cleanedSequelTitle})`,
                           version: versionString,
                           gameLink: recentGame.link,
-                          imageUrl: recentGame.image,
+                          imageUrl: recentGame.image ?? undefined,
                           updateType: 'sequel'
                         });
                         await sendUpdateNotification(game.userId.toString(), notificationData);
@@ -1627,7 +1597,7 @@ export async function POST(request: Request) {
                       gameTitle: game.title,
                       version: versionString,
                       gameLink: bestMatch.link,
-                      imageUrl: bestMatch.image,
+                      imageUrl: bestMatch.image ?? undefined,
                       updateType: 'update',
                       downloadLinks: downloadLinks
                     });

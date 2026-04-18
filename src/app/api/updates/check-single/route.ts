@@ -7,6 +7,7 @@ import { detectSequel } from '../../../../utils/sequelDetection';
 import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities, resolveComparableVersionData, resolvePubTimestampFromBuild, resolvePubTimestampFromVersion } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
+import { searchGames, getRecentUploads } from '../../../../lib/gameapi';
 
 import { calculateGameSimilarity } from '../../../../utils/titleMatching';
 
@@ -15,7 +16,7 @@ interface GameSearchResult {
   title: string;
   link: string;
   date?: string;
-  image?: string;
+  image?: string | null;
   description?: string;
   source: string;
   downloadLinks?: Array<{
@@ -799,33 +800,23 @@ export async function POST(request: Request) {
 
     logger.debug(`🔍 Searching for variants: ${searchVariants.map(v => `"${v}"`).join(', ')} (steam="${game.steamName || 'none'}", title="${game.title}")`);
 
-    // Use the same search API that the main search uses
-    const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
+    // Use the integrated gameapi module for search
     const mergedResults: GameSearchResult[] = [];
 
     // Fetch title-based search results AND the recent-uploads feed in parallel.
-    // The search endpoint has a 1-hour Cloudflare cache: if a post was published after
+    // The search endpoint has an in-memory cache: if a post was published after
     // the cache was last populated, it won't appear in search results. The recent-uploads
-    // feed is refreshed much more frequently (stale-while-revalidate) so it catches new
-    // posts that haven't yet made it into the search cache.
+    // feed catches new posts that haven't yet made it into the search cache.
     const [searchResponses, recentResponse] = await Promise.allSettled([
       Promise.all(
         searchVariants.map(variant =>
-          fetch(`${baseUrl}/?search=${encodeURIComponent(variant)}`)
-            .then(async r => {
-              if (!r.ok) { logger.warn(`Search API failed for "${variant}": ${r.status}`); return null; }
-              const d = await r.json();
-              return (d.success && Array.isArray(d.results)) ? d.results as GameSearchResult[] : null;
-            })
-            .catch(e => { logger.warn(`Search fetch error for "${variant}":`, e); return null; })
+          searchGames(variant)
+            .then(d => (d.success && Array.isArray(d.results)) ? d.results as GameSearchResult[] : null)
+            .catch(e => { logger.warn(`Search error for "${variant}":`, e); return null; })
         )
       ),
-      fetch(`${baseUrl}/recent`)
-        .then(async r => {
-          if (!r.ok) return null;
-          const d = await r.json();
-          return (d.success && Array.isArray(d.results)) ? d.results as GameSearchResult[] : null;
-        })
+      getRecentUploads()
+        .then(d => (d.success && Array.isArray(d.results)) ? d.results as GameSearchResult[] : null)
         .catch(e => { logger.warn('Recent-uploads fetch error:', e); return null; })
     ]);
 
@@ -1306,7 +1297,7 @@ export async function POST(request: Request) {
                   version: decodedTitle,
                   updateType: 'update', // Always 'update' for version updates
                   gameLink: result.link,
-                  imageUrl: result.image,
+                  imageUrl: result.image ?? undefined,
                   downloadLinks: result.downloadLinks,
                   previousVersion: game.lastKnownVersion || game.title
                 });
@@ -1369,7 +1360,7 @@ export async function POST(request: Request) {
               const notificationData = createUpdateNotificationData({
                 gameTitle: game.title,
                 gameLink: result.link,
-                imageUrl: result.image,
+                imageUrl: result.image ?? undefined,
                 updateType: 'sequel'
               });
               

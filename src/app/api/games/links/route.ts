@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getPostDetails } from '../../../../lib/gameapi';
 
 // In-memory cache for gameapi download link responses
 const linksCache = new Map<string, { data: unknown; timestamp: number }>();
@@ -30,26 +31,9 @@ export async function GET(req: NextRequest) {
 
       // Fetch download links from the gameapi using the /post endpoint
       // postId should be the originalId (numeric WordPress post ID) from the gameapi
-      const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
-      const apiUrl = `${baseUrl}/post?id=${encodeURIComponent(postId)}&site=${encodeURIComponent(siteType)}`;
+      console.log(`Fetching download links for: ${siteType}/${postId}`);
       
-      console.log(`Fetching download links from: ${apiUrl}`);
-      
-      const response = await fetch(apiUrl, {
-        headers: {
-          'User-Agent': 'AIOGames-Tracker/1.0'
-        }
-      });
-
-      if (!response.ok) {
-        console.error(`GameAPI returned ${response.status}: ${response.statusText}`);
-        return NextResponse.json(
-          { error: `Failed to fetch download links from gameapi: ${response.status}` },
-          { status: response.status }
-        );
-      }
-
-      const data = await response.json();
+      const data = await getPostDetails(postId, siteType);
 
       if (!data.success) {
         console.error('GameAPI returned error:', data.error);

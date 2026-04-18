@@ -22,9 +22,12 @@ services:
     #  - "${PORT:-3000}:3000"
     environment:
       - NODE_ENV=production
+      - FLARESOLVERR_URL=http://flaresolverr:8191/v1
     env_file: 
       - stack.env  # stack.env or .env
       #- .env
+    depends_on:
+      - flaresolverr
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
@@ -32,3 +35,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+
+  # FlareSolverr - Cloudflare bypass for skidrow/steamrip
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    environment:
+      - LOG_LEVEL=info
+      - TZ=UTC
+    restart: unless-stopped

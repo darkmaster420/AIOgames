@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import logger from '../../../../utils/logger';
+import { clearGameApiCache } from '../../../../lib/gameapi';
 
 // Import the cache clearing function
 async function clearLocalCache() {
@@ -20,25 +21,13 @@ export async function GET() {
   try {
     const startTime = Date.now();
     logger.info('🔥 Cache warming started');
-
-    const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
     
     // Clear local Next.js cache first
     await clearLocalCache();
     
-    // Clear GameAPI cache
-    try {
-      const clearCacheResponse = await fetch(`${baseUrl}/clearcache`, {
-        method: 'POST'
-      });
-      if (clearCacheResponse.ok) {
-        logger.info('🗑️ GameAPI cache cleared successfully');
-      } else {
-        logger.warn('⚠️ GameAPI cache clear failed, continuing anyway');
-      }
-    } catch (cacheError) {
-      logger.warn('⚠️ GameAPI cache clear error:', cacheError instanceof Error ? cacheError.message : 'Unknown error');
-    }
+    // Clear GameAPI in-memory search cache
+    clearGameApiCache();
+    logger.info('🗑️ GameAPI cache cleared successfully');
 
     // Warm the in-memory cache by hitting /api/games/recent directly
     // This populates the actual cache that serves homepage requests

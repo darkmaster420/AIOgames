@@ -9,6 +9,7 @@ import { analyzeGameTitle } from '../../../../utils/versionDetection';
 import { searchIGDB, type IGDBSearchResult } from '../../../../utils/igdb';
 import logger from '../../../../utils/logger';
 import { rateLimit, validateInput, schemas } from '../../../../utils/validation';
+import { searchGames } from '../../../../lib/gameapi';
 
 // Helper function to calculate similarity between two strings
 function calculateSimilarity(str1: string, str2: string): number {
@@ -112,20 +113,9 @@ export async function POST(req: NextRequest) {
 
     logger.debug(`Custom game add - avoidRepacks: ${releaseGroupPreferences.avoidRepacks}`);
 
-    // Search for the game using the existing search API
+    // Search for the game using the integrated gameapi module
     try {
-      const baseUrl = process.env.GAME_API_URL || 'https://gameapi.a7a8524.workers.dev';
-      const searchUrl = `${baseUrl}/?search=${encodeURIComponent(trimmedGameName)}`;
-      const searchResponse = await fetch(searchUrl);
-
-      if (!searchResponse.ok) {
-        return NextResponse.json(
-          { error: 'Failed to search for game' },
-          { status: 503 }
-        );
-      }
-
-      const searchData = await searchResponse.json();
+      const searchData = await searchGames(trimmedGameName);
 
       let bestMatch = null;
       let isFromIGDB = false;
@@ -172,7 +162,7 @@ export async function POST(req: NextRequest) {
             ...game,
             similarity,
             hasVersion: versionDetection.found || hasBuild,
-            detectedVersion: versionDetection.version
+            detectedVersion: versionDetection.version ?? null
           };
         });
 
@@ -484,7 +474,7 @@ export async function POST(req: NextRequest) {
           title: string;
           source?: string;
           siteType?: string;
-          image?: string;
+          image?: string | null;
         }) => ({
           id: game.id,
           title: game.title,
