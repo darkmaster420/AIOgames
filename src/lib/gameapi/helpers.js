@@ -30,6 +30,13 @@ let skidrowCookie = {
   expires_at: 0
 };
 
+let dodiCookie = {
+  cf_clearance: null,
+  cookies: [],
+  userAgent: null,
+  expires_at: 0
+};
+
 const SKIDROW_COOLDOWN_MS = Math.max(30000, parseInt(process.env.SKIDROW_COOLDOWN_MS || '300000', 10) || 300000);
 let skidrowCircuit = {
   cooldownUntil: 0,
@@ -607,6 +614,96 @@ export async function getValidSkidrowCookie() {
   return skidrowCookie;
 }
 
+// FlareSolverr cookie management for DODI Repacks
+export async function getFreshDodiCookie() {
+  console.log('Getting fresh cf_clearance cookie for DODI Repacks');
+
+  try {
+    const flaresolverrUrl = process.env.FLARESOLVERR_URL;
+    if (!flaresolverrUrl) {
+      throw new Error('FLARESOLVERR_URL environment variable is required for DODI Repacks');
+    }
+
+    const attempts = Math.max(1, parseInt(process.env.FLARE_RETRIES || '1', 10) || 1);
+    const timeoutMs = Math.min(25000, parseInt(process.env.FLARE_TIMEOUT_MS || DEFAULT_FLARE_TIMEOUT_MS, 10) || DEFAULT_FLARE_TIMEOUT_MS);
+
+    const response = await retryableFetch(flaresolverrUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        cmd: 'request.get',
+        url: 'https://dodi-repacks.site/wp-json/wp/v2/posts',
+        session: 'dodirepacks',
+        maxTimeout: timeoutMs
+      })
+    }, attempts, timeoutMs);
+
+    if (!response.ok) {
+      throw new Error(`FlareSolverr request failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (data.status !== 'ok') {
+      throw new Error(`FlareSolverr error: ${data.message}`);
+    }
+
+    console.log(`FlareSolverr response for DODI: status=${data.status}, cookies=${data.solution?.cookies?.length || 0}`);
+
+    let cf_clearance = null;
+    let expires_at = Date.now() + (4 * 60 * 60 * 1000);
+    const allCookies = [];
+
+    if (data.solution.cookies && Array.isArray(data.solution.cookies)) {
+      data.solution.cookies.forEach(cookie => {
+        allCookies.push(`${cookie.name}=${cookie.value}`);
+        if (cookie.name === 'cf_clearance') {
+          cf_clearance = cookie.value;
+          if (cookie.expires) {
+            expires_at = new Date(cookie.expires * 1000).getTime();
+          }
+        }
+      });
+
+      if (cf_clearance) {
+        console.log('Successfully obtained cf_clearance cookie for DODI:', cf_clearance.substring(0, 20) + '...');
+      }
+    }
+
+    if (!cf_clearance && allCookies.length > 0) {
+      console.log('No cf_clearance cookie found for DODI, but using other cookies from FlareSolverr');
+    } else if (!cf_clearance && allCookies.length === 0) {
+      console.log('No cookies returned from FlareSolverr for DODI - Cloudflare protection may not be active');
+      cf_clearance = 'none';
+    } else if (!cf_clearance) {
+      throw new Error('Failed to extract cf_clearance cookie from FlareSolverr response for DODI');
+    }
+
+    const userAgent = data.solution.userAgent || 'GameSearch-API-v2/2.0';
+
+    dodiCookie = {
+      cf_clearance: cf_clearance,
+      cookies: allCookies,
+      userAgent: userAgent,
+      expires_at: expires_at
+    };
+
+    return dodiCookie;
+  } catch (error) {
+    console.error('Error getting fresh DODI cookie:', error);
+    throw error;
+  }
+}
+
+export async function getValidDodiCookie() {
+  if (!dodiCookie.cf_clearance || Date.now() >= dodiCookie.expires_at) {
+    return await getFreshDodiCookie();
+  }
+  return dodiCookie;
+}
+
 // Fetch a URL via FlareSolverr and return the response body directly
 export async function fetchViaFlaresolverr(url, session = 'default') {
   const flaresolverrUrl = process.env.FLARESOLVERR_URL;
@@ -645,14 +742,18 @@ export async function fetchViaFlaresolverr(url, session = 'default') {
     console.log(`FlareSolverr returned ${body.length} chars, status ${status} for ${url}`);
 
     // Update cookies from the solution while we're at it
-    if (data.solution.cookies?.length && session === 'skidrowreloaded') {
+    if (data.solution.cookies?.length && (session === 'skidrowreloaded' || session === 'dodirepacks' || session === 'dodirepacks-fallback')) {
       const allCookies = data.solution.cookies.map(c => `${c.name}=${c.value}`);
       let cf = null;
       let exp = Date.now() + (4 * 60 * 60 * 1000);
       for (const c of data.solution.cookies) {
         if (c.name === 'cf_clearance') { cf = c.value; if (c.expires) exp = new Date(c.expires * 1000).getTime(); }
       }
-      skidrowCookie = { cf_clearance: cf || 'none', cookies: allCookies, userAgent: data.solution.userAgent || null, expires_at: exp };
+      if (session === 'skidrowreloaded') {
+        skidrowCookie = { cf_clearance: cf || 'none', cookies: allCookies, userAgent: data.solution.userAgent || null, expires_at: exp };
+      } else {
+        dodiCookie = { cf_clearance: cf || 'none', cookies: allCookies, userAgent: data.solution.userAgent || null, expires_at: exp };
+      }
     }
 
     return new Response(body, {
@@ -850,6 +951,29 @@ export async function fetchDodi(url, isPageRequest = false) {
         return fallbackResponse;
       }
     }
+    // Try cookie-based fetch as last resort
+    if (dodiCookie.cf_clearance && Date.now() < dodiCookie.expires_at) {
+      const cookieString = dodiCookie.cookies.join('; ');
+      const cookieUserAgent = dodiCookie.userAgent || 'GameSearch-API-v2/2.0';
+      try {
+        const cookieResponse = await fetch(url, {
+          headers: {
+            'User-Agent': cookieUserAgent,
+            'Cookie': cookieString,
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://dodi-repacks.site/',
+            'Origin': 'https://dodi-repacks.site'
+          }
+        });
+        if (!hasCloudflareProtection(cookieResponse) && cookieResponse.ok) {
+          resetDodiCircuit();
+          return cookieResponse;
+        }
+      } catch (e) {
+        console.warn('DODI cookie fetch in circuit-open path failed:', e.message);
+      }
+    }
     return isPageRequest ? null : new Response('[]', {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
@@ -896,7 +1020,7 @@ export async function fetchDodi(url, isPageRequest = false) {
         return flareResponse;
       }
 
-      // Fallback: try the alternate domain via FlareSolverr
+      // Fallback 1: try the alternate domain via FlareSolverr
       const fallbackUrl = url.replace('dodi-repacks.download', 'dodi-repacks.site');
       if (fallbackUrl !== url) {
         console.log('Primary DODI domain failed, trying fallback domain via FlareSolverr...');
@@ -905,6 +1029,81 @@ export async function fetchDodi(url, isPageRequest = false) {
           resetDodiCircuit();
           return fallbackResponse;
         }
+      }
+
+      // Fallback 2: try cookie-based fetch (like skidrow)
+      console.log('FlareSolverr direct fetch failed for DODI, falling back to cookie approach');
+      try {
+        const cookie = await getValidDodiCookie();
+
+        if (cookie.cf_clearance !== 'none' || cookie.cookies.length > 0) {
+          const cookieUserAgent = cookie.userAgent || userAgent;
+          const cookieString = cookie.cookies.join('; ');
+
+          // Try primary domain with cookies
+          let cookieResponse = await fetch(url, {
+            headers: {
+              'User-Agent': cookieUserAgent,
+              'Cookie': cookieString,
+              'Accept': 'application/json, text/plain, */*',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Referer': 'https://dodi-repacks.site/',
+              'Origin': 'https://dodi-repacks.site'
+            }
+          });
+
+          let stillBlocked = hasCloudflareProtection(cookieResponse);
+          console.log(`After DODI cookie fetch: status=${cookieResponse.status}, stillBlocked=${stillBlocked}, cookies used=${cookie.cookies.length}`);
+
+          if (!stillBlocked && cookieResponse.ok && cookieResponse.headers.get('content-type')?.includes('text/html')) {
+            const text = await cookieResponse.text();
+            stillBlocked = hasCloudflareProtection(cookieResponse, text);
+            if (!stillBlocked) {
+              resetDodiCircuit();
+              return new Response(text, {
+                status: cookieResponse.status,
+                statusText: cookieResponse.statusText,
+                headers: cookieResponse.headers
+              });
+            }
+          } else if (!stillBlocked && cookieResponse.ok) {
+            resetDodiCircuit();
+            return cookieResponse;
+          }
+
+          // Try fallback domain with cookies
+          if (fallbackUrl !== url) {
+            cookieResponse = await fetch(fallbackUrl, {
+              headers: {
+                'User-Agent': cookieUserAgent,
+                'Cookie': cookieString,
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Referer': 'https://dodi-repacks.site/',
+                'Origin': 'https://dodi-repacks.site'
+              }
+            });
+
+            stillBlocked = hasCloudflareProtection(cookieResponse);
+            if (!stillBlocked && cookieResponse.ok && cookieResponse.headers.get('content-type')?.includes('text/html')) {
+              const text = await cookieResponse.text();
+              stillBlocked = hasCloudflareProtection(cookieResponse, text);
+              if (!stillBlocked) {
+                resetDodiCircuit();
+                return new Response(text, {
+                  status: cookieResponse.status,
+                  statusText: cookieResponse.statusText,
+                  headers: cookieResponse.headers
+                });
+              }
+            } else if (!stillBlocked && cookieResponse.ok) {
+              resetDodiCircuit();
+              return cookieResponse;
+            }
+          }
+        }
+      } catch (cookieError) {
+        console.warn('DODI cookie-based fetch failed:', cookieError.message);
       }
 
       // Everything failed

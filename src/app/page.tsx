@@ -711,31 +711,42 @@ function DashboardInner() {
                     onClick={() => {
                       setSiteFilter(site.value);
                       // Auto-apply: trigger filter immediately
-                      setTimeout(() => {
-                        // Use a micro-delay so state is committed
-                        if (searchQuery.trim()) {
-                          searchGames();
+                      // Use site.value directly (not stale siteFilter from closure)
+                      if (searchQuery.trim()) {
+                        const params = new URLSearchParams({ search: searchQuery });
+                        if (site.value !== 'all') params.set('site', site.value);
+                        if (refineText.trim()) params.set('refine', refineText);
+                        updateURL(searchQuery, site.value, refineText);
+                        setLoading(true);
+                        setError(null);
+                        fetch(`/api/games/search?${params}`)
+                          .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed')))
+                          .then(data => {
+                            setGames(data);
+                            setShowRefine(true);
+                          })
+                          .catch(err => { setError(err.message); setGames([]); })
+                          .finally(() => setLoading(false));
+                      } else {
+                        updateURL('', site.value);
+                        if (site.value === 'all' && recentGamesCache &&
+                            (Date.now() - recentGamesCache.timestamp) < CLIENT_CACHE_TTL) {
+                          setGames(recentGamesCache.data);
                         } else {
-                          updateURL('', site.value);
-                          if (site.value === 'all' && recentGamesCache &&
-                              (Date.now() - recentGamesCache.timestamp) < CLIENT_CACHE_TTL) {
-                            setGames(recentGamesCache.data);
-                          } else {
-                            setLoading(true);
-                            setError(null);
-                            const params = new URLSearchParams();
-                            if (site.value !== 'all') params.set('site', site.value);
-                            fetch(`/api/games/recent?${params}`)
-                              .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed')))
-                              .then(data => {
-                                setGames(data);
-                                if (site.value === 'all') setRecentGamesCache({ data, timestamp: Date.now() });
-                              })
-                              .catch(err => { setError(err.message); setGames([]); })
-                              .finally(() => setLoading(false));
-                          }
+                          setLoading(true);
+                          setError(null);
+                          const params = new URLSearchParams();
+                          if (site.value !== 'all') params.set('site', site.value);
+                          fetch(`/api/games/recent?${params}`)
+                            .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed')))
+                            .then(data => {
+                              setGames(data);
+                              if (site.value === 'all') setRecentGamesCache({ data, timestamp: Date.now() });
+                            })
+                            .catch(err => { setError(err.message); setGames([]); })
+                            .finally(() => setLoading(false));
                         }
-                      }, 0);
+                      }
                     }}
                     className={`px-3 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-all duration-150 border ${
                       siteFilter === site.value
