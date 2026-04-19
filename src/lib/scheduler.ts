@@ -352,9 +352,15 @@ class UpdateScheduler {
         ? process.env.NEXT_PUBLIC_APP_URL || 'http://127.0.0.1:3000'
         : `http://127.0.0.1:${process.env.PORT || 3000}`;
       
+      // 2-minute timeout — cache warming scrapes multiple sites and can be slow
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120_000);
+      
       const response = await fetch(`${baseUrl}/api/cache/warm`, {
-        method: 'GET'
+        method: 'GET',
+        signal: controller.signal
       });
+      clearTimeout(timeout);
 
       if (response.ok) {
         const contentType = response.headers.get('content-type');

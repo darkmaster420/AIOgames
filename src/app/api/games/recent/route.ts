@@ -3,6 +3,9 @@ import { cleanGameTitle } from '../../../../utils/steamApi';
 import { resolveIGDBImage } from '../../../../utils/igdb';
 import { getRecentUploads } from '../../../../lib/gameapi';
 
+// Allow up to 2 minutes for initial data fetch (scraping multiple sites via FlareSolverr)
+export const maxDuration = 120;
+
 // Simple in-memory cache — stores fully enriched results (with IGDB images)
 let cachedRecent: { results: Game[]; timestamp: number; siteKey: string } | null = null;
 const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours

@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import logger from '../../../../utils/logger';
 import { clearGameApiCache } from '../../../../lib/gameapi';
 
+// Allow up to 2 minutes for cache warming (scraping multiple sites is slow)
+export const maxDuration = 120;
+
 // Import the cache clearing function
 async function clearLocalCache() {
   try {
@@ -36,9 +39,15 @@ export async function GET() {
         ? process.env.NEXT_PUBLIC_APP_URL || 'http://127.0.0.1:3000'
         : `http://127.0.0.1:${process.env.PORT || 3000}`;
       
+      // 2-minute timeout — scraping multiple sites via FlareSolverr can be slow
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120_000);
+      
       const recentResponse = await fetch(`${internalBaseUrl}/api/games/recent`, {
-        cache: 'no-store'
+        cache: 'no-store',
+        signal: controller.signal
       });
+      clearTimeout(timeout);
       if (recentResponse.ok) {
         const recentData = await recentResponse.json();
         const gameCount = Array.isArray(recentData) ? recentData.length : 0;
