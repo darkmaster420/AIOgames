@@ -690,6 +690,8 @@ export function buildSteamSearchQueryVariants(query: string): string[] {
 export function cleanGameTitle(title: string): string {
   return title
     .toLowerCase()
+    // Remove DODI-style leading post number prefix (e.g. "2276- Sniper Elite 5")
+    .replace(/^\d+[-–—]\s*/, '')
     // Remove comprehensive piracy/release tags first - most common scene groups
     .replace(/\b(denuvoless|cracked|repack|fitgirl|dodi|empress|codex|skidrow|plaza|rune|tenoke|p2p)\b/gi, '')
     .replace(/\b(cpy|steampunks|ali213|3dm|reloaded|razor1911|prophet|hoodlum|fairlight)\b/gi, '')
@@ -912,6 +914,8 @@ export function calculateGamePriority(title: string, preferRepacks: boolean = fa
 export function cleanGameTitlePreserveEdition(title: string): string {
   return title
     .toLowerCase()
+    // Remove DODI-style leading post number prefix (e.g. "2276- Sniper Elite 5")
+    .replace(/^\d+[-–—]\s*/, '')
     // Remove comprehensive piracy/release tags first - most common scene groups
     .replace(/\b(denuvoless|cracked|repack|fitgirl|dodi|empress|codex|skidrow|plaza|rune|tenoke|p2p)\b/gi, '')
     .replace(/\b(cpy|steampunks|ali213|3dm|reloaded|razor1911|prophet|hoodlum|fairlight)\b/gi, '')
