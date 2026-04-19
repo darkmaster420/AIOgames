@@ -585,40 +585,44 @@ export default function TrackingDashboard() {
       if (!response.ok) throw new Error('Failed to load tracked games');
       const data = await response.json();
       
-      let games = data.games || [];
+      const games: TrackedGame[] = data.games || [];
       
-      // Fetch SteamDB updates for Steam-verified or GOG-verified games individually
-      if (games.length > 0) {
-        const steamVerifiedGames = games.filter((game: TrackedGame) => 
-          game.steamAppId && (game.steamVerified || game.gogVerified)
-        );
-        
-        if (steamVerifiedGames.length > 0) {
-          // Fetch SteamDB data for each game in parallel
-          const steamUpdatePromises = steamVerifiedGames.map(async (game: TrackedGame) => {
-            try {
-              const steamResponse = await fetch(`/api/steamdb?action=updates&appId=${game.steamAppId}`);
-              if (steamResponse.ok) {
-                const steamData = await steamResponse.json();
-                const updates = steamData.data?.updates || [];
-                if (updates.length > 0) {
-                  const latestUpdate = updates[0]; // Most recent update
-                  return {
-                    appId: game.steamAppId?.toString(),
-                    update: latestUpdate
-                  };
-                }
+      // Show games immediately — don't block on SteamDB
+      setTrackedGames(games);
+      setLoading(false);
+      
+      // Fetch SteamDB updates in the background for Steam/GOG-verified games
+      const steamVerifiedGames = games.filter((game: TrackedGame) => 
+        game.steamAppId && (game.steamVerified || game.gogVerified)
+      );
+      
+      if (steamVerifiedGames.length > 0) {
+        // Fetch SteamDB data for each game in parallel
+        const steamUpdatePromises = steamVerifiedGames.map(async (game: TrackedGame) => {
+          try {
+            const steamResponse = await fetch(`/api/steamdb?action=updates&appId=${game.steamAppId}`);
+            if (steamResponse.ok) {
+              const steamData = await steamResponse.json();
+              const updates = steamData.data?.updates || [];
+              if (updates.length > 0) {
+                const latestUpdate = updates[0];
+                return {
+                  appId: game.steamAppId?.toString(),
+                  update: latestUpdate
+                };
               }
-            } catch (error) {
-              console.warn(`Failed to fetch SteamDB for app ${game.steamAppId}:`, error);
             }
-            return null;
-          });
-          
-          const steamUpdates = (await Promise.all(steamUpdatePromises)).filter(Boolean);
-          
-          // Map SteamDB updates to games
-          games = games.map((game: TrackedGame) => {
+          } catch (error) {
+            console.warn(`Failed to fetch SteamDB for app ${game.steamAppId}:`, error);
+          }
+          return null;
+        });
+        
+        const steamUpdates = (await Promise.all(steamUpdatePromises)).filter(Boolean);
+        
+        if (steamUpdates.length > 0) {
+          // Merge SteamDB updates into the already-displayed games
+          setTrackedGames(prev => prev.map((game: TrackedGame) => {
             if (game.steamAppId && (game.steamVerified || game.gogVerified)) {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const steamData = steamUpdates.find((s: any) => 
@@ -628,12 +632,10 @@ export default function TrackingDashboard() {
               if (steamData?.update) {
                 const steamUpdate = steamData.update;
                 
-                // If Steam has no version but GOG does, use GOG version for comparison
                 if (!steamUpdate.version && game.gogVersion) {
                   steamUpdate.version = game.gogVersion;
                 }
                 
-                // Check if version is outdated
                 const versionCheck = checkIfVersionOutdated(game, steamUpdate);
                 
                 return {
@@ -652,14 +654,11 @@ export default function TrackingDashboard() {
               }
             }
             return game;
-          });
+          }));
         }
       }
-      
-      setTrackedGames(games);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
       setLoading(false);
     }
   }, [checkIfVersionOutdated]);

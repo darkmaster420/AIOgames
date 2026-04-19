@@ -536,13 +536,17 @@ export default function AdminDashboard() {
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                           Role
                         </label>
-                        <select
-                          name="role"
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                        >
-                          <option value="user">User</option>
-                          <option value="admin">Admin</option>
-                        </select>
+                        <div className="flex gap-1.5">
+                          {[['user', 'User'], ['admin', 'Admin']].map(([val, label]) => (
+                            <label
+                              key={val}
+                              className={`flex-1 text-center px-3 py-2 text-sm font-medium rounded-full border cursor-pointer transition-all duration-150 has-[:checked]:bg-blue-600 has-[:checked]:text-white has-[:checked]:border-blue-600 bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600`}
+                            >
+                              <input type="radio" name="role" value={val} defaultChecked={val === 'user'} className="sr-only" />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
                       </div>
                       <div className="flex items-end">
                         <button
@@ -626,33 +630,41 @@ export default function AdminDashboard() {
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         Source
                       </label>
-                      <select
-                        value={gamesFilter.source}
-                        onChange={(e) => handleGamesFilterChange('source', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                      >
-                        <option value="">All Sources</option>
-                        <option value="SkidrowReloaded">SkidrowReloaded</option>
-                        <option value="FreeGOGPCGames">FreeGOGPCGames</option>
-                        <option value="GameDrive">GameDrive</option>
-                        <option value="SteamRip">SteamRip</option>
-                        <option value="ReloadedSteam">ReloadedSteam</option>
-                        <option value="SteamUnderground">SteamUnderground</option>
-                      </select>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[['', 'All'], ['SkidrowReloaded', 'Skidrow'], ['FreeGOGPCGames', 'FreeGOG'], ['GameDrive', 'GameDrive'], ['SteamRip', 'SteamRip'], ['ReloadedSteam', 'Reloaded'], ['SteamUnderground', 'Underground']].map(([val, label]) => (
+                          <button
+                            key={val}
+                            onClick={() => handleGamesFilterChange('source', val)}
+                            className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-all duration-150 ${
+                              gamesFilter.source === val
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         Steam Verification
                       </label>
-                      <select
-                        value={gamesFilter.steamVerified}
-                        onChange={(e) => handleGamesFilterChange('steamVerified', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                      >
-                        <option value="">All Games</option>
-                        <option value="true">Steam Verified</option>
-                        <option value="false">Not Steam Verified</option>
-                      </select>
+                      <div className="flex gap-1.5">
+                        {[['', 'All'], ['true', 'Verified'], ['false', 'Unverified']].map(([val, label]) => (
+                          <button
+                            key={val}
+                            onClick={() => handleGamesFilterChange('steamVerified', val)}
+                            className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-all duration-150 ${
+                              gamesFilter.steamVerified === val
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>

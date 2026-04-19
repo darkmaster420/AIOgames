@@ -321,51 +321,6 @@ function DashboardInner() {
     loadTrackedGames();
   }, [loadTrackedGames]);
 
-    // Apply current filter with caching
-    const applyCurrentFilter = useCallback(async () => {
-      if (searchQuery.trim()) {
-        await searchGames();
-      } else {
-        // Update URL for site-only filtering
-        updateURL('', siteFilter);
-        
-        // For site filtering, check if we can use cached data and filter locally
-        if (siteFilter === 'all' && recentGamesCache && 
-            (Date.now() - recentGamesCache.timestamp) < CLIENT_CACHE_TTL) {
-          setGames(recentGamesCache.data);
-          return;
-        }
-
-        setLoading(true);
-        setError(null);
-        try {
-          const params = new URLSearchParams();
-          if (siteFilter !== 'all') {
-            params.set('site', siteFilter);
-          }
-          const response = await fetch(`/api/games/recent?${params}`);
-          if (!response.ok) {
-            throw new Error('Failed to fetch filtered games');
-          }
-          const data = await response.json();
-          setGames(data);
-          
-          // Cache the data if it's the full recent games (no site filter)
-          if (siteFilter === 'all') {
-            setRecentGamesCache({
-              data,
-              timestamp: Date.now()
-            });
-          }
-        } catch (err) {
-          setError(err instanceof Error ? err.message : 'Failed to fetch filtered games');
-          setGames([]);
-        } finally {
-          setLoading(false);
-        }
-      }
-    }, [searchQuery, siteFilter, searchGames, recentGamesCache, CLIENT_CACHE_TTL, updateURL]);
-
     const getTrackState = useCallback((game: Game): TrackState => {
       const cleaned = cleanGameTitle(game.title);
       const exactTracked = trackedGamesById.get(game.id);
@@ -744,51 +699,72 @@ function DashboardInner() {
                     Search: &ldquo;{searchQuery}&rdquo;
                   </span>
                 )}
-                {siteFilter !== 'all' && (
-                  <span className="px-2 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded-full">
-                    Site: {SITES.find(site => site.value === siteFilter)?.label || siteFilter}
-                  </span>
-                )}
               </div>
             )}
           </div>
-          <div className="flex flex-col gap-2">
-            <div className="flex flex-col sm:flex-row gap-2">
-              <select
-                value={siteFilter}
-                onChange={(e) => setSiteFilter(e.target.value)}
-                className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-              >
-                <option value="all">All Sites</option>
-                {SITES.map(site => (
-                  <option key={site.value} value={site.value}>{site.label}</option>
-                ))}
-              </select>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={(e) => { e.preventDefault(); applyCurrentFilter(); }}
-                  className="px-4 py-2 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors text-sm font-medium"
-                >
-                  Apply Filter
-                </button>
-                {(searchQuery || siteFilter !== 'all' || refineText) && (
+          <div className="flex items-center gap-2">
+            <div className="flex-1 overflow-x-auto pb-1 scrollbar-thin">
+              <div className="flex gap-1.5 min-w-max">
+                {[{ value: 'all', label: 'All Sites' }, ...SITES].map(site => (
                   <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setSearchQuery('');
-                      setSiteFilter('all');
-                      setRefineText('');
-                      setShowRefine(false);
-                      loadRecentGames();
-                      router.replace('/');
+                    key={site.value}
+                    onClick={() => {
+                      setSiteFilter(site.value);
+                      // Auto-apply: trigger filter immediately
+                      setTimeout(() => {
+                        // Use a micro-delay so state is committed
+                        if (searchQuery.trim()) {
+                          searchGames();
+                        } else {
+                          updateURL('', site.value);
+                          if (site.value === 'all' && recentGamesCache &&
+                              (Date.now() - recentGamesCache.timestamp) < CLIENT_CACHE_TTL) {
+                            setGames(recentGamesCache.data);
+                          } else {
+                            setLoading(true);
+                            setError(null);
+                            const params = new URLSearchParams();
+                            if (site.value !== 'all') params.set('site', site.value);
+                            fetch(`/api/games/recent?${params}`)
+                              .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed')))
+                              .then(data => {
+                                setGames(data);
+                                if (site.value === 'all') setRecentGamesCache({ data, timestamp: Date.now() });
+                              })
+                              .catch(err => { setError(err.message); setGames([]); })
+                              .finally(() => setLoading(false));
+                          }
+                        }
+                      }, 0);
                     }}
-                    className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
+                    className={`px-3 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-all duration-150 border ${
+                      siteFilter === site.value
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                        : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500'
+                    }`}
                   >
-                    Clear All
+                    {site.label}
                   </button>
-                )}
+                ))}
               </div>
             </div>
+            {(searchQuery || siteFilter !== 'all' || refineText) && (
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  setSearchQuery('');
+                  setSiteFilter('all');
+                  setRefineText('');
+                  setShowRefine(false);
+                  loadRecentGames();
+                  router.replace('/');
+                }}
+                className="shrink-0 px-3 py-1.5 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                title="Clear all filters"
+              >
+                ✕ Clear
+              </button>
+            )}
           </div>
         </div>
         {/* Error */}
