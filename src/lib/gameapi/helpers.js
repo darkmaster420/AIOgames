@@ -59,6 +59,36 @@ function resetSkidrowCircuit() {
   };
 }
 
+// DODI circuit breaker (same pattern as Skidrow)
+const DODI_COOLDOWN_MS = Math.max(30000, parseInt(process.env.DODI_COOLDOWN_MS || '300000', 10) || 300000);
+let dodiCircuit = {
+  cooldownUntil: 0,
+  failures: 0,
+  lastError: null,
+};
+
+function isDodiCircuitOpen() {
+  return Date.now() < dodiCircuit.cooldownUntil;
+}
+
+function noteDodiFailure(error) {
+  dodiCircuit.failures += 1;
+  dodiCircuit.lastError = String(error?.message || error || 'unknown error');
+  dodiCircuit.cooldownUntil = Date.now() + DODI_COOLDOWN_MS;
+  console.warn(`DODI circuit opened for ${Math.round(DODI_COOLDOWN_MS / 1000)}s after failure #${dodiCircuit.failures}: ${dodiCircuit.lastError}`);
+}
+
+function resetDodiCircuit() {
+  if (dodiCircuit.failures > 0 || dodiCircuit.cooldownUntil > 0) {
+    console.log('DODI circuit reset after successful response');
+  }
+  dodiCircuit = {
+    cooldownUntil: 0,
+    failures: 0,
+    lastError: null,
+  };
+}
+
 // Timeout and retry helpers
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -101,6 +131,7 @@ export const MAX_POSTS_PER_SITE = {
   'steamunderground': 40,
   'onlinefix': 40,
   'goggames': 50,
+  'dodi': 40,
   'default': 50
 };
 
@@ -145,6 +176,12 @@ export const SITE_CONFIGS = {
     baseUrl: 'https://gog-games.to/api/web/recent-torrents',
     type: 'goggames',
     name: 'GOG-Games'
+  },
+  'dodi': {
+    baseUrl: 'https://dodi-repacks.download/wp-json/wp/v2/posts',
+    fallbackBaseUrl: 'https://dodi-repacks.site/wp-json/wp/v2/posts',
+    type: 'dodi',
+    name: 'DODI-Repacks'
   }
 };
 
@@ -210,6 +247,16 @@ export function extractServiceName(url) {
     if (host.includes('hitfile')) return 'HitFile';
     if (host.includes('ufile')) return 'UFile';
     if (host.includes('clicknupload')) return 'ClicknUpload';
+    if (host.includes('up-4ever') || host.includes('up4ever')) return 'Up-4ever';
+    if (host.includes('dayuploads')) return 'DayUploads';
+    if (host.includes('dlupload')) return 'DLUpload';
+    if (host.includes('file-upload')) return 'File-Upload';
+    if (host.includes('filespayouts')) return 'FilesPayouts';
+    if (host.includes('swiftuploads')) return 'SwiftUploads';
+    if (host.includes('linkmix')) return 'LinkMix';
+    if (host.includes('pasteform') || host.includes('paste-form')) return 'PasteForm';
+    if (host.includes('file-me')) return 'FileMe';
+    if (host.includes('loot-link') || host.includes('lootdest') || host.includes('loot-links')) return 'LootLink';
     
     return host;
   } catch {
@@ -223,6 +270,8 @@ export function extractServiceName(url) {
     if (url.includes('hitfile')) return 'HitFile';
     if (url.includes('ufile')) return 'UFile';
     if (url.includes('clicknupload')) return 'ClicknUpload';
+    if (url.includes('swiftuploads')) return 'SwiftUploads';
+    if (url.includes('file-me')) return 'FileMe';
     return 'Unknown';
   }
 }
@@ -780,6 +829,113 @@ export async function fetchSkidrow(url, isPageRequest = false) {
   }
 }
 
+// DODI Repacks fetcher — CF-protected WordPress site, uses FlareSolverr
+// Primary: dodi-repacks.download, Fallback: dodi-repacks.site
+export async function fetchDodi(url, isPageRequest = false) {
+  if (isDodiCircuitOpen()) {
+    const remainingMs = dodiCircuit.cooldownUntil - Date.now();
+    console.warn(`DODI circuit open (${Math.max(0, Math.ceil(remainingMs / 1000))}s remaining), trying FlareSolverr direct`);
+    const flareResponse = await fetchViaFlaresolverr(url, 'dodirepacks');
+    if (flareResponse && flareResponse.ok) {
+      resetDodiCircuit();
+      return flareResponse;
+    }
+    // Try fallback domain
+    const fallbackUrl = url.replace('dodi-repacks.download', 'dodi-repacks.site');
+    if (fallbackUrl !== url) {
+      console.log('Trying DODI fallback domain...');
+      const fallbackResponse = await fetchViaFlaresolverr(fallbackUrl, 'dodirepacks-fallback');
+      if (fallbackResponse && fallbackResponse.ok) {
+        resetDodiCircuit();
+        return fallbackResponse;
+      }
+    }
+    return isPageRequest ? null : new Response('[]', {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  try {
+    const userAgent = isPageRequest ? 'GameSearch-API-v2-PageFetch/2.0' : 'GameSearch-API-v2/2.0';
+
+    // Try direct fetch first
+    let response = await fetch(url, {
+      headers: {
+        'User-Agent': userAgent,
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9'
+      }
+    });
+
+    let isCloudflare = hasCloudflareProtection(response);
+    console.log(`Initial DODI fetch of ${url}: status=${response.status}, CF detected=${isCloudflare}`);
+
+    if (!isCloudflare && response.ok && response.headers.get('content-type')?.includes('text/html')) {
+      const text = await response.text();
+      isCloudflare = hasCloudflareProtection(response, text);
+      if (!isCloudflare) {
+        return new Response(text, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers
+        });
+      }
+    } else if (!isCloudflare && response.ok) {
+      return response;
+    }
+
+    if (isCloudflare) {
+      console.log('Cloudflare protection detected on DODI, trying FlareSolverr direct fetch');
+
+      // Primary: FlareSolverr on primary domain
+      const flareResponse = await fetchViaFlaresolverr(url, 'dodirepacks');
+      if (flareResponse && flareResponse.ok) {
+        // Store DODI cookies from FlareSolverr response
+        resetDodiCircuit();
+        return flareResponse;
+      }
+
+      // Fallback: try the alternate domain via FlareSolverr
+      const fallbackUrl = url.replace('dodi-repacks.download', 'dodi-repacks.site');
+      if (fallbackUrl !== url) {
+        console.log('Primary DODI domain failed, trying fallback domain via FlareSolverr...');
+        const fallbackResponse = await fetchViaFlaresolverr(fallbackUrl, 'dodirepacks-fallback');
+        if (fallbackResponse && fallbackResponse.ok) {
+          resetDodiCircuit();
+          return fallbackResponse;
+        }
+      }
+
+      // Everything failed
+      if (isPageRequest) {
+        console.warn('Failed to fetch DODI page (all methods exhausted)');
+        return null;
+      } else {
+        throw new Error('DODI-Repacks: all fetch methods failed (CF blocking)');
+      }
+    } else {
+      if (isPageRequest) {
+        console.warn(`Failed to fetch DODI page: ${response.status} ${response.statusText}`);
+        return null;
+      } else {
+        throw new Error(`DODI-Repacks API returned ${response.status}: ${response.statusText}`);
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching DODI-Repacks:', error);
+    noteDodiFailure(error);
+    if (isPageRequest) {
+      return null;
+    } else {
+      return new Response('[]', {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  }
+}
+
 // Post transformation for v2
 export async function transformPostForV2(post, site, fetchLinks = false) {
   const downloadLinks = fetchLinks ? await extractDownloadLinksForV2(post.link, site.type, post.content?.rendered) : [];
@@ -879,6 +1035,8 @@ export async function extractDownloadLinksForV2(postUrl, siteType = 'skidrow', w
       let response;
       if (siteType === 'skidrow') {
         response = await fetchSkidrow(postUrl, true);
+      } else if (siteType === 'dodi') {
+        response = await fetchDodi(postUrl, true);
       } else {
         response = await fetch(postUrl, {
           headers: {
@@ -1068,6 +1226,40 @@ export async function extractDownloadLinksForV2(postUrl, siteType = 'skidrow', w
             }
           }
         }
+      } else if (siteType === 'dodi') {
+        // DODI Repacks — magnet links and file hosting (similar structure to reloadedsteam)
+        const hrefRegex = /<a[^>]+href=["']([^"']+)["']/gi;
+        let match;
+        while ((match = hrefRegex.exec(html)) !== null) {
+          let url = match[1].trim();
+
+          if (url.startsWith('//')) {
+            url = 'https:' + url;
+          }
+
+          if (downloadLinks.some(l => l.url === url)) continue;
+
+          if (isValidDownloadUrl(url)) {
+            const service = extractServiceName(url);
+            downloadLinks.push({
+              type: 'hosting',
+              service: service,
+              url: url,
+              text: service
+            });
+          }
+
+          if (url.startsWith('magnet:') || url.includes('.torrent')) {
+            if (url.startsWith('magnet:')) {
+              url = url.replace(/&#038;/g, '&')
+                       .replace(/&amp;/g, '&');
+            }
+            const torrentData = classifyTorrentLink(url, '');
+            if (torrentData && !downloadLinks.some(l => l.url === url)) {
+              downloadLinks.push(torrentData);
+            }
+          }
+        }
       } else if (siteType === 'freegog' || siteType === 'skidrow') {
         // Extract links for FreeGOG and Skidrow
         console.log(`Extracting download links for ${siteType}, HTML length: ${html.length}`);
@@ -1169,7 +1361,12 @@ function isValidDownloadUrl(url) {
     'filefactory.com', 'dailyuploads.net', 'multiup.io', 'drive.google.com',
     'dropbox.com', 'onedrive.live.com', 'hitfile.net', 'ufile.io',
     'clicknupload.site', 'clicknupload.click', '1337x.to', 'uploadhaven.com',
-    'datanodes.to', 'datavaults.co', 'vikingfile.com', 'akirabox.com'
+    'datanodes.to', 'datavaults.co', 'vikingfile.com', 'akirabox.com',
+    // DODI-common hosters
+    'buzzheavier.com', 'filecrypt.co', 'filecrypt.cc', 'up-4ever.net',
+    'dayuploads.com', 'dlupload.com', 'file-upload.org', 'filespayouts.com',
+    'swiftuploads.com', 'linkmix.co', 'pasteform.com', 'paste-form.com',
+    'file-me.top', 'loot-link.com', 'lootdest.org'
   ];
   
   try {

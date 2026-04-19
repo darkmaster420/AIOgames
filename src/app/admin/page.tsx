@@ -631,7 +631,7 @@ export default function AdminDashboard() {
                         Source
                       </label>
                       <div className="flex flex-wrap gap-1.5">
-                        {[['', 'All'], ['SkidrowReloaded', 'Skidrow'], ['FreeGOGPCGames', 'FreeGOG'], ['GameDrive', 'GameDrive'], ['SteamRip', 'SteamRip'], ['ReloadedSteam', 'Reloaded'], ['SteamUnderground', 'Underground']].map(([val, label]) => (
+                        {[['', 'All'], ['SkidrowReloaded', 'Skidrow'], ['FreeGOGPCGames', 'FreeGOG'], ['GameDrive', 'GameDrive'], ['SteamRip', 'SteamRip'], ['ReloadedSteam', 'Reloaded'], ['SteamUnderground', 'Underground'], ['DODI-Repacks', 'DODI']].map(([val, label]) => (
                           <button
                             key={val}
                             onClick={() => handleGamesFilterChange('source', val)}

@@ -7,6 +7,7 @@ export const SITES = [
   { value: 'steamunderground', label: 'SteamUnderground' },
   { value: 'onlinefix', label: 'Online-Fix' },
   { value: 'goggames', label: 'GOG-Games' },
+  { value: 'dodi', label: 'DODI Repacks' },
 ];
 
 export const SITE_VALUES = SITES.map(s => s.value);

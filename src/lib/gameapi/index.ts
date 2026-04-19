@@ -9,6 +9,7 @@ import {
   MAX_POSTS_PER_SITE as _MAX_POSTS_PER_SITE,
   fetchSteamrip,
   fetchSkidrow,
+  fetchDodi,
   transformPostForV2,
   isValidImageUrl,
   fetchGogGamesRecent,
@@ -118,6 +119,8 @@ async function searchSite(siteConfig: SiteConfig, searchQuery: string): Promise<
       response = await fetchSteamrip(url);
     } else if (siteConfig.type === 'skidrow') {
       response = await fetchSkidrow(url);
+    } else if (siteConfig.type === 'dodi') {
+      response = await fetchDodi(url);
     } else {
       response = await fetch(url, {
         headers: { 'User-Agent': 'GameSearch-API-v2/2.0' }
@@ -171,6 +174,8 @@ async function fetchRecentFromSite(siteConfig: SiteConfig): Promise<TransformedP
       response = await fetchSteamrip(url);
     } else if (siteConfig.type === 'skidrow') {
       response = await fetchSkidrow(url);
+    } else if (siteConfig.type === 'dodi') {
+      response = await fetchDodi(url);
     } else {
       response = await fetch(url, {
         headers: { 'User-Agent': 'GameSearch-API-v2/2.0' }
@@ -333,6 +338,8 @@ export async function getPostDetails(postId: string, site: string): Promise<Post
 
       if (siteConfig.type === 'skidrow') {
         response = await fetchSkidrow(postUrl);
+      } else if (siteConfig.type === 'dodi') {
+        response = await fetchDodi(postUrl);
       } else {
         response = await fetch(postUrl, {
           headers: { 'User-Agent': 'Game-Search-API-v2/2.0' }
