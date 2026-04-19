@@ -6,18 +6,15 @@ import { getRecentUploads } from '../../../../lib/gameapi';
 // Allow up to 2 minutes for initial data fetch (scraping multiple sites via FlareSolverr)
 export const maxDuration = 120;
 
-// Simple in-memory cache — stores fully enriched results (with IGDB images)
+// Simple in-memory cache — stores results (progressively enriched with IGDB images)
 let cachedRecent: { results: Game[]; timestamp: number; siteKey: string } | null = null;
 const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 // Track titles that failed both IGDB and RAWG — don't retry until cache expires
 const failedImageTitles = new Set<string>();
 
-// Internal function to clear cache (exported for potential future use)
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function clearRecentGamesCache() {
-  cachedRecent = null;
-}
+// Track whether background enrichment is already running
+let enrichmentRunning = false;
 
 interface Game {
   siteType: string;
@@ -28,6 +25,60 @@ interface Game {
   [key: string]: unknown;
 }
 
+// Background enrichment — runs after response is sent, updates cache in-place
+function enrichInBackground() {
+  if (enrichmentRunning || !cachedRecent) return;
+
+  const gamesNeedingImages = cachedRecent.results.filter((g: Game) => {
+    if (g.image) return false;
+    const searchTitle = (g.title as string).trim();
+    return searchTitle && !failedImageTitles.has(searchTitle.toLowerCase());
+  });
+
+  if (gamesNeedingImages.length === 0) return;
+
+  enrichmentRunning = true;
+  console.log(`[Recent] Background enrichment starting for ${gamesNeedingImages.length} games...`);
+
+  // Fire-and-forget async enrichment
+  (async () => {
+    try {
+      const imageMap = new Map<string, string>();
+      for (const game of gamesNeedingImages) {
+        const searchTitle = (game.title as string).trim();
+        if (!searchTitle || imageMap.has(searchTitle)) continue;
+
+        const image = await resolveIGDBImage(searchTitle);
+        if (image) {
+          imageMap.set(searchTitle, image);
+        } else {
+          failedImageTitles.add(searchTitle.toLowerCase());
+        }
+        // 300ms delay between requests to stay under IGDB rate limit
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      if (imageMap.size > 0 && cachedRecent) {
+        cachedRecent.results = cachedRecent.results.map((game: Game) => {
+          if (!game.image) {
+            const searchTitle = (game.title as string).trim();
+            const igdbImage = imageMap.get(searchTitle);
+            if (igdbImage) return { ...game, image: igdbImage } as Game;
+          }
+          return game;
+        });
+        console.log(`[Recent] Background enrichment done: ${imageMap.size} images resolved`);
+      } else {
+        console.log(`[Recent] Background enrichment done: no new images`);
+      }
+    } catch (error) {
+      console.error('[Recent] Background enrichment error:', error);
+    } finally {
+      enrichmentRunning = false;
+    }
+  })();
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -36,47 +87,15 @@ export async function GET(request: NextRequest) {
 
     const now = Date.now();
     const cacheKey = 'all';
-    let enrichedResults: Game[];
+    let results: Game[];
     let isFromCache = false;
 
     if (!forceRefresh && cachedRecent && (now - cachedRecent.timestamp) < CACHE_TTL_MS && cachedRecent.siteKey === cacheKey) {
-      enrichedResults = cachedRecent.results;
+      results = cachedRecent.results;
       isFromCache = true;
 
-      // Re-try for any games still missing images, skipping titles that already failed both IGDB+RAWG
-      const stillNeedImages = enrichedResults.filter((g: Game) => {
-        if (g.image) return false;
-        const searchTitle = (g.title as string).trim();
-        return searchTitle && !failedImageTitles.has(searchTitle.toLowerCase());
-      });
-      if (stillNeedImages.length > 0) {
-        console.log(`[Recent] Cache hit but ${stillNeedImages.length} games still need images, retrying...`);
-        const imageMap = new Map<string, string>();
-        for (const game of stillNeedImages) {
-          const searchTitle = (game.title as string).trim();
-          if (!searchTitle || imageMap.has(searchTitle)) continue;
-          const image = await resolveIGDBImage(searchTitle);
-          if (image) {
-            imageMap.set(searchTitle, image);
-          } else {
-            // Both IGDB and RAWG failed — stop retrying this title until fresh data
-            failedImageTitles.add(searchTitle.toLowerCase());
-          }
-          await new Promise(r => setTimeout(r, 300));
-        }
-        if (imageMap.size > 0) {
-          console.log(`[Recent] Re-enrichment resolved ${imageMap.size} new images`);
-          enrichedResults = enrichedResults.map((game: Game) => {
-            if (!game.image) {
-              const searchTitle = (game.title as string).trim();
-              const igdbImage = imageMap.get(searchTitle);
-              if (igdbImage) return { ...game, image: igdbImage } as Game;
-            }
-            return game;
-          });
-          cachedRecent = { results: enrichedResults, timestamp: cachedRecent!.timestamp, siteKey: cacheKey };
-        }
-      }
+      // Kick off background re-enrichment for any games still missing images
+      enrichInBackground();
     } else {
       const data = await getRecentUploads();
       
@@ -86,71 +105,40 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Invalid API response structure' }, { status: 500 });
       }
 
-      // Clean titles
-      const results = data.results.map((game: Game) => ({
+      // Clean titles — return immediately, don't wait for image enrichment
+      results = data.results.map((game: Game) => ({
         ...game,
         originalTitle: game.title,
         title: cleanGameTitle(game.title)
       }));
 
-      // Enrich games that have no image with IGDB covers (sequential with delay to respect rate limits)
-      const gamesNeedingImages = results.filter((g: Game) => !g.image);
-      console.log(`[Recent] Enriching ${gamesNeedingImages.length}/${results.length} games with IGDB images...`);
-      
-      const imageMap = new Map<string, string>();
-      for (const game of gamesNeedingImages) {
-        // Use the cleaned title for image searches
-        const searchTitle = (game.title as string).trim();
-        if (!searchTitle) continue;
-        
-        // Skip if we already resolved this title
-        if (imageMap.has(searchTitle)) continue;
-
-        const igdbImage = await resolveIGDBImage(searchTitle);
-        if (igdbImage) {
-          imageMap.set(searchTitle, igdbImage);
-        }
-
-        // 300ms delay between requests to stay under IGDB rate limit (4 req/sec)
-        await new Promise(r => setTimeout(r, 300));
-      }
-
-      // Apply resolved images
-      enrichedResults = results.map((game: Game) => {
-        if (!game.image) {
-          const searchTitle = (game.title as string).trim();
-          const igdbImage = imageMap.get(searchTitle);
-          if (igdbImage) {
-            return { ...game, image: igdbImage } as Game;
-          }
-        }
-        return game;
-      });
-
-      console.log(`[Recent] IGDB enrichment done: ${imageMap.size} images resolved`);
-
       // Reset failed titles on fresh data fetch
       failedImageTitles.clear();
 
-      // Cache the fully enriched results
-      cachedRecent = { results: enrichedResults, timestamp: now, siteKey: cacheKey };
+      // Cache results immediately (without images) so they're available fast
+      cachedRecent = { results, timestamp: now, siteKey: cacheKey };
+
+      // Kick off background enrichment — images will be in cache for next request
+      enrichInBackground();
     }
 
     // Apply local site filtering
-    let finalResults = enrichedResults;
+    let finalResults = results;
     if (site && site !== 'all') {
-      finalResults = enrichedResults.filter((game: Game) => game.siteType === site);
+      finalResults = results.filter((game: Game) => game.siteType === site);
     }
 
     const cacheAge = isFromCache ? Math.floor((now - cachedRecent!.timestamp) / 1000) : 0;
     const remainingTTL = Math.max(0, Math.floor((CACHE_TTL_MS - (now - (cachedRecent?.timestamp || now))) / 1000));
+    const pendingImages = results.filter((g: Game) => !g.image).length;
 
     return NextResponse.json(finalResults, {
       headers: {
-        'Cache-Control': `public, max-age=${remainingTTL}, s-maxage=${remainingTTL}`,
+        'Cache-Control': `public, max-age=${Math.min(remainingTTL, pendingImages > 0 ? 30 : remainingTTL)}, s-maxage=${Math.min(remainingTTL, pendingImages > 0 ? 30 : remainingTTL)}`,
         'X-Cache-Status': isFromCache ? 'HIT' : 'MISS',
         'X-Cache-Age': cacheAge.toString(),
-        'X-Cache-TTL': remainingTTL.toString()
+        'X-Cache-TTL': remainingTTL.toString(),
+        'X-Pending-Images': pendingImages.toString()
       }
     });
   } catch (error) {

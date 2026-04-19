@@ -229,6 +229,21 @@ function DashboardInner() {
         data,
         timestamp: now
       });
+
+      // If images are still being enriched in background, auto-refresh after a delay
+      const pendingImages = parseInt(response.headers.get('X-Pending-Images') || '0', 10);
+      if (pendingImages > 0) {
+        setTimeout(async () => {
+          try {
+            const refreshResp = await fetch('/api/games/recent');
+            if (refreshResp.ok) {
+              const refreshData = await refreshResp.json();
+              setGames(refreshData);
+              setRecentGamesCache({ data: refreshData, timestamp: Date.now() });
+            }
+          } catch { /* silent retry */ }
+        }, Math.min(pendingImages * 400, 15000));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch recent games');
       setGames([]);
