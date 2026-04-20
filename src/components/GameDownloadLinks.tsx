@@ -48,7 +48,11 @@ export function GameDownloadLinks({
     source?: string;
   }>({ gameTitle: '', currentVersion: '', type: '' });
 
-  const fetchDownloadLinks = async () => {
+  // Max auto-retries when the scraper returns empty results (it's flaky on cold hits)
+  const MAX_AUTO_RETRIES = 2;
+  const RETRY_DELAY_MS = 800;
+
+  const fetchDownloadLinks = async (attempt = 0): Promise<void> => {
     // If embedded download links are available, use them directly (e.g. goggames)
     if (embeddedDownloadLinks && embeddedDownloadLinks.length > 0) {
       setDownloadLinks(embeddedDownloadLinks.map((link, i) => ({
@@ -63,41 +67,60 @@ export function GameDownloadLinks({
 
     setLoading(true);
     setError('');
-    
+
     try {
       let url: string;
-      
+
       if (gameId) {
         // For tracked games, use existing API
         const params = new URLSearchParams({ gameId });
         if (updateIndex !== undefined) params.append('updateIndex', updateIndex.toString());
+        // Cache-bust on retries so the browser/CDN can't replay an empty response
+        if (attempt > 0) params.append('_t', String(Date.now()));
         url = `/api/games/downloads?${params}`;
       } else if (postId && siteType) {
         // For any game, use new gameapi endpoint
-        const params = new URLSearchParams({ 
-          postId, 
+        const params = new URLSearchParams({
+          postId,
           siteType,
           ...(gameTitle && { title: gameTitle })
         });
+        if (attempt > 0) params.append('_t', String(Date.now()));
         url = `/api/games/links?${params}`;
       } else {
         throw new Error('Either gameId or (postId and siteType) must be provided');
       }
-      
-      const response = await fetch(url);
+
+      const response = await fetch(url, attempt > 0 ? { cache: 'no-store' } : {});
       if (!response.ok) {
         if (response.status === 401) {
           throw new Error('Please sign in to view download links');
         }
         throw new Error('Failed to fetch download links');
       }
-      
+
       const data = await response.json();
-      setDownloadLinks(data.downloadLinks || []);
+      const links = data.downloadLinks || [];
       setContext(data.context || { gameTitle: '', currentVersion: '', type: '' });
+
+      // If scraper returned nothing, auto-retry a couple of times — the first
+      // attempt often fails when FlareSolverr / upstream is cold.
+      if (links.length === 0 && attempt < MAX_AUTO_RETRIES) {
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
+        return fetchDownloadLinks(attempt + 1);
+      }
+
+      setDownloadLinks(links);
     } catch (err: unknown) {
       console.error('Download links fetch error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch download links');
+      // Retry transient errors too (network blips, 5xx)
+      const message = err instanceof Error ? err.message : 'Failed to fetch download links';
+      const isAuthError = message.toLowerCase().includes('sign in');
+      if (!isAuthError && attempt < MAX_AUTO_RETRIES) {
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
+        return fetchDownloadLinks(attempt + 1);
+      }
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -276,15 +299,31 @@ export function GameDownloadLinks({
               </div>
             )}
 
-            {error && (
-              <div className="text-red-600 dark:text-red-400 text-sm py-2">
-                {error}
+            {error && !loading && (
+              <div className="py-2">
+                <div className="text-red-600 dark:text-red-400 text-sm mb-2">
+                  {error}
+                </div>
+                <button
+                  onClick={() => fetchDownloadLinks()}
+                  className="px-3 py-1.5 text-sm bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+                >
+                  🔄 Retry
+                </button>
               </div>
             )}
 
             {!loading && !error && downloadLinks.length === 0 && (
-              <div className="text-gray-500 dark:text-gray-400 text-sm py-2">
-                No download links available
+              <div className="py-2">
+                <div className="text-gray-500 dark:text-gray-400 text-sm mb-2">
+                  No download links available
+                </div>
+                <button
+                  onClick={() => fetchDownloadLinks()}
+                  className="px-3 py-1.5 text-sm bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+                >
+                  🔄 Retry
+                </button>
               </div>
             )}
 
