@@ -216,8 +216,14 @@ function DashboardInner() {
     setError(null);
     try {
       const params = new URLSearchParams();
-      if (forceRefresh) params.set('refresh', 'true');
-      const response = await fetch(`/api/games/recent?${params}`);
+      if (forceRefresh) {
+        params.set('refresh', 'true');
+        // Cache-bust so the browser doesn't replay an earlier refresh response
+        params.set('_t', String(now));
+      }
+      const response = await fetch(`/api/games/recent?${params}`, {
+        cache: forceRefresh ? 'no-store' : 'default',
+      });
       if (!response.ok) {
         throw new Error('Failed to fetch recent games');
       }
@@ -235,7 +241,7 @@ function DashboardInner() {
       if (pendingImages > 0) {
         setTimeout(async () => {
           try {
-            const refreshResp = await fetch('/api/games/recent');
+            const refreshResp = await fetch(`/api/games/recent?_t=${Date.now()}`, { cache: 'no-store' });
             if (refreshResp.ok) {
               const refreshData = await refreshResp.json();
               setGames(refreshData);
