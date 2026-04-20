@@ -74,17 +74,6 @@ function DashboardInner() {
   const [resolvedAppIds, setResolvedAppIds] = useState<Record<string, string | null>>({});
   const [steamAppIdByTitleCache, setSteamAppIdByTitleCache] = useState<Record<string, string | null>>({});
   const [showAllGames, setShowAllGames] = useState(false);
-  
-  // Client-side cache for recent games (10 minutes)
-  const [recentGamesCache, setRecentGamesCache] = useState<{
-    data: Game[];
-    timestamp: number;
-  } | null>(null);
-  const CLIENT_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
-  
-  // Client-side cache for search results (24 hours)
-  const [searchCache, setSearchCache] = useState<Map<string, { data: Game[], timestamp: number }>>(new Map());
-  const SEARCH_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
   // Function to update URL parameters
   const updateURL = useCallback((search?: string, site?: string, refine?: string) => {
@@ -131,7 +120,7 @@ function DashboardInner() {
             if (urlRefine.trim()) {
               params.set('refine', urlRefine);
             }
-            const response = await fetch(`/api/games/search?${params}`);
+            const response = await fetch(`/api/games/search?${params}`, { cache: 'no-store' });
             if (!response.ok) {
               throw new Error('Failed to search games');
             }
@@ -203,49 +192,30 @@ function DashboardInner() {
     }
   }, [status]);
 
-  // Load recent games (default view) with client-side caching
+  // Load recent games (default view). No client cache — always ask the server,
+  // which serves from its own in-memory cache or re-scrapes as needed.
   const loadRecentGames = useCallback(async (forceRefresh = false) => {
-    // Check client-side cache first (skip if force refresh)
-    const now = Date.now();
-    if (!forceRefresh && recentGamesCache && (now - recentGamesCache.timestamp) < CLIENT_CACHE_TTL) {
-      setGames(recentGamesCache.data);
-      return;
-    }
-
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams();
-      if (forceRefresh) {
-        params.set('refresh', 'true');
-        // Cache-bust so the browser doesn't replay an earlier refresh response
-        params.set('_t', String(now));
-      }
-      const response = await fetch(`/api/games/recent?${params}`, {
-        cache: forceRefresh ? 'no-store' : 'default',
-      });
+      if (forceRefresh) params.set('refresh', 'true');
+      const response = await fetch(`/api/games/recent?${params}`, { cache: 'no-store' });
       if (!response.ok) {
         throw new Error('Failed to fetch recent games');
       }
       const data = await response.json();
       setGames(data);
-      
-      // Update client-side cache
-      setRecentGamesCache({
-        data,
-        timestamp: now
-      });
 
       // If images are still being enriched in background, auto-refresh after a delay
       const pendingImages = parseInt(response.headers.get('X-Pending-Images') || '0', 10);
       if (pendingImages > 0) {
         setTimeout(async () => {
           try {
-            const refreshResp = await fetch(`/api/games/recent?_t=${Date.now()}`, { cache: 'no-store' });
+            const refreshResp = await fetch('/api/games/recent', { cache: 'no-store' });
             if (refreshResp.ok) {
               const refreshData = await refreshResp.json();
               setGames(refreshData);
-              setRecentGamesCache({ data: refreshData, timestamp: Date.now() });
             }
           } catch { /* silent retry */ }
         }, Math.min(pendingImages * 400, 15000));
@@ -256,7 +226,7 @@ function DashboardInner() {
     } finally {
       setLoading(false);
     }
-  }, [recentGamesCache, CLIENT_CACHE_TTL]);
+  }, []);
 
   // Search games handler
   const searchGames = useCallback(async (e?: React.FormEvent) => {
@@ -267,22 +237,10 @@ function DashboardInner() {
       loadRecentGames();
       return;
     }
-    
-    // Create cache key from search parameters
-    const cacheKey = `${searchQuery}|${siteFilter}|${refineText}`;
-    
-    // Check search cache first
-    const now = Date.now();
-    const cachedResult = searchCache.get(cacheKey);
-    if (cachedResult && (now - cachedResult.timestamp) < SEARCH_CACHE_TTL) {
-      setGames(cachedResult.data);
-      setShowRefine(true);
-      return;
-    }
-    
+
     // Update URL with current search parameters
     updateURL(searchQuery, siteFilter, refineText);
-    
+
     setLoading(true);
     setError(null);
     try {
@@ -293,7 +251,7 @@ function DashboardInner() {
       if (refineText.trim()) {
         params.set('refine', refineText);
       }
-      const response = await fetch(`/api/games/search?${params}`);
+      const response = await fetch(`/api/games/search?${params}`, { cache: 'no-store' });
       if (!response.ok) {
         throw new Error('Failed to search games');
       }
@@ -301,18 +259,13 @@ function DashboardInner() {
       setGames(data);
       setShowRefine(true);
       setRecentGamesCookie(true);
-      
-      // Store in search cache
-      const newCache = new Map(searchCache);
-      newCache.set(cacheKey, { data, timestamp: now });
-      setSearchCache(newCache);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to search games');
       setGames([]);
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, siteFilter, refineText, loadRecentGames, updateURL, searchCache, SEARCH_CACHE_TTL]);
+  }, [searchQuery, siteFilter, refineText, loadRecentGames, updateURL]);
 
   // Load recent games on mount and check cookie/user preference for visibility
   useEffect(() => {
@@ -740,7 +693,7 @@ function DashboardInner() {
                         updateURL(searchQuery, site.value, refineText);
                         setLoading(true);
                         setError(null);
-                        fetch(`/api/games/search?${params}`)
+                        fetch(`/api/games/search?${params}`, { cache: 'no-store' })
                           .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed')))
                           .then(data => {
                             setGames(data);
@@ -750,23 +703,15 @@ function DashboardInner() {
                           .finally(() => setLoading(false));
                       } else {
                         updateURL('', site.value);
-                        if (site.value === 'all' && recentGamesCache &&
-                            (Date.now() - recentGamesCache.timestamp) < CLIENT_CACHE_TTL) {
-                          setGames(recentGamesCache.data);
-                        } else {
-                          setLoading(true);
-                          setError(null);
-                          const params = new URLSearchParams();
-                          if (site.value !== 'all') params.set('site', site.value);
-                          fetch(`/api/games/recent?${params}`)
-                            .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed')))
-                            .then(data => {
-                              setGames(data);
-                              if (site.value === 'all') setRecentGamesCache({ data, timestamp: Date.now() });
-                            })
-                            .catch(err => { setError(err.message); setGames([]); })
-                            .finally(() => setLoading(false));
-                        }
+                        setLoading(true);
+                        setError(null);
+                        const params = new URLSearchParams();
+                        if (site.value !== 'all') params.set('site', site.value);
+                        fetch(`/api/games/recent?${params}`, { cache: 'no-store' })
+                          .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed')))
+                          .then(data => { setGames(data); })
+                          .catch(err => { setError(err.message); setGames([]); })
+                          .finally(() => setLoading(false));
                       }
                     }}
                     className={`px-3 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-all duration-150 border ${
@@ -816,7 +761,6 @@ function DashboardInner() {
                   ? `${displayGames.length} games`
                   : `${displayGames.filter(g => extractAppId(g) || typeof resolvedAppIds[g.displayKey] === 'string').length} verified games`
               }
-              {recentGamesCache && !searchQuery && ` (cached ${Math.round((Date.now() - recentGamesCache.timestamp) / 1000 / 60)} min ago)`}
             </span>
             <div className="flex items-center gap-3">
               {!searchQuery && (

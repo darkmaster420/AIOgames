@@ -134,7 +134,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(finalResults, {
       headers: {
-        'Cache-Control': `public, max-age=${Math.min(remainingTTL, pendingImages > 0 ? 30 : remainingTTL)}, s-maxage=${Math.min(remainingTTL, pendingImages > 0 ? 30 : remainingTTL)}`,
+        // Browser-side caching disabled — server in-memory cache is the only cache.
+        'Cache-Control': 'no-store, must-revalidate',
         'X-Cache-Status': isFromCache ? 'HIT' : 'MISS',
         'X-Cache-Age': cacheAge.toString(),
         'X-Cache-TTL': remainingTTL.toString(),
