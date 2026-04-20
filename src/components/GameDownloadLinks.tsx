@@ -11,6 +11,25 @@ interface DownloadLink {
   icon: string;
 }
 
+interface DownloadContext {
+  gameTitle: string;
+  currentVersion: string;
+  type: string;
+  postUrl?: string;
+  source?: string;
+}
+
+// Module-level cache so cards that are unmounted/remounted (scroll, filter change)
+// don't refetch. Keyed by the same identifiers used to build the request URL.
+// Only successful responses with > 0 links are cached.
+interface CachedEntry {
+  links: DownloadLink[];
+  context: DownloadContext;
+  timestamp: number;
+}
+const clientLinksCache = new Map<string, CachedEntry>();
+const CLIENT_LINKS_TTL_MS = 30 * 60 * 1000; // 30 minutes — matches server TTL
+
 interface GameDownloadLinksProps {
   // For tracked games
   gameId?: string;
@@ -40,19 +59,24 @@ export function GameDownloadLinks({
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const [context, setContext] = useState<{
-    gameTitle: string;
-    currentVersion: string;
-    type: string;
-    postUrl?: string;
-    source?: string;
-  }>({ gameTitle: '', currentVersion: '', type: '' });
+  const [context, setContext] = useState<DownloadContext>({ gameTitle: '', currentVersion: '', type: '' });
 
   // Max auto-retries when the scraper returns empty results (it's flaky on cold hits)
   const MAX_AUTO_RETRIES = 2;
   const RETRY_DELAY_MS = 800;
 
-  const fetchDownloadLinks = async (attempt = 0): Promise<void> => {
+  // Build a stable cache key from the identifiers that determine the response.
+  const getCacheKey = (): string | null => {
+    if (gameId) {
+      return `tracked:${gameId}:${updateIndex ?? ''}`;
+    }
+    if (postId && siteType) {
+      return `post:${siteType}:${postId}`;
+    }
+    return null;
+  };
+
+  const fetchDownloadLinks = async (attempt = 0, forceRefresh = false): Promise<void> => {
     // If embedded download links are available, use them directly (e.g. goggames)
     if (embeddedDownloadLinks && embeddedDownloadLinks.length > 0) {
       setDownloadLinks(embeddedDownloadLinks.map((link, i) => ({
@@ -63,6 +87,17 @@ export function GameDownloadLinks({
         icon: '🔗'
       })));
       return;
+    }
+
+    // Serve from client cache if fresh and not forcing a refresh
+    const cacheKey = getCacheKey();
+    if (!forceRefresh && attempt === 0 && cacheKey) {
+      const cached = clientLinksCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp) < CLIENT_LINKS_TTL_MS) {
+        setDownloadLinks(cached.links);
+        setContext(cached.context);
+        return;
+      }
     }
 
     setLoading(true);
@@ -100,17 +135,27 @@ export function GameDownloadLinks({
       }
 
       const data = await response.json();
-      const links = data.downloadLinks || [];
-      setContext(data.context || { gameTitle: '', currentVersion: '', type: '' });
+      const links: DownloadLink[] = data.downloadLinks || [];
+      const ctx: DownloadContext = data.context || { gameTitle: '', currentVersion: '', type: '' };
+      setContext(ctx);
 
       // If scraper returned nothing, auto-retry a couple of times — the first
       // attempt often fails when FlareSolverr / upstream is cold.
       if (links.length === 0 && attempt < MAX_AUTO_RETRIES) {
         await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
-        return fetchDownloadLinks(attempt + 1);
+        return fetchDownloadLinks(attempt + 1, forceRefresh);
       }
 
       setDownloadLinks(links);
+
+      // Cache only successful responses with at least one link
+      if (links.length > 0 && cacheKey) {
+        clientLinksCache.set(cacheKey, {
+          links,
+          context: ctx,
+          timestamp: Date.now(),
+        });
+      }
     } catch (err: unknown) {
       console.error('Download links fetch error:', err);
       // Retry transient errors too (network blips, 5xx)
@@ -118,7 +163,7 @@ export function GameDownloadLinks({
       const isAuthError = message.toLowerCase().includes('sign in');
       if (!isAuthError && attempt < MAX_AUTO_RETRIES) {
         await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
-        return fetchDownloadLinks(attempt + 1);
+        return fetchDownloadLinks(attempt + 1, forceRefresh);
       }
       setError(message);
     } finally {
@@ -305,7 +350,7 @@ export function GameDownloadLinks({
                   {error}
                 </div>
                 <button
-                  onClick={() => fetchDownloadLinks()}
+                  onClick={() => fetchDownloadLinks(0, true)}
                   className="px-3 py-1.5 text-sm bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
                 >
                   🔄 Retry
@@ -319,7 +364,7 @@ export function GameDownloadLinks({
                   No download links available
                 </div>
                 <button
-                  onClick={() => fetchDownloadLinks()}
+                  onClick={() => fetchDownloadLinks(0, true)}
                   className="px-3 py-1.5 text-sm bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
                 >
                   🔄 Retry
