@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useMemo, Suspense } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { GamePosterCard } from '../components/GamePosterCard';
@@ -75,6 +75,27 @@ function DashboardInner() {
   const [steamAppIdByTitleCache, setSteamAppIdByTitleCache] = useState<Record<string, string | null>>({});
   const [showAllGames, setShowAllGames] = useState(false);
 
+  // AbortController for the main games fetches (recent/search). Cancels in-flight
+  // requests when the component unmounts (e.g. user navigates to an appid page)
+  // or when a newer fetch supersedes an older one, so we don't hog browser
+  // connection slots or keep the server busy on work whose result is discarded.
+  const fetchAbortRef = useRef<AbortController | null>(null);
+  const enrichTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const beginFetch = useCallback(() => {
+    fetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    fetchAbortRef.current = controller;
+    return controller.signal;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      fetchAbortRef.current?.abort();
+      if (enrichTimeoutRef.current) clearTimeout(enrichTimeoutRef.current);
+    };
+  }, []);
+
   // Function to update URL parameters
   const updateURL = useCallback((search?: string, site?: string, refine?: string) => {
     const params = new URLSearchParams();
@@ -110,6 +131,7 @@ function DashboardInner() {
       // Use a minimal delay to ensure state updates are complete
       const timer = setTimeout(() => {
         const performInitialSearch = async () => {
+          const signal = beginFetch();
           setLoading(true);
           setError(null);
           try {
@@ -120,27 +142,29 @@ function DashboardInner() {
             if (urlRefine.trim()) {
               params.set('refine', urlRefine);
             }
-            const response = await fetch(`/api/games/search?${params}`, { cache: 'no-store' });
+            const response = await fetch(`/api/games/search?${params}`, { cache: 'no-store', signal });
             if (!response.ok) {
               throw new Error('Failed to search games');
             }
             const data = await response.json();
+            if (signal.aborted) return;
             setGames(data);
             setShowRefine(true);
             setRecentGamesCookie(true);
           } catch (err) {
+            if ((err as { name?: string })?.name === 'AbortError') return;
             setError(err instanceof Error ? err.message : 'Failed to search games');
             setGames([]);
           } finally {
-            setLoading(false);
+            if (!signal.aborted) setLoading(false);
           }
         };
         performInitialSearch();
       }, 50);
-      
+
       return () => clearTimeout(timer);
     }
-  }, [searchParams]);
+  }, [searchParams, beginFetch]);
 
   // Function to set cookie with 1 hour expiration
   const setRecentGamesCookie = (show: boolean) => {
@@ -195,38 +219,45 @@ function DashboardInner() {
   // Load recent games (default view). No client cache — always ask the server,
   // which serves from its own in-memory cache or re-scrapes as needed.
   const loadRecentGames = useCallback(async (forceRefresh = false) => {
+    const signal = beginFetch();
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams();
       if (forceRefresh) params.set('refresh', 'true');
-      const response = await fetch(`/api/games/recent?${params}`, { cache: 'no-store' });
+      const response = await fetch(`/api/games/recent?${params}`, { cache: 'no-store', signal });
       if (!response.ok) {
         throw new Error('Failed to fetch recent games');
       }
       const data = await response.json();
+      if (signal.aborted) return;
       setGames(data);
 
       // If images are still being enriched in background, auto-refresh after a delay
       const pendingImages = parseInt(response.headers.get('X-Pending-Images') || '0', 10);
       if (pendingImages > 0) {
-        setTimeout(async () => {
+        if (enrichTimeoutRef.current) clearTimeout(enrichTimeoutRef.current);
+        enrichTimeoutRef.current = setTimeout(async () => {
+          // Don't start a follow-up fetch if the user already navigated away or
+          // kicked off a newer fetch.
+          if (signal.aborted) return;
           try {
-            const refreshResp = await fetch('/api/games/recent', { cache: 'no-store' });
-            if (refreshResp.ok) {
+            const refreshResp = await fetch('/api/games/recent', { cache: 'no-store', signal });
+            if (refreshResp.ok && !signal.aborted) {
               const refreshData = await refreshResp.json();
-              setGames(refreshData);
+              if (!signal.aborted) setGames(refreshData);
             }
-          } catch { /* silent retry */ }
+          } catch { /* silent retry / abort */ }
         }, Math.min(pendingImages * 400, 15000));
       }
     } catch (err) {
+      if ((err as { name?: string })?.name === 'AbortError') return;
       setError(err instanceof Error ? err.message : 'Failed to fetch recent games');
       setGames([]);
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
-  }, []);
+  }, [beginFetch]);
 
   // Search games handler
   const searchGames = useCallback(async (e?: React.FormEvent) => {
@@ -241,6 +272,7 @@ function DashboardInner() {
     // Update URL with current search parameters
     updateURL(searchQuery, siteFilter, refineText);
 
+    const signal = beginFetch();
     setLoading(true);
     setError(null);
     try {
@@ -251,21 +283,23 @@ function DashboardInner() {
       if (refineText.trim()) {
         params.set('refine', refineText);
       }
-      const response = await fetch(`/api/games/search?${params}`, { cache: 'no-store' });
+      const response = await fetch(`/api/games/search?${params}`, { cache: 'no-store', signal });
       if (!response.ok) {
         throw new Error('Failed to search games');
       }
       const data = await response.json();
+      if (signal.aborted) return;
       setGames(data);
       setShowRefine(true);
       setRecentGamesCookie(true);
     } catch (err) {
+      if ((err as { name?: string })?.name === 'AbortError') return;
       setError(err instanceof Error ? err.message : 'Failed to search games');
       setGames([]);
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
-  }, [searchQuery, siteFilter, refineText, loadRecentGames, updateURL]);
+  }, [searchQuery, siteFilter, refineText, loadRecentGames, updateURL, beginFetch]);
 
   // Load recent games on mount and check cookie/user preference for visibility
   useEffect(() => {
@@ -693,25 +727,34 @@ function DashboardInner() {
                         updateURL(searchQuery, site.value, refineText);
                         setLoading(true);
                         setError(null);
-                        fetch(`/api/games/search?${params}`, { cache: 'no-store' })
+                        const signal = beginFetch();
+                        fetch(`/api/games/search?${params}`, { cache: 'no-store', signal })
                           .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed')))
                           .then(data => {
+                            if (signal.aborted) return;
                             setGames(data);
                             setShowRefine(true);
                           })
-                          .catch(err => { setError(err.message); setGames([]); })
-                          .finally(() => setLoading(false));
+                          .catch(err => {
+                            if (err?.name === 'AbortError') return;
+                            setError(err.message); setGames([]);
+                          })
+                          .finally(() => { if (!signal.aborted) setLoading(false); });
                       } else {
                         updateURL('', site.value);
+                        const signal = beginFetch();
                         setLoading(true);
                         setError(null);
                         const params = new URLSearchParams();
                         if (site.value !== 'all') params.set('site', site.value);
-                        fetch(`/api/games/recent?${params}`, { cache: 'no-store' })
+                        fetch(`/api/games/recent?${params}`, { cache: 'no-store', signal })
                           .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed')))
-                          .then(data => { setGames(data); })
-                          .catch(err => { setError(err.message); setGames([]); })
-                          .finally(() => setLoading(false));
+                          .then(data => { if (!signal.aborted) setGames(data); })
+                          .catch(err => {
+                            if (err?.name === 'AbortError') return;
+                            setError(err.message); setGames([]);
+                          })
+                          .finally(() => { if (!signal.aborted) setLoading(false); });
                       }
                     }}
                     className={`px-3 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-all duration-150 border ${

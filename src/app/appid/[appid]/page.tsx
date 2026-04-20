@@ -128,7 +128,8 @@ export default function AppIdDetailPage() {
   const [gogLatest, setGogLatest] = useState<{ version?: string; buildId?: string; date?: string }>({});
 
   useEffect(() => {
-    let isMounted = true;
+    const controller = new AbortController();
+    const { signal } = controller;
 
     const loadGame = async () => {
       if (!appid) {
@@ -141,29 +142,27 @@ export default function AppIdDetailPage() {
       setError('');
 
       try {
-        const response = await fetch(`/api/games/${appid}`);
+        const response = await fetch(`/api/games/${appid}`, { signal });
         const data: GameDetailsResponse = await response.json();
 
         if (!response.ok) {
           throw new Error(data.error || 'Failed to load game details.');
         }
 
-        if (!isMounted) return;
+        if (signal.aborted) return;
         setGame(data);
       } catch (err) {
-        if (!isMounted) return;
+        if (signal.aborted || (err as { name?: string })?.name === 'AbortError') return;
         setError(err instanceof Error ? err.message : 'Failed to load game details.');
       } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
+        if (!signal.aborted) setLoading(false);
       }
     };
 
     loadGame();
 
     return () => {
-      isMounted = false;
+      controller.abort();
     };
   }, [appid]);
 
@@ -343,26 +342,27 @@ export default function AppIdDetailPage() {
   };
 
   useEffect(() => {
-    let isMounted = true;
+    const controller = new AbortController();
+    const { signal } = controller;
 
     const loadResults = async () => {
       const query = game?.name?.trim();
       if (!query) {
-        if (isMounted) {
+        if (!signal.aborted) {
           setGameResults([]);
           setResultsQuery('');
         }
         return;
       }
 
-      if (isMounted) {
+      if (!signal.aborted) {
         setResultsLoading(true);
         setResultsError('');
         setResultsQuery(query);
       }
 
       try {
-        const response = await fetch(`/api/games/search?search=${encodeURIComponent(query)}&nocache=1`);
+        const response = await fetch(`/api/games/search?search=${encodeURIComponent(query)}&nocache=1`, { signal });
         const data = await response.json();
 
         if (!response.ok) {
@@ -389,40 +389,39 @@ export default function AppIdDetailPage() {
           })
           .slice(0, 18);
 
-        if (isMounted) {
+        if (!signal.aborted) {
           setGameResults(ranked);
         }
       } catch (err) {
-        if (!isMounted) return;
+        if (signal.aborted || (err as { name?: string })?.name === 'AbortError') return;
         setResultsError(err instanceof Error ? err.message : 'Failed to load results from gameapi.');
         setGameResults([]);
       } finally {
-        if (isMounted) {
-          setResultsLoading(false);
-        }
+        if (!signal.aborted) setResultsLoading(false);
       }
     };
 
     loadResults();
 
     return () => {
-      isMounted = false;
+      controller.abort();
     };
   }, [game?.name]);
 
   useEffect(() => {
-    let isMounted = true;
+    const controller = new AbortController();
+    const { signal } = controller;
 
     const loadLatestVerificationData = async () => {
       if (!game?.isTracked) return;
 
       if (game.steamAppId && (game.steamVerified || game.gogVerified)) {
         try {
-          const steamResponse = await fetch(`/api/steamdb?action=updates&appId=${game.steamAppId}&limit=1`);
-          if (steamResponse.ok && isMounted) {
+          const steamResponse = await fetch(`/api/steamdb?action=updates&appId=${game.steamAppId}&limit=1`, { signal });
+          if (steamResponse.ok && !signal.aborted) {
             const steamData = await steamResponse.json();
             const latest = steamData?.data?.updates?.[0];
-            if (latest) {
+            if (latest && !signal.aborted) {
               setSteamLatest({
                 version: latest.version,
                 build: latest.changeNumber,
@@ -440,10 +439,11 @@ export default function AppIdDetailPage() {
           const gogResponse = await fetch(`/api/gogdb?action=version&productId=${game.gogProductId}&os=windows`, {
             cache: 'default',
             next: { revalidate: 3600 },
+            signal,
           });
-          if (gogResponse.ok && isMounted) {
+          if (gogResponse.ok && !signal.aborted) {
             const gogData = await gogResponse.json();
-            if (gogData?.success && (gogData?.version || gogData?.buildId)) {
+            if (gogData?.success && (gogData?.version || gogData?.buildId) && !signal.aborted) {
               setGogLatest({
                 version: gogData.version,
                 buildId: gogData.buildId,
@@ -460,7 +460,7 @@ export default function AppIdDetailPage() {
     loadLatestVerificationData();
 
     return () => {
-      isMounted = false;
+      controller.abort();
     };
   }, [game?.isTracked, game?.steamAppId, game?.steamVerified, game?.gogVerified, game?.gogProductId]);
 
