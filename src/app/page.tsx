@@ -8,8 +8,7 @@ import { AddCustomGame } from '../components/AddCustomGame';
 import { useNotification } from '../contexts/NotificationContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { SITES } from '../lib/sites';
-import { cleanGameTitle, buildSteamSearchQueryVariants } from '../utils/steamApi';
-import { calculateGameSimilarity } from '../utils/titleMatching';
+import { cleanGameTitle } from '../utils/steamApi';
 import { getProxiedImageUrl } from '../utils/imageProxy';
 
 type TrackedGameInfo = {
@@ -50,11 +49,6 @@ type DisplayGame = Game & {
   postCount: number;
 };
 
-type SteamSearchResult = {
-  appid: string;
-  name: string;
-};
-
 function DashboardInner() {
   const [searchQuery, setSearchQuery] = useState('');
   const [siteFilter, setSiteFilter] = useState('all');
@@ -72,8 +66,6 @@ function DashboardInner() {
   const [refineText, setRefineText] = useState('');
   const [showRefine, setShowRefine] = useState(false);
   const [showRecentGames, setShowRecentGames] = useState(false);
-  const [resolvedAppIds, setResolvedAppIds] = useState<Record<string, string | null>>({});
-  const [steamAppIdByTitleCache, setSteamAppIdByTitleCache] = useState<Record<string, string | null>>({});
   const [showAllGames, setShowAllGames] = useState(false);
 
   // Single AbortController tied to this component's lifetime. We abort it on
@@ -100,24 +92,59 @@ function DashboardInner() {
     };
   }, []);
 
-  // Warm the browser cache for every game's poster as soon as the list arrives.
-  // Verification runs separately and hides unverified cards, so without this
-  // prefetch an image wouldn't even start downloading until its card mounts —
-  // meaning a fresh fetch shows cards with blank posters while verification
-  // trickles through. With this, images stream in parallel with verification.
+  // Warm the browser cache for every game's poster so that by the time a
+  // verified card mounts its image is already cached. We throttle to a small
+  // concurrency and delay the start, because otherwise these many
+  // /api/proxy-image requests (some slow FlareSolverr-backed CF lookups) would
+  // saturate the browser's per-origin HTTP/1.1 connection limit and starve the
+  // /api/steam verification calls that gate which cards actually render.
   const prefetchedImageUrlsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!games.length || typeof window === 'undefined') return;
+
+    const urls: string[] = [];
     for (const g of games) {
       if (!g.image) continue;
       const url = getProxiedImageUrl(g.image);
       if (prefetchedImageUrlsRef.current.has(url)) continue;
       prefetchedImageUrlsRef.current.add(url);
+      urls.push(url);
+    }
+    if (!urls.length) return;
+
+    let cancelled = false;
+
+    const loadOne = (url: string) => new Promise<void>((resolve) => {
       const img = new window.Image();
       img.decoding = 'async';
-      img.loading = 'eager';
+      // Low fetchpriority so browsers (that honour it) let verification
+      // requests jump the queue.
+      (img as HTMLImageElement & { fetchPriority?: string }).fetchPriority = 'low';
+      img.onload = () => resolve();
+      img.onerror = () => resolve();
       img.src = url;
-    }
+    });
+
+    const run = async () => {
+      // Give verification ~400ms to fire first requests before we start
+      // competing for connection slots.
+      await new Promise(r => setTimeout(r, 400));
+      if (cancelled) return;
+
+      const CONCURRENCY = 2;
+      let cursor = 0;
+      const worker = async () => {
+        while (!cancelled) {
+          const i = cursor++;
+          if (i >= urls.length) return;
+          await loadOne(urls[i]);
+        }
+      };
+      await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+    };
+    run();
+
+    return () => { cancelled = true; };
   }, [games]);
 
   // Function to update URL parameters
@@ -396,56 +423,6 @@ function DashboardInner() {
       return null;
     }, []);
 
-    const resolveAppIdFromCleanTitle = useCallback(async (cleanTitle: string): Promise<string | null> => {
-      if (!cleanTitle || cleanTitle.length < 2) {
-        return null;
-      }
-
-      try {
-        const variants = buildSteamSearchQueryVariants(cleanTitle);
-        const allResults: SteamSearchResult[] = [];
-
-        for (const query of variants) {
-          const params = new URLSearchParams({ action: 'search', q: query });
-          const response = await fetch(`/api/steam?${params.toString()}`);
-          if (!response.ok) continue;
-
-          const payload = await response.json();
-          const results: SteamSearchResult[] = Array.isArray(payload?.results) ? payload.results : [];
-          for (const r of results) {
-            if (!allResults.some(existing => String(existing.appid) === String(r.appid))) {
-              allResults.push(r);
-            }
-          }
-          if (allResults.length > 0) break;
-        }
-
-        if (allResults.length === 0) {
-          return null;
-        }
-
-        const best = allResults
-          .slice(0, 8)
-          .map((result) => {
-            const score = calculateGameSimilarity(cleanTitle, result.name || '');
-            const exactBonus = cleanGameTitle(result.name || '') === cleanTitle ? 0.2 : 0;
-            return {
-              appid: String(result.appid),
-              score: score + exactBonus,
-            };
-          })
-          .sort((a, b) => b.score - a.score)[0];
-
-        if (best && best.score >= 0.45) {
-          return best.appid;
-        }
-
-        return null;
-      } catch {
-        return null;
-      }
-    }, []);
-
     const displayGames = useMemo(() => {
       const refinedGames = games.filter((game) => {
         if (refineText.trim()) {
@@ -510,80 +487,6 @@ function DashboardInner() {
         return dateB - dateA;
       });
     }, [games, refineText, extractAppId, searchQuery]);
-
-    useEffect(() => {
-      if (displayGames.length === 0) {
-        setResolvedAppIds(prev => (Object.keys(prev).length === 0 ? prev : {}));
-        return;
-      }
-
-      const activeDisplayKeys = new Set(displayGames.map(game => game.displayKey));
-      setResolvedAppIds(prev => {
-        const next: Record<string, string | null> = {};
-        for (const [key, value] of Object.entries(prev)) {
-          if (activeDisplayKeys.has(key)) {
-            next[key] = value;
-          }
-        }
-        const sameSize = Object.keys(next).length === Object.keys(prev).length;
-        const unchanged = sameSize && Object.entries(next).every(([key, value]) => prev[key] === value);
-        return unchanged ? prev : next;
-      });
-
-      let cancelled = false;
-
-      // Resolve AppIDs with a concurrency pool so games verify in parallel
-      // and their cards (+ images) appear progressively instead of waiting
-      // for a strictly serial pass over the full list. Concurrency is
-      // intentionally modest to stay friendly with the Steam search endpoint.
-      const CONCURRENCY = 6;
-
-      const resolveOne = async (game: DisplayGame) => {
-        const nativeAppId = extractAppId(game);
-        if (nativeAppId) {
-          setResolvedAppIds(prev => (prev[game.displayKey] === nativeAppId ? prev : { ...prev, [game.displayKey]: nativeAppId }));
-          return;
-        }
-
-        if (resolvedAppIds[game.displayKey] !== undefined) return;
-
-        const cleanTitle = cleanGameTitle(game.originalTitle || game.title || '').trim();
-        if (!cleanTitle) {
-          setResolvedAppIds(prev => (prev[game.displayKey] === null ? prev : { ...prev, [game.displayKey]: null }));
-          return;
-        }
-
-        if (steamAppIdByTitleCache[cleanTitle] !== undefined) {
-          const cachedValue = steamAppIdByTitleCache[cleanTitle];
-          setResolvedAppIds(prev => (prev[game.displayKey] === cachedValue ? prev : { ...prev, [game.displayKey]: cachedValue }));
-          return;
-        }
-
-        const appId = await resolveAppIdFromCleanTitle(cleanTitle);
-        if (cancelled) return;
-
-        setSteamAppIdByTitleCache(prev => (prev[cleanTitle] === appId ? prev : { ...prev, [cleanTitle]: appId }));
-        setResolvedAppIds(prev => (prev[game.displayKey] === appId ? prev : { ...prev, [game.displayKey]: appId }));
-      };
-
-      const resolveMissingAppIds = async () => {
-        let cursor = 0;
-        const worker = async () => {
-          while (!cancelled) {
-            const i = cursor++;
-            if (i >= displayGames.length) return;
-            await resolveOne(displayGames[i]);
-          }
-        };
-        await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
-      };
-
-      resolveMissingAppIds();
-
-      return () => {
-        cancelled = true;
-      };
-    }, [displayGames, resolvedAppIds, steamAppIdByTitleCache, extractAppId, resolveAppIdFromCleanTitle]);
 
     // Track/untrack handlers
     const handleTrackGame = useCallback(async (game: Game, forceReplace = false) => {
@@ -836,7 +739,7 @@ function DashboardInner() {
                 ? `${displayGames.length} results for "${searchQuery}"`
                 : showAllGames
                   ? `${displayGames.length} games`
-                  : `${displayGames.filter(g => extractAppId(g) || typeof resolvedAppIds[g.displayKey] === 'string').length} verified games`
+                  : `${displayGames.filter(g => extractAppId(g)).length} verified games`
               }
             </span>
             <div className="flex items-center gap-3">
@@ -913,14 +816,11 @@ function DashboardInner() {
                 .filter((game: DisplayGame) => {
                   if (searchQuery.trim()) return true;
                   if (showAllGames) return true;
-                  const inlineAppId = extractAppId(game);
-                  if (inlineAppId) return true;
-                  const resolved = resolvedAppIds[game.displayKey];
-                  return typeof resolved === 'string';
+                  return extractAppId(game) !== null;
                 })
                 .map((game: DisplayGame) => {
                   const trackState = getTrackState(game);
-                  const resolvedAppId = extractAppId(game) || resolvedAppIds[game.displayKey] || undefined;
+                  const resolvedAppId = extractAppId(game) || undefined;
                   const cardLink = resolvedAppId ? `/appid/${resolvedAppId}` : game.link;
                   return (
                     <GamePosterCard

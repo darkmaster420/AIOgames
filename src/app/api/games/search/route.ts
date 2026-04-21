@@ -1,13 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cleanGameTitle } from '../../../../utils/steamApi';
 import { searchGames } from '../../../../lib/gameapi';
+import { peekCachedSteamAppId, resolveSteamAppIdsBatch } from '../../../../utils/steamAppIdResolver';
 
 interface ApiGame {
   id: string;
   title: string;
   source: string;
   siteType: string;
+  appid?: number | string;
+  appId?: number | string;
+  steamAppId?: number | string;
+  steam_appid?: number | string;
+  originalTitle?: string;
   [key: string]: unknown;
+}
+
+function hasNativeAppId(game: ApiGame): boolean {
+  const candidates = [game.appid, game.appId, game.steamAppId, game.steam_appid];
+  return candidates.some(c => c !== undefined && c !== null && /^\d+$/.test(String(c).trim()));
 }
 
 interface CacheEntry {
@@ -61,19 +72,48 @@ export async function GET(request: NextRequest) {
     
     // Extract the results array from the API response structure
     if (data.success && data.results && Array.isArray(data.results)) {
-      // Add original titles and clean existing titles
-      const results = data.results.map((game: ApiGame) => ({
-        ...game,
-        originalTitle: game.title, // Store the original title
-        title: cleanGameTitle(game.title) // Clean the title
-      }));
-      
-      // Store in cache
+      // Add original titles, clean existing titles, and seed any Steam
+      // AppIDs we already have cached from prior runs.
+      const seeded: ApiGame[] = data.results.map((game: ApiGame) => {
+        const originalTitle = game.title;
+        const next: ApiGame = {
+          ...game,
+          originalTitle,
+          title: cleanGameTitle(game.title),
+        };
+        if (!hasNativeAppId(next)) {
+          const cached = peekCachedSteamAppId(originalTitle);
+          if (cached) next.appid = cached;
+        }
+        return next;
+      });
+
+      // Fill in AppIDs for any games that don't have one yet. Since search
+      // responses are much smaller than the recent feed (usually <=20 items),
+      // we resolve synchronously so the client gets a fully-verified result
+      // set in a single response.
+      const needsResolution = seeded.filter(g => !hasNativeAppId(g));
+      let results: ApiGame[] = seeded;
+      if (needsResolution.length > 0) {
+        try {
+          const titles = needsResolution.map(g => (g.originalTitle || g.title || '') as string);
+          const resolvedMap = await resolveSteamAppIdsBatch(titles, 6);
+          results = seeded.map(game => {
+            if (hasNativeAppId(game)) return game;
+            const raw = (game.originalTitle || game.title || '') as string;
+            const appId = resolvedMap.get(raw);
+            return appId ? { ...game, appid: appId } : game;
+          });
+        } catch (err) {
+          console.warn('[Search] AppID resolution failed, returning unresolved results:', err);
+        }
+      }
+
       searchCache.set(cacheKey, {
         data: results,
         timestamp: Date.now()
       });
-      
+
       return NextResponse.json(results);
     } else {
       console.error('Invalid search API response structure:', data);

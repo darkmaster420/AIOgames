@@ -2,6 +2,7 @@ import { NextResponse, NextRequest } from 'next/server';
 import { cleanGameTitle } from '../../../../utils/steamApi';
 import { resolveIGDBImage } from '../../../../utils/igdb';
 import { getRecentUploads } from '../../../../lib/gameapi';
+import { peekCachedSteamAppId, resolveSteamAppIdsBatch } from '../../../../utils/steamAppIdResolver';
 
 // Allow up to 2 minutes for initial data fetch (scraping multiple sites via FlareSolverr)
 export const maxDuration = 120;
@@ -15,6 +16,11 @@ const failedImageTitles = new Set<string>();
 
 // Track whether background enrichment is already running
 let enrichmentRunning = false;
+let appIdEnrichmentRunning = false;
+
+// Titles we've already tried to resolve and failed — don't re-hit Steam for
+// them until the fresh-scrape cache expires.
+const failedAppIdTitles = new Set<string>();
 
 interface Game {
   siteType: string;
@@ -22,7 +28,16 @@ interface Game {
   title: string;
   originalTitle?: string;
   source: string;
+  appid?: number | string;
+  appId?: number | string;
+  steamAppId?: number | string;
+  steam_appid?: number | string;
   [key: string]: unknown;
+}
+
+function hasNativeAppId(game: Game): boolean {
+  const candidates = [game.appid, game.appId, game.steamAppId, game.steam_appid];
+  return candidates.some(c => c !== undefined && c !== null && /^\d+$/.test(String(c).trim()));
 }
 
 // Background enrichment — runs after response is sent, updates cache in-place
@@ -79,6 +94,55 @@ function enrichInBackground() {
   })();
 }
 
+// Background AppID enrichment — runs after response is sent, fills in Steam
+// AppIDs for any games that didn't have one embedded and aren't already
+// resolved in the resolver cache. Updates cachedRecent.results in-place so
+// subsequent requests return fully-verified data without the client having to
+// do any Steam calls itself.
+function enrichAppIdsInBackground() {
+  if (appIdEnrichmentRunning || !cachedRecent) return;
+
+  const gamesNeedingAppId = cachedRecent.results.filter((g: Game) => {
+    if (hasNativeAppId(g)) return false;
+    const cleanTitle = cleanGameTitle(g.originalTitle || g.title || '').trim();
+    if (!cleanTitle) return false;
+    return !failedAppIdTitles.has(cleanTitle.toLowerCase());
+  });
+
+  if (gamesNeedingAppId.length === 0) return;
+
+  appIdEnrichmentRunning = true;
+  console.log(`[Recent] Background AppID enrichment starting for ${gamesNeedingAppId.length} games...`);
+
+  (async () => {
+    try {
+      const titles = gamesNeedingAppId.map(g => (g.originalTitle || g.title || '') as string);
+      const resolvedMap = await resolveSteamAppIdsBatch(titles, 6);
+
+      let resolvedCount = 0;
+      if (cachedRecent) {
+        cachedRecent.results = cachedRecent.results.map((game: Game) => {
+          if (hasNativeAppId(game)) return game;
+          const rawTitle = (game.originalTitle || game.title || '') as string;
+          const appId = resolvedMap.get(rawTitle);
+          if (appId) {
+            resolvedCount++;
+            return { ...game, appid: appId } as Game;
+          }
+          const cleanTitle = cleanGameTitle(rawTitle).trim();
+          if (cleanTitle) failedAppIdTitles.add(cleanTitle.toLowerCase());
+          return game;
+        });
+      }
+      console.log(`[Recent] Background AppID enrichment done: ${resolvedCount} resolved`);
+    } catch (error) {
+      console.error('[Recent] Background AppID enrichment error:', error);
+    } finally {
+      appIdEnrichmentRunning = false;
+    }
+  })();
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -95,7 +159,9 @@ export async function GET(request: NextRequest) {
       isFromCache = true;
 
       // Kick off background re-enrichment for any games still missing images
+      // or Steam AppIDs. Both update the cache in-place.
       enrichInBackground();
+      enrichAppIdsInBackground();
     } else {
       const data = await getRecentUploads();
       
@@ -105,21 +171,37 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Invalid API response structure' }, { status: 500 });
       }
 
-      // Clean titles — return immediately, don't wait for image enrichment
-      results = data.results.map((game: Game) => ({
-        ...game,
-        originalTitle: game.title,
-        title: cleanGameTitle(game.title)
-      }));
+      // Clean titles and seed any Steam AppIDs we already have cached from a
+      // previous run. This means a fresh scrape still returns with many games
+      // already verified (provided they've been seen before) — no client work
+      // required.
+      results = data.results.map((game: Game) => {
+        const originalTitle = game.title;
+        const cleanedTitle = cleanGameTitle(game.title);
+        const next: Game = {
+          ...game,
+          originalTitle,
+          title: cleanedTitle,
+        };
+        if (!hasNativeAppId(next)) {
+          const cached = peekCachedSteamAppId(originalTitle);
+          if (cached) next.appid = cached;
+        }
+        return next;
+      });
 
-      // Reset failed titles on fresh data fetch
+      // Reset failure sets on fresh data fetch so previously-failed titles
+      // get another attempt.
       failedImageTitles.clear();
+      failedAppIdTitles.clear();
 
-      // Cache results immediately (without images) so they're available fast
+      // Cache results immediately so they're available fast
       cachedRecent = { results, timestamp: now, siteKey: cacheKey };
 
-      // Kick off background enrichment — images will be in cache for next request
+      // Kick off background enrichment — images and AppIDs will be in cache
+      // for the next request.
       enrichInBackground();
+      enrichAppIdsInBackground();
     }
 
     // Apply local site filtering
@@ -131,6 +213,7 @@ export async function GET(request: NextRequest) {
     const cacheAge = isFromCache ? Math.floor((now - cachedRecent!.timestamp) / 1000) : 0;
     const remainingTTL = Math.max(0, Math.floor((CACHE_TTL_MS - (now - (cachedRecent?.timestamp || now))) / 1000));
     const pendingImages = results.filter((g: Game) => !g.image).length;
+    const pendingAppIds = results.filter((g: Game) => !hasNativeAppId(g)).length;
 
     return NextResponse.json(finalResults, {
       headers: {
@@ -139,7 +222,8 @@ export async function GET(request: NextRequest) {
         'X-Cache-Status': isFromCache ? 'HIT' : 'MISS',
         'X-Cache-Age': cacheAge.toString(),
         'X-Cache-TTL': remainingTTL.toString(),
-        'X-Pending-Images': pendingImages.toString()
+        'X-Pending-Images': pendingImages.toString(),
+        'X-Pending-AppIds': pendingAppIds.toString()
       }
     });
   } catch (error) {
