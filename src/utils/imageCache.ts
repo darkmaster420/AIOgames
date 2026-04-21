@@ -65,26 +65,66 @@ interface CachedImage {
   lastAccessed: number;
 }
 
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
-const MAX_ENTRIES = 500;
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours — default for plain CDN images
+// CF-protected images are expensive to (re)fetch (FlareSolverr round trip +
+// Cloudflare clearance) so we cache them aggressively. Posters basically
+// don't change, so keeping the bytes for a week is fine and saves the user
+// a perceptible delay every time they come back.
+const CF_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const MAX_ENTRIES = 1500;
+
+export function isCfProtectedUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return HOST_MATCHERS.some(m => m.match(host));
+  } catch {
+    return false;
+  }
+}
+
+function ttlForUrl(url: string): number {
+  return isCfProtectedUrl(url) ? CF_CACHE_TTL_MS : CACHE_TTL_MS;
+}
 
 const cache = new Map<string, CachedImage>();
 const inflight = new Map<string, Promise<CachedImage | null>>();
 // Titles/URLs that recently failed — skip prefetching until the record expires
 // so we don't keep retrying broken/Cloudflare-hostile URLs.
 const failedUrls = new Map<string, number>();
-const FAILURE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const FAILURE_TTL_MS = 30 * 1000; // 30s — short enough that transient blips recover quickly
+// Hosts we trust to normally just work over plain fetch. We NEVER cache
+// negatives for these so one transient network hiccup doesn't poison a
+// working image URL for any length of time.
+const NEVER_CACHE_FAILURE_HOSTS = [
+  'cdn.cloudflare.steamstatic.com',
+  'cdn.akamai.steamstatic.com',
+  'steamcdn-a.akamaihd.net',
+  'images.igdb.com',
+  'media.rawg.io',
+  'shared.fastly.steamstatic.com',
+];
 
-function buildHeaders(jar: CookieJar | null, referer: string): HeadersInit {
+function shouldCacheFailure(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return !NEVER_CACHE_FAILURE_HOSTS.some(h => host === h || host.endsWith('.' + h));
+  } catch {
+    return true;
+  }
+}
+
+function buildHeaders(jar: CookieJar | null, referer: string, includeReferer: boolean): HeadersInit {
   const headers: Record<string, string> = {
     'User-Agent':
       jar?.userAgent ||
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-    'Accept-Encoding': 'gzip, deflate, br',
+    // Omit Accept-Encoding so undici picks a safe default and auto-decompresses.
     'Accept-Language': 'en-US,en;q=0.9',
-    'Referer': referer,
   };
+  if (includeReferer) {
+    headers['Referer'] = referer;
+  }
   if (jar?.cookies?.length) {
     headers['Cookie'] = jar.cookies.join('; ');
   }
@@ -112,7 +152,7 @@ function evictIfNeeded() {
 export function getCachedImage(url: string): CachedImage | null {
   const entry = cache.get(url);
   if (!entry) return null;
-  if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+  if (Date.now() - entry.timestamp > ttlForUrl(url)) {
     cache.delete(url);
     return null;
   }
@@ -153,15 +193,19 @@ async function fetchImage(url: string): Promise<CachedImage | null> {
         console.warn(`[imageCache] Failed to get ${matcher.key} cookie:`, err);
       }
       if (jar) {
-        response = await fetch(url, {
-          headers: buildHeaders(jar, validUrl.origin),
-          signal: AbortSignal.timeout(15000),
-        });
-        if (looksLikeChallenge(response)) {
+        try {
+          response = await fetch(url, {
+            headers: buildHeaders(jar, validUrl.origin, true),
+            signal: AbortSignal.timeout(15000),
+          });
+        } catch (err) {
+          console.warn(`[imageCache] Cookie fetch threw for ${host}:`, err);
+        }
+        if (response && looksLikeChallenge(response)) {
           try {
             const fresh = await matcher.getFresh();
             response = await fetch(url, {
-              headers: buildHeaders(fresh, validUrl.origin),
+              headers: buildHeaders(fresh, validUrl.origin, true),
               signal: AbortSignal.timeout(15000),
             });
           } catch (err) {
@@ -174,30 +218,60 @@ async function fetchImage(url: string): Promise<CachedImage | null> {
     }
   }
 
-  if (!response || looksLikeChallenge(response)) {
-    try {
-      response = await fetch(url, {
-        headers: buildHeaders(null, validUrl.origin),
-        signal: AbortSignal.timeout(15000),
-      });
-    } catch (err) {
-      console.warn(`[imageCache] Plain fetch failed for ${host}:`, err);
-      return null;
+  // Fallback (or default path for hosts like IGDB/RAWG/Steam CDN that don't
+  // need cookies). We deliberately skip the Referer header here — IGDB in
+  // particular 403s requests with a mismatched Referer.
+  if (!response || !response.ok || looksLikeChallenge(response)) {
+    // Retry up to 2 times on transient errors. Steam CDN occasionally
+    // returns connection errors or transient 5xx that succeed on an
+    // immediate retry.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        response = await fetch(url, {
+          headers: buildHeaders(null, validUrl.origin, false),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (response.ok && !looksLikeChallenge(response)) break;
+        console.warn(
+          `[imageCache] Plain fetch attempt ${attempt + 1} for ${host}: status=${response.status} ct=${response.headers.get('content-type')}`
+        );
+      } catch (err) {
+        response = null;
+        console.warn(
+          `[imageCache] Plain fetch attempt ${attempt + 1} for ${host} threw:`,
+          err instanceof Error ? `${err.name}: ${err.message}` : err
+        );
+      }
+      // Small backoff before the second attempt.
+      if (attempt === 0) await new Promise(r => setTimeout(r, 150));
     }
+    if (!response) return null;
   }
 
   if (!response.ok || looksLikeChallenge(response)) {
+    console.warn(
+      `[imageCache] Rejecting ${host}: status=${response.status} ct=${response.headers.get('content-type')}`
+    );
     return null;
   }
 
-  const buffer = await response.arrayBuffer();
-  const contentType = response.headers.get('content-type') || 'image/jpeg';
-  return {
-    buffer,
-    contentType,
-    timestamp: Date.now(),
-    lastAccessed: Date.now(),
-  };
+  try {
+    const buffer = await response.arrayBuffer();
+    if (buffer.byteLength === 0) {
+      console.warn(`[imageCache] Empty body from ${host}`);
+      return null;
+    }
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    return {
+      buffer,
+      contentType,
+      timestamp: Date.now(),
+      lastAccessed: Date.now(),
+    };
+  } catch (err) {
+    console.warn(`[imageCache] Failed to read body from ${host}:`, err instanceof Error ? err.message : err);
+    return null;
+  }
 }
 
 /**
@@ -218,7 +292,7 @@ export async function getOrFetchImage(url: string): Promise<CachedImage | null> 
       if (result) {
         cache.set(url, result);
         evictIfNeeded();
-      } else {
+      } else if (shouldCacheFailure(url)) {
         failedUrls.set(url, Date.now());
       }
       return result;

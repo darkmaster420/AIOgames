@@ -688,7 +688,7 @@ export function buildSteamSearchQueryVariants(query: string): string[] {
  * @returns Cleaned and normalized title
  */
 export function cleanGameTitle(title: string): string {
-  return title
+  return decodeHtmlEntities(title)
     .toLowerCase()
     // Remove DODI-style leading post number prefix (e.g. "2276- Sniper Elite 5")
     .replace(/^\d+[-–—]\s*/, '')
@@ -912,7 +912,7 @@ export function calculateGamePriority(title: string, preferRepacks: boolean = fa
  * Use this for better edition distinction while still allowing basic matching
  */
 export function cleanGameTitlePreserveEdition(title: string): string {
-  return title
+  return decodeHtmlEntities(title)
     .toLowerCase()
     // Remove DODI-style leading post number prefix (e.g. "2276- Sniper Elite 5")
     .replace(/^\d+[-–—]\s*/, '')
@@ -1056,32 +1056,55 @@ export function cleanGameTitlePreserveEdition(title: string): string {
  * @returns Decoded text with proper characters
  */
 export function decodeHtmlEntities(text: string): string {
+  if (!text) return text;
+
+  // Decoder that handles double-encoded entities (e.g. `&amp;#8211;`) by
+  // decoding &amp; FIRST so the inner entity becomes visible, then looping
+  // until the output stabilizes. Without this, WordPress titles like
+  // "Avatar: Frontiers of Pandora &amp;#8211; Gold Edition" would only get
+  // half-decoded and leak literal "8211" into cleaned titles, breaking Steam
+  // similarity matching.
+  const manualPass = (s: string) =>
+    s
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&apos;/gi, "'")
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&#x([a-fA-F0-9]+);/g, (m, hex) => {
+        const code = parseInt(hex, 16);
+        return Number.isFinite(code) ? String.fromCodePoint(code) : m;
+      })
+      .replace(/&#(\d+);/g, (m, dec) => {
+        const code = parseInt(dec, 10);
+        return Number.isFinite(code) ? String.fromCodePoint(code) : m;
+      });
+
   if (typeof document !== 'undefined') {
-    // Client-side: use DOM parser
-    const textarea = document.createElement('textarea');
-    textarea.innerHTML = text;
-    return textarea.value;
-  } else {
-    // Server-side: manual replacement of common entities
-    return text
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#x27;/g, "'")
-      .replace(/&#x2F;/g, '/')
-      .replace(/&#39;/g, "'")
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&#8211;/g, '–') // en dash
-      .replace(/&#8212;/g, '—') // em dash
-      .replace(/&#8216;/g, "'") // left single quotation mark
-      .replace(/&#8217;/g, "'") // right single quotation mark
-      .replace(/&#8220;/g, '"') // left double quotation mark
-      .replace(/&#8221;/g, '"') // right double quotation mark
-      .replace(/&#8230;/g, '…') // horizontal ellipsis
-      .replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec))
-      .replace(/&#x([a-fA-F0-9]+);/g, (match, hex) => String.fromCharCode(parseInt(hex, 16)));
+    // Client-side: textarea-based decoding handles named entities natively,
+    // but we still manually loop in case of double-encoding.
+    const decode = (s: string) => {
+      const textarea = document.createElement('textarea');
+      textarea.innerHTML = s;
+      return textarea.value;
+    };
+    let prev = text;
+    for (let i = 0; i < 3; i++) {
+      const next = decode(prev);
+      if (next === prev) return next;
+      prev = next;
+    }
+    return prev;
   }
+
+  let prev = text;
+  for (let i = 0; i < 3; i++) {
+    const next = manualPass(prev);
+    if (next === prev) return next;
+    prev = next;
+  }
+  return prev;
 }
 
 /**

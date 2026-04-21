@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getOrFetchImage } from '../../../utils/imageCache';
+import { getOrFetchImage, isCfProtectedUrl } from '../../../utils/imageCache';
 
 // All the heavy lifting (Cloudflare cookie handling, retry-on-challenge,
 // in-memory byte cache) lives in `utils/imageCache.ts` so it can be shared
@@ -42,21 +42,25 @@ export async function GET(request: NextRequest) {
     }
 
     const cacheAgeSec = Math.floor((Date.now() - cached.timestamp) / 1000);
+    // CF-protected posters are extremely expensive to refetch (FlareSolverr
+    // + Cloudflare clearance), so tell the browser to hold them for a week.
+    // Other CDN images (Steam CDN, IGDB, RAWG) get a shorter 6-hour TTL.
+    const isCfImage = isCfProtectedUrl(imageUrl);
+    const cacheControl = isCfImage
+      ? 'public, max-age=604800, s-maxage=604800, immutable'
+      : 'public, max-age=21600, s-maxage=86400, immutable';
 
     return new NextResponse(cached.buffer, {
       status: 200,
       headers: {
         'Content-Type': cached.contentType,
-        // Long browser cache — images at a given URL don't change. Combined
-        // with the server-side byte cache this means a user loading the home
-        // page hits the browser cache or this server's memory cache; we
-        // almost never go back to the origin site.
-        'Cache-Control': 'public, max-age=21600, s-maxage=86400, immutable',
+        'Cache-Control': cacheControl,
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET',
         'Access-Control-Allow-Headers': 'Content-Type',
         'X-Image-Cache': cacheAgeSec < 2 ? 'MISS' : 'HIT',
         'X-Image-Cache-Age': cacheAgeSec.toString(),
+        'X-Image-Source': isCfImage ? 'cf' : 'cdn',
       },
     });
   } catch (error) {

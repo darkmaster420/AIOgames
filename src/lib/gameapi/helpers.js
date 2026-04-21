@@ -366,8 +366,17 @@ export async function getFreshSteamripCookie() {
       }
     }
 
-    if (!cf_clearance) {
-      throw new Error('Failed to extract cf_clearance cookie from FlareSolverr response');
+    // Mirror the Skidrow/DODI behavior: if FlareSolverr didn't return a
+    // cf_clearance cookie it usually means Cloudflare isn't actively
+    // challenging the site right now. That's fine — we can still use the
+    // User-Agent FlareSolverr saw working and whatever ancillary cookies it
+    // captured. Previously we threw here, which left the image proxy with no
+    // jar at all and made poster loads fail whenever CF wasn't challenging.
+    if (!cf_clearance && allCookies.length > 0) {
+      console.log('No cf_clearance cookie found for SteamRip, but using other cookies from FlareSolverr');
+    } else if (!cf_clearance && allCookies.length === 0) {
+      console.log('No cookies returned from FlareSolverr for SteamRip - Cloudflare protection is likely not active');
+      cf_clearance = 'none';
     }
 
     // Store the User-Agent that FlareSolverr used
@@ -1634,18 +1643,38 @@ function decodeWindows1251(buffer, contentType = '') {
 }
 
 function decodeBasicHtmlEntities(text = '') {
-  return text
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#038;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  if (!text) return text;
+  // Decode &amp; BEFORE numeric entities so that double-encoded sequences like
+  // `&amp;#8211;` (an en-dash that survived two rounds of WordPress escaping)
+  // get fully unwrapped. Without this, only the outer `&amp;` would be
+  // decoded and `&#8211;` would leak through into cleaned titles as literal
+  // "8211", breaking similarity matching for games like
+  // "Avatar: Frontiers of Pandora – Gold Edition".
+  const pass = (s) =>
+    s
+      .replace(/&amp;/gi, '&')
+      .replace(/&#(\d+);/g, (_, n) => {
+        const code = Number(n);
+        return Number.isFinite(code) ? String.fromCodePoint(code) : _;
+      })
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => {
+        const code = parseInt(h, 16);
+        return Number.isFinite(code) ? String.fromCodePoint(code) : _;
+      })
+      .replace(/&quot;/gi, '"')
+      .replace(/&apos;/gi, "'")
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&nbsp;/gi, ' ');
+
+  // Loop until stable (caps at 3 passes) to handle rare multi-encoded input.
+  let prev = text;
+  for (let i = 0; i < 3; i++) {
+    const next = pass(prev);
+    if (next === prev) break;
+    prev = next;
+  }
+  return prev.replace(/\s+/g, ' ').trim();
 }
 
 function parseOnlineFixLink(link) {
@@ -1731,7 +1760,10 @@ async function resolveSteamHeaderImageForOnlineFix(title = '') {
     const data = await response.json();
     const best = chooseBestSteamSearchResult(data, normalized);
     const appid = best?.appid ? String(best.appid) : '';
-    const image = appid ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg` : null;
+    // Use shared.fastly.steamstatic.com (the current canonical Steam store
+    // asset CDN) — the older `cdn.cloudflare.steamstatic.com/steam/apps/...`
+    // path regularly 404s for newer appids.
+    const image = appid ? `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appid}/header.jpg` : null;
     steamHeaderImageCache.set(normalized, image);
     return image;
   } catch {
