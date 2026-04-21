@@ -16,6 +16,7 @@ export async function middleware(request: NextRequest) {
     '/api/games/search', // Allow anonymous users to search for games
     '/api/games/recent', // Allow anonymous users to see recent games on homepage
     '/api/updates/recent', // Allow anonymous users to see recent game uploads
+    '/api/proxy-image', // Image proxy must be public so posters load on the homepage for anon users
     '/icon.svg',
   ];
 

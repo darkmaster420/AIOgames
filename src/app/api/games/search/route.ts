@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cleanGameTitle } from '../../../../utils/steamApi';
 import { searchGames } from '../../../../lib/gameapi';
 import { peekCachedSteamAppId, resolveSteamAppIdsBatch } from '../../../../utils/steamAppIdResolver';
+import { prefetchImageBatch } from '../../../../utils/imageCache';
 
 interface ApiGame {
   id: string;
@@ -113,6 +114,18 @@ export async function GET(request: NextRequest) {
         data: results,
         timestamp: Date.now()
       });
+
+      // Warm the server-side image byte cache in the background so the
+      // browser's follow-up /api/proxy-image requests are memory hits. Fire
+      // and forget — never blocks the response.
+      const imageUrls = results
+        .map(g => (typeof g.image === 'string' ? g.image : ''))
+        .filter(Boolean) as string[];
+      if (imageUrls.length > 0) {
+        prefetchImageBatch(imageUrls, 3).catch(err => {
+          console.warn('[Search] Image prefetch failed:', err);
+        });
+      }
 
       return NextResponse.json(results);
     } else {

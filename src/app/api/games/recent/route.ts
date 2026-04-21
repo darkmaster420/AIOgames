@@ -3,6 +3,7 @@ import { cleanGameTitle } from '../../../../utils/steamApi';
 import { resolveIGDBImage } from '../../../../utils/igdb';
 import { getRecentUploads } from '../../../../lib/gameapi';
 import { peekCachedSteamAppId, resolveSteamAppIdsBatch } from '../../../../utils/steamAppIdResolver';
+import { prefetchImageBatch, getCachedImage } from '../../../../utils/imageCache';
 
 // Allow up to 2 minutes for initial data fetch (scraping multiple sites via FlareSolverr)
 export const maxDuration = 120;
@@ -17,6 +18,7 @@ const failedImageTitles = new Set<string>();
 // Track whether background enrichment is already running
 let enrichmentRunning = false;
 let appIdEnrichmentRunning = false;
+let imagePrefetchRunning = false;
 
 // Titles we've already tried to resolve and failed — don't re-hit Steam for
 // them until the fresh-scrape cache expires.
@@ -90,6 +92,41 @@ function enrichInBackground() {
       console.error('[Recent] Background enrichment error:', error);
     } finally {
       enrichmentRunning = false;
+      // Now that new image URLs have been slotted in, warm the byte cache
+      // for them too.
+      prefetchImageBytesInBackground();
+    }
+  })();
+}
+
+// Background image-byte prefetch — downloads the actual image bytes for every
+// game that has an `image` URL and caches them in memory so the browser's
+// /api/proxy-image requests become near-instant memory hits. This is what
+// stops the browser from having to sit through N FlareSolverr-backed
+// Cloudflare fetches itself.
+function prefetchImageBytesInBackground() {
+  if (imagePrefetchRunning || !cachedRecent) return;
+
+  const urls: string[] = [];
+  for (const g of cachedRecent.results) {
+    const url = g.image;
+    if (typeof url !== 'string' || !url) continue;
+    if (getCachedImage(url)) continue;
+    urls.push(url);
+  }
+  if (urls.length === 0) return;
+
+  imagePrefetchRunning = true;
+  console.log(`[Recent] Background image-byte prefetch starting for ${urls.length} images...`);
+
+  (async () => {
+    try {
+      const cachedCount = await prefetchImageBatch(urls, 3);
+      console.log(`[Recent] Background image-byte prefetch done: ${cachedCount}/${urls.length} cached`);
+    } catch (error) {
+      console.error('[Recent] Background image-byte prefetch error:', error);
+    } finally {
+      imagePrefetchRunning = false;
     }
   })();
 }
@@ -159,9 +196,11 @@ export async function GET(request: NextRequest) {
       isFromCache = true;
 
       // Kick off background re-enrichment for any games still missing images
-      // or Steam AppIDs. Both update the cache in-place.
+      // or Steam AppIDs, and warm the image byte cache for anything that's
+      // not already resident. All update the cache in-place.
       enrichInBackground();
       enrichAppIdsInBackground();
+      prefetchImageBytesInBackground();
     } else {
       const data = await getRecentUploads();
       
@@ -199,9 +238,11 @@ export async function GET(request: NextRequest) {
       cachedRecent = { results, timestamp: now, siteKey: cacheKey };
 
       // Kick off background enrichment — images and AppIDs will be in cache
-      // for the next request.
+      // for the next request, plus pre-download the raw image bytes so the
+      // user's browser gets instant memory hits from /api/proxy-image.
       enrichInBackground();
       enrichAppIdsInBackground();
+      prefetchImageBytesInBackground();
     }
 
     // Apply local site filtering
