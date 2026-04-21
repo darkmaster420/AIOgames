@@ -10,6 +10,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { SITES } from '../lib/sites';
 import { cleanGameTitle, buildSteamSearchQueryVariants } from '../utils/steamApi';
 import { calculateGameSimilarity } from '../utils/titleMatching';
+import { getProxiedImageUrl } from '../utils/imageProxy';
 
 type TrackedGameInfo = {
   trackedId: string;
@@ -98,6 +99,26 @@ function DashboardInner() {
       if (enrichTimeoutRef.current) clearTimeout(enrichTimeoutRef.current);
     };
   }, []);
+
+  // Warm the browser cache for every game's poster as soon as the list arrives.
+  // Verification runs separately and hides unverified cards, so without this
+  // prefetch an image wouldn't even start downloading until its card mounts —
+  // meaning a fresh fetch shows cards with blank posters while verification
+  // trickles through. With this, images stream in parallel with verification.
+  const prefetchedImageUrlsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!games.length || typeof window === 'undefined') return;
+    for (const g of games) {
+      if (!g.image) continue;
+      const url = getProxiedImageUrl(g.image);
+      if (prefetchedImageUrlsRef.current.has(url)) continue;
+      prefetchedImageUrlsRef.current.add(url);
+      const img = new window.Image();
+      img.decoding = 'async';
+      img.loading = 'eager';
+      img.src = url;
+    }
+  }, [games]);
 
   // Function to update URL parameters
   const updateURL = useCallback((search?: string, site?: string, refine?: string) => {
@@ -511,40 +532,50 @@ function DashboardInner() {
 
       let cancelled = false;
 
-      const resolveMissingAppIds = async () => {
-        for (const game of displayGames) {
-          const nativeAppId = extractAppId(game);
-          if (nativeAppId) {
-            setResolvedAppIds(prev => (prev[game.displayKey] === nativeAppId ? prev : { ...prev, [game.displayKey]: nativeAppId }));
-            continue;
-          }
+      // Resolve AppIDs with a concurrency pool so games verify in parallel
+      // and their cards (+ images) appear progressively instead of waiting
+      // for a strictly serial pass over the full list. Concurrency is
+      // intentionally modest to stay friendly with the Steam search endpoint.
+      const CONCURRENCY = 6;
 
-          if (resolvedAppIds[game.displayKey] !== undefined) {
-            continue;
-          }
-
-          const cleanTitle = cleanGameTitle(game.originalTitle || game.title || '').trim();
-          if (!cleanTitle) {
-            setResolvedAppIds(prev => (prev[game.displayKey] === null ? prev : { ...prev, [game.displayKey]: null }));
-            continue;
-          }
-
-          if (steamAppIdByTitleCache[cleanTitle] !== undefined) {
-            const cachedValue = steamAppIdByTitleCache[cleanTitle];
-            setResolvedAppIds(prev => (prev[game.displayKey] === cachedValue ? prev : { ...prev, [game.displayKey]: cachedValue }));
-            continue;
-          }
-
-          const appId = await resolveAppIdFromCleanTitle(cleanTitle);
-          if (cancelled) {
-            return;
-          }
-
-          setSteamAppIdByTitleCache(prev => (prev[cleanTitle] === appId ? prev : { ...prev, [cleanTitle]: appId }));
-          setResolvedAppIds(prev => (prev[game.displayKey] === appId ? prev : { ...prev, [game.displayKey]: appId }));
-
-          await new Promise(resolve => setTimeout(resolve, 60));
+      const resolveOne = async (game: DisplayGame) => {
+        const nativeAppId = extractAppId(game);
+        if (nativeAppId) {
+          setResolvedAppIds(prev => (prev[game.displayKey] === nativeAppId ? prev : { ...prev, [game.displayKey]: nativeAppId }));
+          return;
         }
+
+        if (resolvedAppIds[game.displayKey] !== undefined) return;
+
+        const cleanTitle = cleanGameTitle(game.originalTitle || game.title || '').trim();
+        if (!cleanTitle) {
+          setResolvedAppIds(prev => (prev[game.displayKey] === null ? prev : { ...prev, [game.displayKey]: null }));
+          return;
+        }
+
+        if (steamAppIdByTitleCache[cleanTitle] !== undefined) {
+          const cachedValue = steamAppIdByTitleCache[cleanTitle];
+          setResolvedAppIds(prev => (prev[game.displayKey] === cachedValue ? prev : { ...prev, [game.displayKey]: cachedValue }));
+          return;
+        }
+
+        const appId = await resolveAppIdFromCleanTitle(cleanTitle);
+        if (cancelled) return;
+
+        setSteamAppIdByTitleCache(prev => (prev[cleanTitle] === appId ? prev : { ...prev, [cleanTitle]: appId }));
+        setResolvedAppIds(prev => (prev[game.displayKey] === appId ? prev : { ...prev, [game.displayKey]: appId }));
+      };
+
+      const resolveMissingAppIds = async () => {
+        let cursor = 0;
+        const worker = async () => {
+          while (!cancelled) {
+            const i = cursor++;
+            if (i >= displayGames.length) return;
+            await resolveOne(displayGames[i]);
+          }
+        };
+        await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
       };
 
       resolveMissingAppIds();
