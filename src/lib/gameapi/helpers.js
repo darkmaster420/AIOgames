@@ -1139,26 +1139,29 @@ export async function fetchDodi(url, isPageRequest = false) {
 export async function transformPostForV2(post, site, fetchLinks = false) {
   const downloadLinks = fetchLinks ? await extractDownloadLinksForV2(post.link, site.type, post.content?.rendered) : [];
   
-  // Enhanced image extraction
+  // Enhanced image extraction.
+  // NOTE: skidrow images are served by a Cloudflare-protected host; previously
+  // we skipped them entirely because the browser couldn't load them. Now that
+  // /api/proxy-image forwards requests with the FlareSolverr-issued cf_clearance
+  // cookie, skidrow images load correctly and we treat them like every other
+  // site.
   let image = null;
   if (site.type === 'gamedrive') {
     image = post.featured_image_src || post.jetpack_featured_media_url;
-  } else if (site.type === 'steamrip') {
-    if (post.yoast_head_json?.og_image && post.yoast_head_json.og_image.length > 0) {
-      image = post.yoast_head_json.og_image[0].url;
-    }
-  } else if (site.type === 'reloadedsteam') {
-    if (post.yoast_head_json?.og_image && post.yoast_head_json.og_image.length > 0) {
-      image = post.yoast_head_json.og_image[0].url;
-    }
-  } else if (site.type === 'steamunderground') {
+  } else if (
+    site.type === 'steamrip' ||
+    site.type === 'reloadedsteam' ||
+    site.type === 'steamunderground' ||
+    site.type === 'skidrow'
+  ) {
     if (post.yoast_head_json?.og_image && post.yoast_head_json.og_image.length > 0) {
       image = post.yoast_head_json.og_image[0].url;
     }
   }
-  
-  // Fallback to content/excerpt image extraction (skip for skidrow — CF blocks their images)
-  if (!image && site.type !== 'skidrow') {
+
+  // Fallback to content/excerpt image extraction for any site that didn't
+  // already produce an image above.
+  if (!image) {
     image = extractImageFromContent(post.content?.rendered) || extractImageFromContent(post.excerpt?.rendered);
   }
 

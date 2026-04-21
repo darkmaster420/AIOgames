@@ -75,21 +75,24 @@ function DashboardInner() {
   const [steamAppIdByTitleCache, setSteamAppIdByTitleCache] = useState<Record<string, string | null>>({});
   const [showAllGames, setShowAllGames] = useState(false);
 
-  // AbortController for the main games fetches (recent/search). Cancels in-flight
-  // requests when the component unmounts (e.g. user navigates to an appid page)
-  // or when a newer fetch supersedes an older one, so we don't hog browser
-  // connection slots or keep the server busy on work whose result is discarded.
+  // Single AbortController tied to this component's lifetime. We abort it on
+  // unmount so pending fetches (e.g. the up-to-120s /api/games/recent scrape)
+  // don't keep hogging browser HTTP connection slots after the user has
+  // navigated to another page. We deliberately do NOT abort between sibling
+  // operations on this page — otherwise the URL-sync effect or a status
+  // change could kill a search mid-flight.
   const fetchAbortRef = useRef<AbortController | null>(null);
   const enrichTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const beginFetch = useCallback(() => {
-    fetchAbortRef.current?.abort();
-    const controller = new AbortController();
-    fetchAbortRef.current = controller;
-    return controller.signal;
+  const getFetchSignal = useCallback(() => {
+    if (!fetchAbortRef.current) {
+      fetchAbortRef.current = new AbortController();
+    }
+    return fetchAbortRef.current.signal;
   }, []);
 
   useEffect(() => {
+    if (!fetchAbortRef.current) fetchAbortRef.current = new AbortController();
     return () => {
       fetchAbortRef.current?.abort();
       if (enrichTimeoutRef.current) clearTimeout(enrichTimeoutRef.current);
@@ -131,7 +134,7 @@ function DashboardInner() {
       // Use a minimal delay to ensure state updates are complete
       const timer = setTimeout(() => {
         const performInitialSearch = async () => {
-          const signal = beginFetch();
+          const signal = getFetchSignal();
           setLoading(true);
           setError(null);
           try {
@@ -164,7 +167,7 @@ function DashboardInner() {
 
       return () => clearTimeout(timer);
     }
-  }, [searchParams, beginFetch]);
+  }, [searchParams, getFetchSignal]);
 
   // Function to set cookie with 1 hour expiration
   const setRecentGamesCookie = (show: boolean) => {
@@ -219,7 +222,7 @@ function DashboardInner() {
   // Load recent games (default view). No client cache — always ask the server,
   // which serves from its own in-memory cache or re-scrapes as needed.
   const loadRecentGames = useCallback(async (forceRefresh = false) => {
-    const signal = beginFetch();
+    const signal = getFetchSignal();
     setLoading(true);
     setError(null);
     try {
@@ -257,7 +260,7 @@ function DashboardInner() {
     } finally {
       if (!signal.aborted) setLoading(false);
     }
-  }, [beginFetch]);
+  }, [getFetchSignal]);
 
   // Search games handler
   const searchGames = useCallback(async (e?: React.FormEvent) => {
@@ -272,7 +275,7 @@ function DashboardInner() {
     // Update URL with current search parameters
     updateURL(searchQuery, siteFilter, refineText);
 
-    const signal = beginFetch();
+    const signal = getFetchSignal();
     setLoading(true);
     setError(null);
     try {
@@ -299,7 +302,7 @@ function DashboardInner() {
     } finally {
       if (!signal.aborted) setLoading(false);
     }
-  }, [searchQuery, siteFilter, refineText, loadRecentGames, updateURL, beginFetch]);
+  }, [searchQuery, siteFilter, refineText, loadRecentGames, updateURL, getFetchSignal]);
 
   // Load recent games on mount and check cookie/user preference for visibility
   useEffect(() => {
@@ -727,7 +730,7 @@ function DashboardInner() {
                         updateURL(searchQuery, site.value, refineText);
                         setLoading(true);
                         setError(null);
-                        const signal = beginFetch();
+                        const signal = getFetchSignal();
                         fetch(`/api/games/search?${params}`, { cache: 'no-store', signal })
                           .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed')))
                           .then(data => {
@@ -742,7 +745,7 @@ function DashboardInner() {
                           .finally(() => { if (!signal.aborted) setLoading(false); });
                       } else {
                         updateURL('', site.value);
-                        const signal = beginFetch();
+                        const signal = getFetchSignal();
                         setLoading(true);
                         setError(null);
                         const params = new URLSearchParams();
