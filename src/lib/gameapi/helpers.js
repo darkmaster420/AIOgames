@@ -3,6 +3,14 @@
  * Shared logic for Vercel and Docker deployments
  */
 
+// NOTE: `./net` (installed in index.ts) sets an undici global dispatcher
+// that raises the TCP connect timeout for the raw `fetch()` calls in this
+// module. Without that, every site fetch was silently capped at undici's 10s
+// default, which is what was making a single slow TLS handshake fail the
+// whole search with UND_ERR_CONNECT_TIMEOUT. Timings below assume the
+// dispatcher is already active; the module entry point always imports it
+// before any helpers here get called.
+
 // Cache configuration
 export const CACHE_CONFIG = {
   CACHE_TTL: 3600, // 1 hour
@@ -11,9 +19,56 @@ export const CACHE_CONFIG = {
   RECENT_UPLOADS_KEY: 'recent-uploads-complete',
 };
 
-// FlareSolverr timeout/retry settings (ms)
-export const DEFAULT_FLARE_TIMEOUT_MS = 30000; // 30s default
-export const DEFAULT_FLARE_RETRIES = 2;
+// Per-site HTTP timeout used for raw `fetch()` calls that talk directly to
+// an external source (skidrow/steamrip/dodi/onlinefix/freegog/gamedrive/…).
+// This is the end-to-end ceiling for a single request. Defaults to 60s so a
+// single slow TLS handshake / Cloudflare challenge won't fail the whole
+// search; the previous behaviour relied on undici's 10s connect timeout,
+// which the user repeatedly hit.
+export const SITE_FETCH_TIMEOUT_MS = Math.max(
+  10000,
+  parseInt(process.env.SITE_FETCH_TIMEOUT_MS || '60000', 10) || 60000
+);
+
+// FlareSolverr timeout/retry settings (ms). FlareSolverr itself renders a
+// browser to solve Cloudflare challenges, which can easily take >30s, so
+// default to 60s and cap individual callers at 60s as well (they used to cap
+// at 25s which guaranteed failures on cold solves).
+export const DEFAULT_FLARE_TIMEOUT_MS = Math.max(
+  10000,
+  parseInt(process.env.FLARE_TIMEOUT_MS || '60000', 10) || 60000
+);
+export const DEFAULT_FLARE_RETRIES = Math.max(
+  1,
+  parseInt(process.env.FLARE_RETRIES || '2', 10) || 2
+);
+
+/**
+ * Thin wrapper around fetch() that enforces `SITE_FETCH_TIMEOUT_MS` as a hard
+ * end-to-end timeout, in addition to undici's (now 60s) connect timeout. Any
+ * existing `signal` on the caller is composed with the timeout.
+ */
+export function siteFetch(resource, options = {}, timeoutMs = SITE_FETCH_TIMEOUT_MS) {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const userSignal = options.signal;
+  let signal = timeoutSignal;
+  if (userSignal) {
+    // AbortSignal.any is available on Node 20+; fall back to combining
+    // listeners for older runtimes.
+    if (typeof AbortSignal.any === 'function') {
+      signal = AbortSignal.any([timeoutSignal, userSignal]);
+    } else {
+      const controller = new AbortController();
+      const abort = (reason) => controller.abort(reason);
+      if (userSignal.aborted) abort(userSignal.reason);
+      else userSignal.addEventListener('abort', () => abort(userSignal.reason), { once: true });
+      if (timeoutSignal.aborted) abort(timeoutSignal.reason);
+      else timeoutSignal.addEventListener('abort', () => abort(timeoutSignal.reason), { once: true });
+      signal = controller.signal;
+    }
+  }
+  return fetch(resource, { ...options, signal });
+}
 
 // Cookie storage for SteamRip and Skidrow (in-memory for this instance)
 let steamripCookie = {
@@ -37,7 +92,15 @@ let dodiCookie = {
   expires_at: 0
 };
 
-const SKIDROW_COOLDOWN_MS = Math.max(30000, parseInt(process.env.SKIDROW_COOLDOWN_MS || '300000', 10) || 300000);
+// Circuit breakers. Previously a single network hiccup (a timeout on one
+// /api/games/search) would open the circuit for a full 5 minutes and make
+// every subsequent search silently skip that site. With per-site fetch
+// timeouts now at 60s (not 10s) and the undici connect timeout raised, one
+// failure is almost always a transient blip — we now require two consecutive
+// failures before opening, and default the cooldown to 60s. Env overrides
+// let operators retune without a code change.
+const SKIDROW_COOLDOWN_MS = Math.max(10000, parseInt(process.env.SKIDROW_COOLDOWN_MS || '60000', 10) || 60000);
+const SKIDROW_FAILURE_THRESHOLD = Math.max(1, parseInt(process.env.SKIDROW_FAILURE_THRESHOLD || '2', 10) || 2);
 let skidrowCircuit = {
   cooldownUntil: 0,
   failures: 0,
@@ -51,8 +114,12 @@ function isSkidrowCircuitOpen() {
 function noteSkidrowFailure(error) {
   skidrowCircuit.failures += 1;
   skidrowCircuit.lastError = String(error?.message || error || 'unknown error');
-  skidrowCircuit.cooldownUntil = Date.now() + SKIDROW_COOLDOWN_MS;
-  console.warn(`Skidrow circuit opened for ${Math.round(SKIDROW_COOLDOWN_MS / 1000)}s after failure #${skidrowCircuit.failures}: ${skidrowCircuit.lastError}`);
+  if (skidrowCircuit.failures >= SKIDROW_FAILURE_THRESHOLD) {
+    skidrowCircuit.cooldownUntil = Date.now() + SKIDROW_COOLDOWN_MS;
+    console.warn(`Skidrow circuit opened for ${Math.round(SKIDROW_COOLDOWN_MS / 1000)}s after failure #${skidrowCircuit.failures}: ${skidrowCircuit.lastError}`);
+  } else {
+    console.warn(`Skidrow fetch failure #${skidrowCircuit.failures}/${SKIDROW_FAILURE_THRESHOLD} (circuit still closed): ${skidrowCircuit.lastError}`);
+  }
 }
 
 function resetSkidrowCircuit() {
@@ -67,7 +134,8 @@ function resetSkidrowCircuit() {
 }
 
 // DODI circuit breaker (same pattern as Skidrow)
-const DODI_COOLDOWN_MS = Math.max(30000, parseInt(process.env.DODI_COOLDOWN_MS || '300000', 10) || 300000);
+const DODI_COOLDOWN_MS = Math.max(10000, parseInt(process.env.DODI_COOLDOWN_MS || '60000', 10) || 60000);
+const DODI_FAILURE_THRESHOLD = Math.max(1, parseInt(process.env.DODI_FAILURE_THRESHOLD || '2', 10) || 2);
 let dodiCircuit = {
   cooldownUntil: 0,
   failures: 0,
@@ -81,8 +149,12 @@ function isDodiCircuitOpen() {
 function noteDodiFailure(error) {
   dodiCircuit.failures += 1;
   dodiCircuit.lastError = String(error?.message || error || 'unknown error');
-  dodiCircuit.cooldownUntil = Date.now() + DODI_COOLDOWN_MS;
-  console.warn(`DODI circuit opened for ${Math.round(DODI_COOLDOWN_MS / 1000)}s after failure #${dodiCircuit.failures}: ${dodiCircuit.lastError}`);
+  if (dodiCircuit.failures >= DODI_FAILURE_THRESHOLD) {
+    dodiCircuit.cooldownUntil = Date.now() + DODI_COOLDOWN_MS;
+    console.warn(`DODI circuit opened for ${Math.round(DODI_COOLDOWN_MS / 1000)}s after failure #${dodiCircuit.failures}: ${dodiCircuit.lastError}`);
+  } else {
+    console.warn(`DODI fetch failure #${dodiCircuit.failures}/${DODI_FAILURE_THRESHOLD} (circuit still closed): ${dodiCircuit.lastError}`);
+  }
 }
 
 function resetDodiCircuit() {
@@ -408,7 +480,7 @@ export async function fetchSteamrip(url, isPageRequest = false) {
     const userAgent = isPageRequest ? 'GameSearch-API-v2-PageFetch/2.0' : 'GameSearch-API-v2/2.0';
 
     // Try direct fetch first (like skidrow) — avoids FlareSolverr delay when CF is not active
-    let response = await fetch(url, {
+    let response = await siteFetch(url, {
       headers: {
         'User-Agent': userAgent,
         'Accept': 'application/json, text/plain, */*',
@@ -444,7 +516,7 @@ export async function fetchSteamrip(url, isPageRequest = false) {
       const cookieUserAgent = cookie.userAgent || userAgent;
       const cookieString = cookie.cookies.join('; ');
 
-      response = await fetch(url, {
+      response = await siteFetch(url, {
         headers: {
           'User-Agent': cookieUserAgent,
           'Cookie': cookieString,
@@ -480,7 +552,7 @@ export async function fetchSteamrip(url, isPageRequest = false) {
         const freshUserAgent = freshCookie.userAgent || userAgent;
         const freshCookieString = freshCookie.cookies.join('; ');
 
-        const retryResponse = await fetch(url, {
+        const retryResponse = await siteFetch(url, {
           headers: {
             'User-Agent': freshUserAgent,
             'Cookie': freshCookieString,
@@ -535,7 +607,7 @@ export async function getFreshSkidrowCookie() {
     }
     
     const attempts = Math.max(1, parseInt(process.env.FLARE_RETRIES || '1', 10) || 1);
-    const timeoutMs = Math.min(25000, parseInt(process.env.FLARE_TIMEOUT_MS || DEFAULT_FLARE_TIMEOUT_MS, 10) || DEFAULT_FLARE_TIMEOUT_MS);
+    const timeoutMs = DEFAULT_FLARE_TIMEOUT_MS;
 
     // Ask FlareSolverr to request the Skidrow REST API endpoint (wp-json)
     // Requesting the actual API endpoint (instead of the site root) often
@@ -634,7 +706,7 @@ export async function getFreshDodiCookie() {
     }
 
     const attempts = Math.max(1, parseInt(process.env.FLARE_RETRIES || '1', 10) || 1);
-    const timeoutMs = Math.min(25000, parseInt(process.env.FLARE_TIMEOUT_MS || DEFAULT_FLARE_TIMEOUT_MS, 10) || DEFAULT_FLARE_TIMEOUT_MS);
+    const timeoutMs = DEFAULT_FLARE_TIMEOUT_MS;
 
     const response = await retryableFetch(flaresolverrUrl, {
       method: 'POST',
@@ -718,7 +790,7 @@ export async function fetchViaFlaresolverr(url, session = 'default') {
   const flaresolverrUrl = process.env.FLARESOLVERR_URL;
   if (!flaresolverrUrl) return null;
 
-  const timeoutMs = Math.min(25000, parseInt(process.env.FLARE_TIMEOUT_MS || DEFAULT_FLARE_TIMEOUT_MS, 10) || DEFAULT_FLARE_TIMEOUT_MS);
+  const timeoutMs = DEFAULT_FLARE_TIMEOUT_MS;
 
   try {
     console.log(`Fetching via FlareSolverr: ${url}`);
@@ -828,7 +900,7 @@ export async function fetchSkidrow(url, isPageRequest = false) {
     const userAgent = isPageRequest ? 'GameSearch-API-v2-PageFetch/2.0' : 'GameSearch-API-v2/2.0';
 
     // Try direct fetch first
-    let response = await fetch(url, {
+    let response = await siteFetch(url, {
       headers: {
         'User-Agent': userAgent,
         'Accept': 'application/json, text/plain, */*',
@@ -878,7 +950,7 @@ export async function fetchSkidrow(url, isPageRequest = false) {
         const cookieUserAgent = cookie.userAgent || userAgent;
         const cookieString = cookie.cookies.join('; ');
         
-        response = await fetch(url, {
+        response = await siteFetch(url, {
           headers: {
             'User-Agent': cookieUserAgent,
             'Cookie': cookieString,
@@ -965,7 +1037,7 @@ export async function fetchDodi(url, isPageRequest = false) {
       const cookieString = dodiCookie.cookies.join('; ');
       const cookieUserAgent = dodiCookie.userAgent || 'GameSearch-API-v2/2.0';
       try {
-        const cookieResponse = await fetch(url, {
+        const cookieResponse = await siteFetch(url, {
           headers: {
             'User-Agent': cookieUserAgent,
             'Cookie': cookieString,
@@ -993,7 +1065,7 @@ export async function fetchDodi(url, isPageRequest = false) {
     const userAgent = isPageRequest ? 'GameSearch-API-v2-PageFetch/2.0' : 'GameSearch-API-v2/2.0';
 
     // Try direct fetch first
-    let response = await fetch(url, {
+    let response = await siteFetch(url, {
       headers: {
         'User-Agent': userAgent,
         'Accept': 'application/json, text/plain, */*',
@@ -1050,7 +1122,7 @@ export async function fetchDodi(url, isPageRequest = false) {
           const cookieString = cookie.cookies.join('; ');
 
           // Try primary domain with cookies
-          let cookieResponse = await fetch(url, {
+          let cookieResponse = await siteFetch(url, {
             headers: {
               'User-Agent': cookieUserAgent,
               'Cookie': cookieString,
@@ -1082,7 +1154,7 @@ export async function fetchDodi(url, isPageRequest = false) {
 
           // Try fallback domain with cookies
           if (fallbackUrl !== url) {
-            cookieResponse = await fetch(fallbackUrl, {
+            cookieResponse = await siteFetch(fallbackUrl, {
               headers: {
                 'User-Agent': cookieUserAgent,
                 'Cookie': cookieString,
@@ -1249,7 +1321,7 @@ export async function extractDownloadLinksForV2(postUrl, siteType = 'skidrow', w
       } else if (siteType === 'dodi') {
         response = await fetchDodi(postUrl, true);
       } else {
-        response = await fetch(postUrl, {
+        response = await siteFetch(postUrl, {
           headers: {
             'User-Agent': 'Game-Search-API-v2-Link-Extractor/2.0'
           }
@@ -1815,7 +1887,7 @@ function buildOnlineFixPost({ id, title, link, date, image, description, excerpt
  * Fetch recently uploaded Online-Fix entries from RSS.
  */
 export async function fetchOnlineFixRecent() {
-  const response = await fetch(`${ONLINE_FIX_BASE}/rss.xml`, {
+  const response = await siteFetch(`${ONLINE_FIX_BASE}/rss.xml`, {
     headers: { 'User-Agent': 'GameSearch-API-v2/2.0', 'Accept': 'application/xml,text/xml;q=0.9,*/*;q=0.8' }
   });
   if (!response.ok) {
@@ -1862,7 +1934,7 @@ export async function fetchOnlineFixRecent() {
  */
 export async function fetchOnlineFixSearch(searchQuery) {
   const url = `${ONLINE_FIX_BASE}/index.php?do=search&subaction=search&story=${encodeURIComponent(searchQuery)}`;
-  const response = await fetch(url, {
+  const response = await siteFetch(url, {
     headers: { 'User-Agent': 'GameSearch-API-v2/2.0', 'Accept': 'text/html,*/*;q=0.8' }
   });
   if (!response.ok) {
@@ -1924,7 +1996,7 @@ export async function fetchOnlineFixSearch(searchQuery) {
  */
 export async function fetchGogGamesRecent() {
   const url = `${GOG_GAMES_BASE}/api/web/recent-torrents`;
-  const response = await fetch(url, {
+  const response = await siteFetch(url, {
     headers: { 'User-Agent': 'GameSearch-API-v2/2.0', 'Accept': 'application/json' }
   });
   if (!response.ok) {
