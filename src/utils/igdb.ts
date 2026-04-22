@@ -231,10 +231,14 @@ export async function getIGDBGameDetails(igdbId: number): Promise<IGDBSearchResu
   }
 }
 
-// Lightweight image-only cache: title → cover URL
-const gameImageCache = new Map<string, { url: string; timestamp: number }>();
+// Lightweight image-only cache: title → cover URL (or null if we've tried
+// recently and got nothing). Entries with a `url` live for the source's long
+// TTL; null entries live for a short TTL so a transient IGDB/RAWG failure
+// doesn't lock the title out until the whole recent-uploads cache expires.
+const gameImageCache = new Map<string, { url: string | null; timestamp: number }>();
 const IGDB_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours for IGDB results
 const RAWG_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 1 week for RAWG results (20k req/month limit)
+const IMAGE_MISS_TTL = 10 * 60 * 1000; // 10 minutes for null entries — retry periodically
 
 const RAWG_API_KEY = process.env.RAWG_API_KEY;
 
@@ -274,17 +278,38 @@ async function resolveRAWGImage(title: string): Promise<string | null> {
 }
 
 /**
- * Resolve a game image — tries IGDB first, then RAWG as fallback.
- * Only successful results are cached. Failures retry every request.
+ * Forget every cached image miss (null entries). Successful image hits stay
+ * in cache. Used by the /api/games/recent reverify path to force another
+ * IGDB/RAWG attempt for titles whose previous lookups returned nothing.
+ */
+export function clearNegativeImageCache(): number {
+  let removed = 0;
+  for (const [key, entry] of gameImageCache) {
+    if (!entry.url) {
+      gameImageCache.delete(key);
+      removed++;
+    }
+  }
+  return removed;
+}
+
+/**
+ * Resolve a game image — tries IGDB first, then RAWG as fallback. Successful
+ * lookups are cached for the provider's long TTL; misses are cached briefly
+ * (IMAGE_MISS_TTL) so we don't retry every second but still give titles a
+ * chance to resolve when the next enrichment pass runs a few minutes later.
  */
 export async function resolveIGDBImage(title: string): Promise<string | null> {
   const cacheKey = title.toLowerCase().trim();
   if (!cacheKey) return null;
 
-  // Check cache (uses the longer TTL of the two sources)
   const cached = gameImageCache.get(cacheKey);
   if (cached) {
-    const ttl = cached.url.includes('rawg.io') ? RAWG_CACHE_TTL : IGDB_CACHE_TTL;
+    const ttl = !cached.url
+      ? IMAGE_MISS_TTL
+      : cached.url.includes('rawg.io')
+        ? RAWG_CACHE_TTL
+        : IGDB_CACHE_TTL;
     if ((Date.now() - cached.timestamp) < ttl) {
       return cached.url;
     }
@@ -349,5 +374,9 @@ export async function resolveIGDBImage(title: string): Promise<string | null> {
     return rawgImage;
   }
 
+  // Remember the miss briefly so we don't stampede the same APIs on every
+  // refresh; the next enrichment pass will re-attempt once IMAGE_MISS_TTL
+  // elapses.
+  gameImageCache.set(cacheKey, { url: null, timestamp: Date.now() });
   return null;
 }
