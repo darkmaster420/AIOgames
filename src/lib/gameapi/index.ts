@@ -325,6 +325,55 @@ export async function getRecentUploads(): Promise<RecentResult> {
 }
 
 /**
+ * Fetch recent uploads from a single site. Used by the per-site refresh
+ * endpoint and the auto-recovery logic in /api/games/recent that detects
+ * empty/stale sites and refreshes just those without a full bulk rescrape.
+ *
+ * Returns the (possibly empty) posts array from that one site. Does not
+ * touch any in-memory cache on its own — the caller is responsible for
+ * merging the fresh results back into whatever cache it owns.
+ */
+export async function getRecentUploadsForSite(
+  siteKey: string
+): Promise<{ success: boolean; site: string; results: TransformedPost[]; count: number; error?: string }> {
+  const siteConfig = SITE_CONFIGS[siteKey] as SiteConfig | undefined;
+  if (!siteConfig) {
+    return { success: false, site: siteKey, results: [], count: 0, error: `Invalid site: ${siteKey}` };
+  }
+
+  try {
+    const results = await fetchRecentFromSite(siteConfig);
+    return { success: true, site: siteKey, results, count: results.length };
+  } catch (error) {
+    console.error(`Error fetching recent from ${siteConfig.name}:`, error);
+    return {
+      success: false,
+      site: siteKey,
+      results: [],
+      count: 0,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * List of site keys the gameapi knows about. Exposed so callers (like the
+ * /api/games/recent auto-refresh logic) can iterate over every site without
+ * hard-coding the list here.
+ */
+export function listSiteKeys(): string[] {
+  return Object.keys(SITE_CONFIGS);
+}
+
+/**
+ * Lookup the human-readable `name` for a site key, or `null` if unknown.
+ */
+export function getSiteDisplayName(siteKey: string): string | null {
+  const siteConfig = SITE_CONFIGS[siteKey] as SiteConfig | undefined;
+  return siteConfig?.name ?? null;
+}
+
+/**
  * Fetch details and download links for a specific post.
  */
 export async function getPostDetails(postId: string, site: string): Promise<PostResult> {
