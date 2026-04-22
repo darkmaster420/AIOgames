@@ -1,12 +1,8 @@
 import { NextResponse, NextRequest } from 'next/server';
 import { cleanGameTitle } from '../../../../utils/steamApi';
-import { resolveIGDBImage, clearNegativeImageCache } from '../../../../utils/igdb';
+import { resolveIGDBImage } from '../../../../utils/igdb';
 import { getRecentUploads } from '../../../../lib/gameapi';
-import {
-  peekCachedSteamAppId,
-  resolveSteamAppIdsBatch,
-  clearNegativeAppIdCache,
-} from '../../../../utils/steamAppIdResolver';
+import { peekCachedSteamAppId, resolveSteamAppIdsBatch } from '../../../../utils/steamAppIdResolver';
 import { prefetchImageBatch, getCachedImage } from '../../../../utils/imageCache';
 
 // Allow up to 2 minutes for initial data fetch (scraping multiple sites via FlareSolverr)
@@ -16,45 +12,17 @@ export const maxDuration = 120;
 let cachedRecent: { results: Game[]; timestamp: number; siteKey: string } | null = null;
 const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
-// Titles we've tried to enrich and failed. The value is the Unix-ms timestamp
-// after which we're allowed to retry the title again. Using a timestamped
-// map (instead of a permanent Set) means a transient IGDB/Steam blip no
-// longer locks a title out of enrichment until the whole recent-uploads
-// cache expires — each refresh naturally retries anything whose cooldown
-// has elapsed.
-const failedImageTitles = new Map<string, number>();
-const failedAppIdTitles = new Map<string, number>();
-
-// Cooldowns for re-attempting a title after a failed enrichment. These are
-// intentionally short so the user sees more cards verify on subsequent page
-// refreshes even without clicking the hard-refresh button. The Steam resolver
-// and IGDB helper also keep their own negative caches — these values are
-// loosely aligned with them so we don't stampede the upstream APIs.
-const IMAGE_RETRY_AFTER_MS = 10 * 60 * 1000; // 10m — aligned with IMAGE_MISS_TTL in utils/igdb.ts
-const APPID_RETRY_AFTER_MS = 2 * 60 * 1000;  // 2m — short enough that a few refreshes will pick up
-                                             //      anything whose resolver cache has expired.
+// Track titles that failed both IGDB and RAWG — don't retry until cache expires
+const failedImageTitles = new Set<string>();
 
 // Track whether background enrichment is already running
 let enrichmentRunning = false;
 let appIdEnrichmentRunning = false;
 let imagePrefetchRunning = false;
 
-function shouldRetryTitle(map: Map<string, number>, key: string): boolean {
-  const until = map.get(key);
-  if (!until) return true;
-  if (Date.now() >= until) {
-    map.delete(key);
-    return true;
-  }
-  return false;
-}
-
-function pruneFailedTitleMap(map: Map<string, number>): void {
-  const now = Date.now();
-  for (const [key, until] of map) {
-    if (now >= until) map.delete(key);
-  }
-}
+// Titles we've already tried to resolve and failed — don't re-hit Steam for
+// them until the fresh-scrape cache expires.
+const failedAppIdTitles = new Set<string>();
 
 interface Game {
   siteType: string;
@@ -78,13 +46,10 @@ function hasNativeAppId(game: Game): boolean {
 function enrichInBackground() {
   if (enrichmentRunning || !cachedRecent) return;
 
-  pruneFailedTitleMap(failedImageTitles);
-
   const gamesNeedingImages = cachedRecent.results.filter((g: Game) => {
     if (g.image) return false;
     const searchTitle = (g.title as string).trim();
-    if (!searchTitle) return false;
-    return shouldRetryTitle(failedImageTitles, searchTitle.toLowerCase());
+    return searchTitle && !failedImageTitles.has(searchTitle.toLowerCase());
   });
 
   if (gamesNeedingImages.length === 0) return;
@@ -104,12 +69,7 @@ function enrichInBackground() {
         if (image) {
           imageMap.set(searchTitle, image);
         } else {
-          // Short cooldown: the next enrichment pass (triggered by a user
-          // refresh or the site-level 2-hour expiry) will retry.
-          failedImageTitles.set(
-            searchTitle.toLowerCase(),
-            Date.now() + IMAGE_RETRY_AFTER_MS
-          );
+          failedImageTitles.add(searchTitle.toLowerCase());
         }
         // 300ms delay between requests to stay under IGDB rate limit
         await new Promise(r => setTimeout(r, 300));
@@ -179,13 +139,11 @@ function prefetchImageBytesInBackground() {
 function enrichAppIdsInBackground() {
   if (appIdEnrichmentRunning || !cachedRecent) return;
 
-  pruneFailedTitleMap(failedAppIdTitles);
-
   const gamesNeedingAppId = cachedRecent.results.filter((g: Game) => {
     if (hasNativeAppId(g)) return false;
     const cleanTitle = cleanGameTitle(g.originalTitle || g.title || '').trim();
     if (!cleanTitle) return false;
-    return shouldRetryTitle(failedAppIdTitles, cleanTitle.toLowerCase());
+    return !failedAppIdTitles.has(cleanTitle.toLowerCase());
   });
 
   if (gamesNeedingAppId.length === 0) return;
@@ -209,12 +167,7 @@ function enrichAppIdsInBackground() {
             return { ...game, appid: appId } as Game;
           }
           const cleanTitle = cleanGameTitle(rawTitle).trim();
-          if (cleanTitle) {
-            failedAppIdTitles.set(
-              cleanTitle.toLowerCase(),
-              Date.now() + APPID_RETRY_AFTER_MS
-            );
-          }
+          if (cleanTitle) failedAppIdTitles.add(cleanTitle.toLowerCase());
           return game;
         });
       }
@@ -232,28 +185,11 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const site = searchParams.get('site') || 'all';
     const forceRefresh = searchParams.get('refresh') === 'true';
-    // Client can ask for a full re-verification pass without re-scraping the
-    // source sites. This clears the per-title failure cooldowns so every
-    // unverified game gets another IGDB/Steam attempt on this request's
-    // background enrichment cycle. Useful for the user-facing Refresh button
-    // or a manual `/api/games/recent?reverify=true` call.
-    const forceReverify = searchParams.get('reverify') === 'true';
 
     const now = Date.now();
     const cacheKey = 'all';
     let results: Game[];
     let isFromCache = false;
-
-    if (forceReverify) {
-      failedImageTitles.clear();
-      failedAppIdTitles.clear();
-      const clearedAppIds = clearNegativeAppIdCache();
-      const clearedImages = clearNegativeImageCache();
-      console.log(
-        `[Recent] Reverify requested — cleared cooldowns ` +
-        `(resolver negatives: ${clearedAppIds}, image negatives: ${clearedImages})`
-      );
-    }
 
     if (!forceRefresh && cachedRecent && (now - cachedRecent.timestamp) < CACHE_TTL_MS && cachedRecent.siteKey === cacheKey) {
       results = cachedRecent.results;

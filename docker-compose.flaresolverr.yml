@@ -23,6 +23,14 @@ services:
       retries: 3
       start_period: 30s
 
+  # FlareSolverr - Cloudflare bypass for skidrow/steamrip
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    environment:
+      - LOG_LEVEL=info
+      - TZ=UTC
+    restart: unless-stopped
+
 networks:
   npm_default:
     external: true

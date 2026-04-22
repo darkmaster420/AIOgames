@@ -14,14 +14,48 @@ import { resolveIGDBImage } from './igdb';
 const telegramRateLimit = new Map<string, number>(); // userId -> lastSentTime
 
 // Deduplication cache to prevent sending duplicate notifications
-const notificationCache = new Map<string, number>(); // cacheKey -> timestamp
-const DEDUP_WINDOW_MS = 60000; // 1 minute deduplication window
+const notificationCache = new Map<string, number>(); // cacheKey -> timestamp (ms)
+// Same post URL = same release; two code paths often call notify with the same
+// link but slightly different `version` strings — old key missed that and
+// sent two Telegrams. Long window is safe because the source URL never
+// changes meaning for the same post.
+const DEDUP_WINDOW_LINK_MS = 7 * 24 * 60 * 60 * 1000; // 7 days when we have a stable post URL
+const DEDUP_WINDOW_META_MS = 2 * 60 * 1000; // 2 minutes fallback (no URL / relative only)
+
+/** In-flight coalescing: two concurrent sendUpdateNotification calls for the
+ *  same logical update share one Promise so only one Telegram is sent. */
+const inflightNotifications = new Map<string, Promise<NotificationResult>>();
+
+function normalizeGameLinkForDedupe(link?: string): string | null {
+  if (!link || link === '/tracking') return null;
+  const trimmed = link.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  try {
+    const u = new URL(trimmed);
+    const host = u.hostname.toLowerCase();
+    const path = u.pathname.replace(/\/$/, '') || '/';
+    return `${host}${path}${u.search}`;
+  } catch {
+    return null;
+  }
+}
 
 /**
- * Generate a cache key for deduplication
+ * Dedupe key: prefer canonical post URL so "same update" always maps to one
+ * slot regardless of how `version` was formatted in different callers.
  */
-function getNotificationCacheKey(userId: string, gameTitle: string, version?: string, updateType?: string): string {
-  return `${userId}:${gameTitle}:${version || 'none'}:${updateType || 'update'}`;
+function getNotificationDedupeKey(userId: string, updateData: UpdateNotificationData): string {
+  const normalized = normalizeGameLinkForDedupe(updateData.gameLink);
+  if (normalized) {
+    return `${userId}:link:${normalized}:${updateData.updateType}`;
+  }
+  const v = (updateData.version || 'none').slice(0, 200);
+  const title = (updateData.gameTitle || '').slice(0, 120);
+  return `${userId}:meta:${title}:${v}:${updateData.updateType}`;
+}
+
+function dedupeWindowMs(key: string): number {
+  return key.includes(':link:') ? DEDUP_WINDOW_LINK_MS : DEDUP_WINDOW_META_MS;
 }
 
 /**
@@ -30,14 +64,14 @@ function getNotificationCacheKey(userId: string, gameTitle: string, version?: st
 function wasRecentlySent(cacheKey: string): boolean {
   const lastSent = notificationCache.get(cacheKey);
   if (!lastSent) return false;
-  
+
+  const windowMs = dedupeWindowMs(cacheKey);
   const timeSince = Date.now() - lastSent;
-  if (timeSince < DEDUP_WINDOW_MS) {
-    console.log(`[Notifications] Skipping duplicate notification (sent ${Math.round(timeSince/1000)}s ago): ${cacheKey}`);
+  if (timeSince < windowMs) {
+    console.log(`[Notifications] Skipping duplicate notification (sent ${Math.round(timeSince / 1000)}s ago, window ${Math.round(windowMs / 1000)}s): ${cacheKey}`);
     return true;
   }
-  
-  // Clean up old entry
+
   notificationCache.delete(cacheKey);
   return false;
 }
@@ -47,12 +81,11 @@ function wasRecentlySent(cacheKey: string): boolean {
  */
 function markNotificationSent(cacheKey: string): void {
   notificationCache.set(cacheKey, Date.now());
-  
-  // Clean up old entries periodically (keep cache from growing indefinitely)
+
   if (notificationCache.size > 1000) {
     const now = Date.now();
     for (const [key, timestamp] of notificationCache.entries()) {
-      if (now - timestamp > DEDUP_WINDOW_MS * 2) {
+      if (now - timestamp > dedupeWindowMs(key) * 2) {
         notificationCache.delete(key);
       }
     }
@@ -133,18 +166,26 @@ interface NotificationResult {
  * Send update notifications to a specific user via their preferred method(s)
  */
 export async function sendUpdateNotification(
-  userId: string, 
+  userId: string,
   updateData: UpdateNotificationData
 ): Promise<NotificationResult> {
+  const dedupeKey = getNotificationDedupeKey(userId, updateData);
+
+  const existing = inflightNotifications.get(dedupeKey);
+  if (existing) {
+    console.log(`[Notifications] Joining in-flight notification for key ${dedupeKey}`);
+    return existing;
+  }
+
+  const work = (async (): Promise<NotificationResult> => {
   console.log(`[Notifications] Starting notification process for user ${userId}`, {
     gameTitle: updateData.gameTitle,
     updateType: updateData.updateType,
-    version: updateData.version
+    version: updateData.version,
+    dedupeKey,
   });
 
-  // Check for duplicate notification
-  const cacheKey = getNotificationCacheKey(userId, updateData.gameTitle, updateData.version, updateData.updateType);
-  if (wasRecentlySent(cacheKey)) {
+  if (wasRecentlySent(dedupeKey)) {
     console.log(`[Notifications] Skipping duplicate notification for ${updateData.gameTitle}`);
     return {
       userId,
@@ -260,12 +301,11 @@ export async function sendUpdateNotification(
     }
 
     result.success = result.sentCount > 0;
-    
-    // Mark as sent in deduplication cache if we successfully sent any notifications
+
     if (result.success) {
-      markNotificationSent(cacheKey);
+      markNotificationSent(dedupeKey);
     }
-    
+
     return result;
 
   } catch (error) {
@@ -274,6 +314,14 @@ export async function sendUpdateNotification(
     console.error('Notification error:', error);
     return result;
   }
+  })();
+
+  inflightNotifications.set(dedupeKey, work);
+  work.finally(() => {
+    inflightNotifications.delete(dedupeKey);
+  });
+
+  return work;
 }
 
 /**
