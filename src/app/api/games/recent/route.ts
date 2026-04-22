@@ -327,6 +327,11 @@ export async function GET(request: NextRequest) {
         'X-Cache-Status': isFromCache ? 'HIT' : 'MISS',
         'X-Cache-Age': cacheAge.toString(),
         'X-Cache-TTL': remainingTTL.toString(),
+        // X-Pending-* are retained for observability (e.g. curl / debugging
+        // the enrichment pipeline). The dashboard no longer polls on these;
+        // enrichment is kept warm server-side by the 25-minute scheduler
+        // warmCache cycle and by on-demand enrichInBackground triggers on
+        // every request.
         'X-Pending-Images': pendingImages.toString(),
         'X-Pending-AppIds': pendingAppIds.toString()
       }
