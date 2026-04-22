@@ -75,13 +75,6 @@ function DashboardInner() {
   // operations on this page — otherwise the URL-sync effect or a status
   // change could kill a search mid-flight.
   const fetchAbortRef = useRef<AbortController | null>(null);
-  const enrichTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // True while the server is still enriching images/appids in the background.
-  // Used to keep the loading spinner visible past the initial fetch so the
-  // user doesn't see an empty "No games found" screen while verification and
-  // image resolution finish.
-  const [enriching, setEnriching] = useState(false);
 
   const getFetchSignal = useCallback(() => {
     if (!fetchAbortRef.current) {
@@ -90,27 +83,10 @@ function DashboardInner() {
     return fetchAbortRef.current.signal;
   }, []);
 
-  // Stop any in-flight recent-uploads enrichment poll. The poll is kicked off
-  // by `loadRecentGames` and calls `setGames(pollData)` every 2s; without
-  // this, starting a search immediately after mount would have the next poll
-  // tick overwrite the search results with fresh recent uploads — which is
-  // exactly the "search results flash then jump back to recent uploads"
-  // behaviour we're guarding against here. Also clears `enriching` because
-  // the spinner is no longer meaningful once the user has moved on.
-  const cancelRecentPoll = useCallback(() => {
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
-    setEnriching(false);
-  }, []);
-
   useEffect(() => {
     if (!fetchAbortRef.current) fetchAbortRef.current = new AbortController();
     return () => {
       fetchAbortRef.current?.abort();
-      if (enrichTimeoutRef.current) clearTimeout(enrichTimeoutRef.current);
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
   }, []);
 
@@ -205,7 +181,6 @@ function DashboardInner() {
       const timer = setTimeout(() => {
         const performInitialSearch = async () => {
           const signal = getFetchSignal();
-          cancelRecentPoll();
           setLoading(true);
           setError(null);
           try {
@@ -238,7 +213,7 @@ function DashboardInner() {
 
       return () => clearTimeout(timer);
     }
-  }, [searchParams, getFetchSignal, cancelRecentPoll]);
+  }, [searchParams, getFetchSignal]);
 
   // Function to set cookie with 1 hour expiration
   const setRecentGamesCookie = (show: boolean) => {
@@ -293,24 +268,17 @@ function DashboardInner() {
   // Load recent games (default view). No client cache — always ask the server,
   // which serves from its own in-memory cache or re-scrapes as needed.
   //
-  // Polling strategy: the first fetch can return with background enrichment
-  // (IGDB images + Steam AppID resolution) still running on the server. Rather
-  // than show an empty "No games found" grid and wait for the user to reload,
-  // we poll `/api/games/recent` every 2s while the server reports pending
-  // work via `X-Pending-Images`/`X-Pending-AppIds`. Capped at 60s.
+  // Enrichment (IGDB images + Steam AppID resolution) happens in the
+  // background on the server, both on-demand from this request and on a
+  // 25-minute cadence driven by the scheduler (see `src/lib/scheduler.ts`
+  // `warmCache`). We deliberately do NOT poll the endpoint here — the old
+  // 2s poll loop kept racing against search/filter state changes and
+  // clobbering the grid with fresh recent-uploads data. The user sees fully
+  // enriched data on the next navigation / manual Refresh click.
   const loadRecentGames = useCallback(async (forceRefresh = false) => {
     const signal = getFetchSignal();
     setLoading(true);
     setError(null);
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
-
-    const readPendingCounts = (response: Response) => ({
-      images: parseInt(response.headers.get('X-Pending-Images') || '0', 10) || 0,
-      appIds: parseInt(response.headers.get('X-Pending-AppIds') || '0', 10) || 0,
-    });
 
     try {
       const params = new URLSearchParams();
@@ -322,53 +290,10 @@ function DashboardInner() {
       const data = await response.json();
       if (signal.aborted) return;
       setGames(data);
-
-      const { images, appIds } = readPendingCounts(response);
-      const hasPending = images > 0 || appIds > 0;
-      setEnriching(hasPending);
-
-      if (hasPending) {
-        // Poll in the background until server reports no pending work or we
-        // hit the max window. Each tick replaces `games` with fresh data so
-        // newly-verified cards and newly-resolved images appear without any
-        // user action.
-        const MAX_POLLS = 30; // 30 * 2s = 60s
-        let polls = 0;
-        pollIntervalRef.current = setInterval(async () => {
-          if (signal.aborted) {
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current);
-              pollIntervalRef.current = null;
-            }
-            return;
-          }
-          polls++;
-          try {
-            const pollResp = await fetch('/api/games/recent', { cache: 'no-store', signal });
-            if (!pollResp.ok || signal.aborted) return;
-            const pollData = await pollResp.json();
-            if (signal.aborted) return;
-            setGames(pollData);
-
-            const { images: stillImages, appIds: stillAppIds } = readPendingCounts(pollResp);
-            const stillPending = stillImages > 0 || stillAppIds > 0;
-            if (!stillPending || polls >= MAX_POLLS) {
-              setEnriching(false);
-              if (pollIntervalRef.current) {
-                clearInterval(pollIntervalRef.current);
-                pollIntervalRef.current = null;
-              }
-            }
-          } catch {
-            /* silent — will try again on next tick or be cleared on unmount */
-          }
-        }, 2000);
-      }
     } catch (err) {
       if ((err as { name?: string })?.name === 'AbortError') return;
       setError(err instanceof Error ? err.message : 'Failed to fetch recent games');
       setGames([]);
-      setEnriching(false);
     } finally {
       if (!signal.aborted) setLoading(false);
     }
@@ -388,7 +313,6 @@ function DashboardInner() {
     updateURL(searchQuery, siteFilter, refineText);
 
     const signal = getFetchSignal();
-    cancelRecentPoll();
     setLoading(true);
     setError(null);
     try {
@@ -415,7 +339,7 @@ function DashboardInner() {
     } finally {
       if (!signal.aborted) setLoading(false);
     }
-  }, [searchQuery, siteFilter, refineText, loadRecentGames, updateURL, getFetchSignal, cancelRecentPoll]);
+  }, [searchQuery, siteFilter, refineText, loadRecentGames, updateURL, getFetchSignal]);
 
   // Load recent games on mount and check cookie/user preference for visibility
   useEffect(() => {
@@ -720,14 +644,6 @@ function DashboardInner() {
                     key={site.value}
                     onClick={() => {
                       setSiteFilter(site.value);
-                      // Always cancel the background enrichment poll before
-                      // kicking off a filter fetch. Otherwise the next poll
-                      // tick (every 2s) calls `/api/games/recent` with *no*
-                      // site param and overwrites the site-filtered games
-                      // with the unfiltered recent grid — which is what made
-                      // filter clicks appear to "bounce back" to recent
-                      // uploads.
-                      cancelRecentPoll();
                       // Auto-apply: trigger filter immediately
                       // Use site.value directly (not stale siteFilter from closure)
                       if (searchQuery.trim()) {
@@ -864,16 +780,13 @@ function DashboardInner() {
 
         {/* Mobile-optimized Games Grid */}
         {(showRecentGames || searchQuery !== '') && (() => {
-          // Keep the spinner visible while the server is still enriching
-          // (background image + AppID resolution) if we don't yet have any
-          // verified cards to show. Without this, the user sees an empty
-          // "No games found" grid for several seconds and thinks the page
-          // froze. Once at least one verified card is ready we flip to the
-          // grid and new cards stream in as polling brings fresh data.
-          const visibleCount = searchQuery.trim() || showAllGames
-            ? displayGames.length
-            : displayGames.filter(g => extractAppId(g) !== null).length;
-          const showSpinner = loading || (enriching && visibleCount === 0);
+          // Spinner is purely tied to the in-flight fetch. Enrichment (IGDB
+          // images + Steam AppID resolution) runs in the background on the
+          // server and is kept warm on a 25-minute cadence by the scheduler
+          // — there's no longer a client-side poll clobbering the grid, so
+          // whatever results we have are the source of truth until the user
+          // navigates or clicks Refresh.
+          const showSpinner = loading;
           return (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 sm:gap-6">
             {showSpinner ? (
@@ -887,12 +800,10 @@ function DashboardInner() {
                 <p className="text-gray-600 dark:text-gray-400 font-medium">
                   {searchQuery
                     ? `Searching for "${searchQuery}"...`
-                    : enriching
-                      ? 'Verifying games...'
-                      : 'Loading games...'}
+                    : 'Loading games...'}
                 </p>
                 <p className="text-sm text-gray-500 dark:text-gray-500">
-                  {enriching ? 'Matching posts to Steam and loading images' : 'Please wait while we fetch the results'}
+                  Please wait while we fetch the results
                 </p>
               </div>
             ) : displayGames.length === 0 ? (
