@@ -4,6 +4,13 @@
  * as direct function calls instead of HTTP requests.
  */
 
+// Side-effect import: installs the undici global dispatcher with a 60s+
+// TCP connect timeout before any raw `fetch()` runs against the external
+// sites. This replaces the undici default (10s) that was causing
+// `UND_ERR_CONNECT_TIMEOUT` whenever a piracy/release site was slow to
+// accept a TLS connection.
+import './net';
+
 import {
   SITE_CONFIGS as _SITE_CONFIGS,
   MAX_POSTS_PER_SITE as _MAX_POSTS_PER_SITE,
@@ -16,6 +23,7 @@ import {
   transformGogGamesPost,
   fetchOnlineFixRecent,
   fetchOnlineFixSearch,
+  siteFetch,
 } from './helpers.js';
 
 // Cast JS module exports to proper types
@@ -122,7 +130,7 @@ async function searchSite(siteConfig: SiteConfig, searchQuery: string): Promise<
     } else if (siteConfig.type === 'dodi') {
       response = await fetchDodi(url);
     } else {
-      response = await fetch(url, {
+      response = await siteFetch(url, {
         headers: { 'User-Agent': 'GameSearch-API-v2/2.0' }
       });
     }
@@ -177,7 +185,7 @@ async function fetchRecentFromSite(siteConfig: SiteConfig): Promise<TransformedP
     } else if (siteConfig.type === 'dodi') {
       response = await fetchDodi(url);
     } else {
-      response = await fetch(url, {
+      response = await siteFetch(url, {
         headers: { 'User-Agent': 'GameSearch-API-v2/2.0' }
       });
     }
@@ -341,7 +349,7 @@ export async function getPostDetails(postId: string, site: string): Promise<Post
       } else if (siteConfig.type === 'dodi') {
         response = await fetchDodi(postUrl);
       } else {
-        response = await fetch(postUrl, {
+        response = await siteFetch(postUrl, {
           headers: { 'User-Agent': 'Game-Search-API-v2/2.0' }
         });
       }
