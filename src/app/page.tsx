@@ -720,6 +720,14 @@ function DashboardInner() {
                     key={site.value}
                     onClick={() => {
                       setSiteFilter(site.value);
+                      // Always cancel the background enrichment poll before
+                      // kicking off a filter fetch. Otherwise the next poll
+                      // tick (every 2s) calls `/api/games/recent` with *no*
+                      // site param and overwrites the site-filtered games
+                      // with the unfiltered recent grid — which is what made
+                      // filter clicks appear to "bounce back" to recent
+                      // uploads.
+                      cancelRecentPoll();
                       // Auto-apply: trigger filter immediately
                       // Use site.value directly (not stale siteFilter from closure)
                       if (searchQuery.trim()) {
@@ -727,7 +735,6 @@ function DashboardInner() {
                         if (site.value !== 'all') params.set('site', site.value);
                         if (refineText.trim()) params.set('refine', refineText);
                         updateURL(searchQuery, site.value, refineText);
-                        cancelRecentPoll();
                         setLoading(true);
                         setError(null);
                         const signal = getFetchSignal();
