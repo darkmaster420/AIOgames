@@ -90,6 +90,21 @@ function DashboardInner() {
     return fetchAbortRef.current.signal;
   }, []);
 
+  // Stop any in-flight recent-uploads enrichment poll. The poll is kicked off
+  // by `loadRecentGames` and calls `setGames(pollData)` every 2s; without
+  // this, starting a search immediately after mount would have the next poll
+  // tick overwrite the search results with fresh recent uploads — which is
+  // exactly the "search results flash then jump back to recent uploads"
+  // behaviour we're guarding against here. Also clears `enriching` because
+  // the spinner is no longer meaningful once the user has moved on.
+  const cancelRecentPoll = useCallback(() => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    setEnriching(false);
+  }, []);
+
   useEffect(() => {
     if (!fetchAbortRef.current) fetchAbortRef.current = new AbortController();
     return () => {
@@ -190,6 +205,7 @@ function DashboardInner() {
       const timer = setTimeout(() => {
         const performInitialSearch = async () => {
           const signal = getFetchSignal();
+          cancelRecentPoll();
           setLoading(true);
           setError(null);
           try {
@@ -222,7 +238,7 @@ function DashboardInner() {
 
       return () => clearTimeout(timer);
     }
-  }, [searchParams, getFetchSignal]);
+  }, [searchParams, getFetchSignal, cancelRecentPoll]);
 
   // Function to set cookie with 1 hour expiration
   const setRecentGamesCookie = (show: boolean) => {
@@ -372,6 +388,7 @@ function DashboardInner() {
     updateURL(searchQuery, siteFilter, refineText);
 
     const signal = getFetchSignal();
+    cancelRecentPoll();
     setLoading(true);
     setError(null);
     try {
@@ -398,7 +415,7 @@ function DashboardInner() {
     } finally {
       if (!signal.aborted) setLoading(false);
     }
-  }, [searchQuery, siteFilter, refineText, loadRecentGames, updateURL, getFetchSignal]);
+  }, [searchQuery, siteFilter, refineText, loadRecentGames, updateURL, getFetchSignal, cancelRecentPoll]);
 
   // Load recent games on mount and check cookie/user preference for visibility
   useEffect(() => {
@@ -710,6 +727,7 @@ function DashboardInner() {
                         if (site.value !== 'all') params.set('site', site.value);
                         if (refineText.trim()) params.set('refine', refineText);
                         updateURL(searchQuery, site.value, refineText);
+                        cancelRecentPoll();
                         setLoading(true);
                         setError(null);
                         const signal = getFetchSignal();
