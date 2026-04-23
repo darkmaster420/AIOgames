@@ -3,13 +3,14 @@
  * Shared logic for Vercel and Docker deployments
  */
 
-// NOTE: `./net` (installed in index.ts) sets an undici global dispatcher
-// that raises the TCP connect timeout for the raw `fetch()` calls in this
-// module. Without that, every site fetch was silently capped at undici's 10s
-// default, which is what was making a single slow TLS handshake fail the
-// whole search with UND_ERR_CONNECT_TIMEOUT. Timings below assume the
-// dispatcher is already active; the module entry point always imports it
-// before any helpers here get called.
+// Outbound fetches use plain `fetch()` + `siteFetch()` below. We intentionally
+// do **not** install a custom undici global `Agent`: a global dispatcher's
+// `headersTimeout` / `bodyTimeout` fights with per-request `AbortSignal.timeout`
+// in `siteFetch()` and makes custom timeouts unreliable. End-to-end limits are
+// enforced only via `siteFetch`. Note: Node's built-in fetch still uses undici
+// internally with its default connect timeout (~10s on many versions) — if a
+// site never completes TCP/TLS within that window, the request can still fail
+// with `UND_ERR_CONNECT_TIMEOUT` regardless of `SITE_FETCH_TIMEOUT_MS`.
 
 // Cache configuration
 export const CACHE_CONFIG = {
@@ -19,12 +20,9 @@ export const CACHE_CONFIG = {
   RECENT_UPLOADS_KEY: 'recent-uploads-complete',
 };
 
-// Per-site HTTP timeout used for raw `fetch()` calls that talk directly to
-// an external source (skidrow/steamrip/dodi/onlinefix/freegog/gamedrive/…).
-// This is the end-to-end ceiling for a single request. Defaults to 60s so a
-// single slow TLS handshake / Cloudflare challenge won't fail the whole
-// search; the previous behaviour relied on undici's 10s connect timeout,
-// which the user repeatedly hit.
+// Per-site HTTP timeout for `siteFetch()` (end-to-end `AbortSignal.timeout`).
+// Defaults to 60s. This does not extend Node/undici's underlying TCP connect
+// timeout; see note at top of file.
 export const SITE_FETCH_TIMEOUT_MS = Math.max(
   10000,
   parseInt(process.env.SITE_FETCH_TIMEOUT_MS || '60000', 10) || 60000
@@ -44,9 +42,8 @@ export const DEFAULT_FLARE_RETRIES = Math.max(
 );
 
 /**
- * Thin wrapper around fetch() that enforces `SITE_FETCH_TIMEOUT_MS` as a hard
- * end-to-end timeout, in addition to undici's (now 60s) connect timeout. Any
- * existing `signal` on the caller is composed with the timeout.
+ * Thin wrapper around fetch() that enforces `timeoutMs` as a hard end-to-end
+ * ceiling via `AbortSignal.timeout`, composed with any caller `signal`.
  */
 export function siteFetch(resource, options = {}, timeoutMs = SITE_FETCH_TIMEOUT_MS) {
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
@@ -92,12 +89,10 @@ let dodiCookie = {
   expires_at: 0
 };
 
-// Circuit breakers. Previously a single network hiccup (a timeout on one
-// /api/games/search) would open the circuit for a full 5 minutes and make
-// every subsequent search silently skip that site. With per-site fetch
-// timeouts now at 60s (not 10s) and the undici connect timeout raised, one
-// failure is almost always a transient blip — we now require two consecutive
-// failures before opening, and default the cooldown to 60s. Env overrides
+// Circuit breakers. Previously a single network hiccup would open the circuit
+// for a long cooldown. With `siteFetch` end-to-end timeouts at 60s by default,
+// we require two consecutive failures before opening and default the cooldown
+// to 60s. Env overrides
 // let operators retune without a code change.
 const SKIDROW_COOLDOWN_MS = Math.max(10000, parseInt(process.env.SKIDROW_COOLDOWN_MS || '60000', 10) || 60000);
 const SKIDROW_FAILURE_THRESHOLD = Math.max(1, parseInt(process.env.SKIDROW_FAILURE_THRESHOLD || '2', 10) || 2);

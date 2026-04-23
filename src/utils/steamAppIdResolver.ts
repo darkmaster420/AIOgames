@@ -121,6 +121,22 @@ export function peekCachedSteamAppId(rawTitle: string): string | null | undefine
 }
 
 /**
+ * Drop cached *negative* AppID resolutions so the next enrichment pass will
+ * hit Steam again. Used by `triggerReverify` in `recentUploadsState`. Returns
+ * the number of entries removed (for logging).
+ */
+export function clearNegativeAppIdCache(): number {
+  let removed = 0;
+  for (const [key, entry] of resolverCache) {
+    if (entry.appId === null) {
+      resolverCache.delete(key);
+      removed++;
+    }
+  }
+  return removed;
+}
+
+/**
  * Resolve a Steam AppID for the given title. Cached indefinitely for hits,
  * briefly for misses. Safe to call concurrently for the same title.
  */

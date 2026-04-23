@@ -4,13 +4,6 @@
  * as direct function calls instead of HTTP requests.
  */
 
-// Side-effect import: installs the undici global dispatcher with a 60s+
-// TCP connect timeout before any raw `fetch()` runs against the external
-// sites. This replaces the undici default (10s) that was causing
-// `UND_ERR_CONNECT_TIMEOUT` whenever a piracy/release site was slow to
-// accept a TLS connection.
-import './net';
-
 import {
   SITE_CONFIGS as _SITE_CONFIGS,
   MAX_POSTS_PER_SITE as _MAX_POSTS_PER_SITE,
