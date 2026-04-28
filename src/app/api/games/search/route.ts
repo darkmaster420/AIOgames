@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cleanGameTitle } from '../../../../utils/steamApi';
 import { searchGames } from '../../../../lib/gameapi';
 import { peekCachedSteamAppId, resolveSteamAppIdsBatch } from '../../../../utils/steamAppIdResolver';
-import { prefetchImageBatch } from '../../../../utils/imageCache';
+import { isCfProtectedUrl, prefetchImageBatch } from '../../../../utils/imageCache';
 
 interface ApiGame {
   id: string;
@@ -20,6 +20,22 @@ interface ApiGame {
 function hasNativeAppId(game: ApiGame): boolean {
   const candidates = [game.appid, game.appId, game.steamAppId, game.steam_appid];
   return candidates.some(c => c !== undefined && c !== null && /^\d+$/.test(String(c).trim()));
+}
+
+function extractNativeAppId(game: ApiGame): string | null {
+  const candidates = [game.appid, game.appId, game.steamAppId, game.steam_appid];
+  for (const c of candidates) {
+    if (c === undefined || c === null) continue;
+    const v = String(c).trim();
+    if (/^\d+$/.test(v)) return v;
+  }
+  return null;
+}
+
+function steamHeaderImageUrl(appId: string): string {
+  // shared.fastly domain is significantly more reliable than source-site
+  // WordPress/Cloudflare media URLs for search-result posters.
+  return `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`;
 }
 
 interface CacheEntry {
@@ -109,6 +125,22 @@ export async function GET(request: NextRequest) {
           console.warn('[Search] AppID resolution failed, returning unresolved results:', err);
         }
       }
+
+      // Image reliability pass for search:
+      // - If a result has an AppID and no image, use Steam header directly.
+      // - If current image host is CF-protected/flaky, prefer Steam header.
+      // This avoids routing large portions of search posters through
+      // FlareSolverr-dependent hosts.
+      results = results.map((game) => {
+        const appId = extractNativeAppId(game);
+        if (!appId) return game;
+        const currentImage = typeof game.image === 'string' ? game.image : '';
+        const shouldUseSteamHeader =
+          !currentImage ||
+          isCfProtectedUrl(currentImage);
+        if (!shouldUseSteamHeader) return game;
+        return { ...game, image: steamHeaderImageUrl(appId) };
+      });
 
       searchCache.set(cacheKey, {
         data: results,

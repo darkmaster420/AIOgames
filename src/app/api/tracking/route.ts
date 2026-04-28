@@ -75,7 +75,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { gameId, title, originalTitle, cleanedTitle, source, image, description, gameLink, forceReplace } = await request.json();
+    const {
+      gameId,
+      title,
+      originalTitle,
+      cleanedTitle,
+      steamAppId,
+      source,
+      image,
+      description,
+      gameLink,
+      forceReplace
+    } = await request.json();
 
     if (!gameId || !title || !source || !gameLink) {
       return NextResponse.json(
@@ -123,12 +134,17 @@ export async function POST(request: NextRequest) {
     }
     
     // If Steam differentiation was successful, store the Steam info
-    const autoSteamAppId: string | undefined = conflictCheck.resolvedSteamAppId;
+    const providedSteamAppId = (() => {
+      const v = String(steamAppId || '').trim();
+      return /^\d+$/.test(v) ? v : undefined;
+    })();
+
+    const autoSteamAppId: string | undefined = conflictCheck.resolvedSteamAppId || providedSteamAppId;
     const autoSteamName: string | undefined = conflictCheck.resolvedSteamName;
     
-    if (autoSteamAppId && autoSteamName) {
+    if (autoSteamAppId) {
       logger.info(`✅ Steam differentiation successful for "${title}"`);
-      logger.info(`   Steam App ID: ${autoSteamAppId} - ${autoSteamName}`);
+      logger.info(`   Steam App ID: ${autoSteamAppId}${autoSteamName ? ` - ${autoSteamName}` : ''}`);
     }
 
     const normalizedCleanedTitle = cleanedTitle || cleanGameTitle(title);
@@ -349,12 +365,13 @@ export async function POST(request: NextRequest) {
 
     // Attempt automatic Steam verification
     try {
-      // If we already resolved Steam info during conflict detection, use it
-      if (autoSteamAppId && autoSteamName) {
-        logger.info(`✅ Using pre-resolved Steam info from conflict detection`);
+      // If we already have Steam AppID from conflict differentiation or from
+      // the client search result payload, use it directly.
+      if (autoSteamAppId) {
+        logger.info(`✅ Using pre-resolved/provided Steam AppID`);
         trackedGame.steamVerified = true;
         trackedGame.steamAppId = parseInt(autoSteamAppId);
-        trackedGame.steamName = autoSteamName;
+        if (autoSteamName) trackedGame.steamName = autoSteamName;
         if (!trackedGame.image) {
           const igdbImage = await resolveIGDBImage(cleanedTitle || cleanGameTitle(title));
           if (igdbImage) {
@@ -363,7 +380,7 @@ export async function POST(request: NextRequest) {
           }
         }
         await trackedGame.save();
-        logger.info(`Steam verification complete: ${autoSteamName} (${autoSteamAppId})`);
+        logger.info(`Steam verification complete: ${autoSteamName || 'AppID verified'} (${autoSteamAppId})`);
       } else {
         // Otherwise, attempt normal auto Steam verification
         logger.info(`Auto Steam verification for newly added game: "${originalTitle || title}"`);
