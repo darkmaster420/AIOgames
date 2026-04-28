@@ -1,8 +1,12 @@
-/**
+﻿/**
  * Game API - Integrated module (formerly separate gameapi service)
  * Provides search, recent uploads, post details, and cache management
  * as direct function calls instead of HTTP requests.
  */
+
+// Side-effect import: installs a minimal undici dispatcher that only raises
+// TCP connect timeout. Per-request timeouts remain controlled by siteFetch().
+import './net';
 
 import {
   SITE_CONFIGS as _SITE_CONFIGS,
@@ -23,7 +27,7 @@ import {
 const SITE_CONFIGS = _SITE_CONFIGS as Record<string, SiteConfig>;
 const MAX_POSTS_PER_SITE = _MAX_POSTS_PER_SITE as Record<string, number>;
 
-// ─── Types ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface SiteConfig {
   baseUrl: string;
@@ -81,12 +85,12 @@ interface PostResult {
   error?: string;
 }
 
-// ─── Search Cache ───────────────────────────────────────────────────────────
+// â”€â”€â”€ Search Cache â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const searchCache = new Map<string, { results: TransformedPost[]; timestamp: number }>();
 const SEARCH_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
-// ─── Internal Helpers ───────────────────────────────────────────────────────
+// â”€â”€â”€ Internal Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function searchSite(siteConfig: SiteConfig, searchQuery: string): Promise<TransformedPost[]> {
   try {
@@ -196,7 +200,7 @@ async function fetchRecentFromSite(siteConfig: SiteConfig): Promise<TransformedP
   }
 }
 
-// ─── Public API ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Search games across all sites or a specific site.
@@ -323,7 +327,7 @@ export async function getRecentUploads(): Promise<RecentResult> {
  * empty/stale sites and refreshes just those without a full bulk rescrape.
  *
  * Returns the (possibly empty) posts array from that one site. Does not
- * touch any in-memory cache on its own — the caller is responsible for
+ * touch any in-memory cache on its own â€” the caller is responsible for
  * merging the fresh results back into whatever cache it owns.
  */
 export async function getRecentUploadsForSite(
@@ -429,3 +433,4 @@ export function clearGameApiCache(): void {
 
 // Re-export isValidImageUrl for use in proxy-image route
 export { isValidImageUrl };
+

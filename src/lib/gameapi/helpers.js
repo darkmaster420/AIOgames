@@ -1,16 +1,11 @@
-/**
+﻿/**
  * Game Search API v2 - Core Library
  * Shared logic for Vercel and Docker deployments
  */
 
-// Outbound fetches use plain `fetch()` + `siteFetch()` below. We intentionally
-// do **not** install a custom undici global `Agent`: a global dispatcher's
-// `headersTimeout` / `bodyTimeout` fights with per-request `AbortSignal.timeout`
-// in `siteFetch()` and makes custom timeouts unreliable. End-to-end limits are
-// enforced only via `siteFetch`. Note: Node's built-in fetch still uses undici
-// internally with its default connect timeout (~10s on many versions) — if a
-// site never completes TCP/TLS within that window, the request can still fail
-// with `UND_ERR_CONNECT_TIMEOUT` regardless of `SITE_FETCH_TIMEOUT_MS`.
+// `./net` installs a minimal undici dispatcher that only raises TCP connect
+// timeout. We intentionally avoid global headers/body timeouts so per-request
+// AbortSignal.timeout in siteFetch() remains authoritative.
 
 // Cache configuration
 export const CACHE_CONFIG = {
@@ -435,7 +430,7 @@ export async function getFreshSteamripCookie() {
 
     // Mirror the Skidrow/DODI behavior: if FlareSolverr didn't return a
     // cf_clearance cookie it usually means Cloudflare isn't actively
-    // challenging the site right now. That's fine — we can still use the
+    // challenging the site right now. That's fine â€” we can still use the
     // User-Agent FlareSolverr saw working and whatever ancillary cookies it
     // captured. Previously we threw here, which left the image proxy with no
     // jar at all and made poster loads fail whenever CF wasn't challenging.
@@ -474,7 +469,7 @@ export async function fetchSteamrip(url, isPageRequest = false) {
   try {
     const userAgent = isPageRequest ? 'GameSearch-API-v2-PageFetch/2.0' : 'GameSearch-API-v2/2.0';
 
-    // Try direct fetch first (like skidrow) — avoids FlareSolverr delay when CF is not active
+    // Try direct fetch first (like skidrow) â€” avoids FlareSolverr delay when CF is not active
     let response = await siteFetch(url, {
       headers: {
         'User-Agent': userAgent,
@@ -483,7 +478,7 @@ export async function fetchSteamrip(url, isPageRequest = false) {
       }
     });
 
-    // Check for Cloudflare protection — even if status is 200
+    // Check for Cloudflare protection â€” even if status is 200
     let isCloudflare = hasCloudflareProtection(response);
     console.log(`Initial fetch of ${url}: status=${response.status}, CF detected=${isCloudflare}`);
 
@@ -503,7 +498,7 @@ export async function fetchSteamrip(url, isPageRequest = false) {
       return response;
     }
 
-    // Cloudflare protection detected — try with cached cookie
+    // Cloudflare protection detected â€” try with cached cookie
     if (isCloudflare) {
       console.log('Cloudflare protection detected on SteamRip, using FlareSolverr cookie');
       const cookie = await getValidSteamripCookie();
@@ -540,7 +535,7 @@ export async function fetchSteamrip(url, isPageRequest = false) {
         return response;
       }
 
-      // Cached cookie didn't work — get a fresh one
+      // Cached cookie didn't work â€” get a fresh one
       if (stillBlocked || response.status === 403) {
         console.log('Cookie did not bypass Cloudflare, getting fresh cookie for SteamRip');
         const freshCookie = await getFreshSteamripCookie();
@@ -803,7 +798,28 @@ export async function fetchViaFlaresolverr(url, session = 'default') {
     if (!response.ok) return null;
 
     const data = await response.json();
-    if (data.status !== 'ok' || !data.solution?.response) return null;
+    if (data.status !== 'ok' || !data.solution?.response) {
+      const msg = String(data?.message || '').toLowerCase();
+      // FlareSolverr can return "No challenge detected" without a wrapped
+      // `solution.response`. That's not actually a failure for us; fall back to
+      // a normal direct fetch so search doesn't collapse to empty results.
+      if (msg.includes('no challenge detected')) {
+        console.log(`FlareSolverr reported no challenge for ${url}; using direct fetch fallback`);
+        try {
+          const direct = await siteFetch(url, {
+            headers: {
+              'User-Agent': 'GameSearch-API-v2/2.0',
+              'Accept': 'application/json, text/plain, */*',
+              'Accept-Language': 'en-US,en;q=0.9'
+            }
+          });
+          if (direct.ok) return direct;
+        } catch (e) {
+          console.warn(`Direct fallback after no-challenge failed for ${url}:`, e?.message || e);
+        }
+      }
+      return null;
+    }
 
     let body = data.solution.response;
     const status = data.solution.status || 200;
@@ -926,7 +942,7 @@ export async function fetchSkidrow(url, isPageRequest = false) {
       return response;
     }
 
-    // Cloudflare protection detected — use FlareSolverr to fetch directly first
+    // Cloudflare protection detected â€” use FlareSolverr to fetch directly first
     if (isCloudflare) {
       console.log('Cloudflare protection detected on Skidrow, trying FlareSolverr direct fetch');
 
@@ -1006,7 +1022,7 @@ export async function fetchSkidrow(url, isPageRequest = false) {
   }
 }
 
-// DODI Repacks fetcher — CF-protected WordPress site, uses FlareSolverr
+// DODI Repacks fetcher â€” CF-protected WordPress site, uses FlareSolverr
 // Primary: dodi-repacks.download, Fallback: dodi-repacks.site
 export async function fetchDodi(url, isPageRequest = false) {
   if (isDodiCircuitOpen()) {
@@ -1505,7 +1521,7 @@ export async function extractDownloadLinksForV2(postUrl, siteType = 'skidrow', w
           }
         }
       } else if (siteType === 'dodi') {
-        // DODI Repacks — magnet links and file hosting (similar structure to reloadedsteam)
+        // DODI Repacks â€” magnet links and file hosting (similar structure to reloadedsteam)
         const hrefRegex = /<a[^>]+href=["']([^"']+)["']/gi;
         let match;
         while ((match = hrefRegex.exec(html)) !== null) {
@@ -1690,7 +1706,7 @@ export function isValidImageUrl(url) {
   }
 }
 
-// ─── GOG-Games.to helpers ───────────────────────────────────────────────────
+// â”€â”€â”€ GOG-Games.to helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const GOG_GAMES_BASE = 'https://gog-games.to';
 const GOG_GAMES_IMAGE_BASE = 'https://images.gog-statics.com';
@@ -1716,7 +1732,7 @@ function decodeBasicHtmlEntities(text = '') {
   // get fully unwrapped. Without this, only the outer `&amp;` would be
   // decoded and `&#8211;` would leak through into cleaned titles as literal
   // "8211", breaking similarity matching for games like
-  // "Avatar: Frontiers of Pandora – Gold Edition".
+  // "Avatar: Frontiers of Pandora â€“ Gold Edition".
   const pass = (s) =>
     s
       .replace(/&amp;/gi, '&')
@@ -1828,7 +1844,7 @@ async function resolveSteamHeaderImageForOnlineFix(title = '') {
     const best = chooseBestSteamSearchResult(data, normalized);
     const appid = best?.appid ? String(best.appid) : '';
     // Use shared.fastly.steamstatic.com (the current canonical Steam store
-    // asset CDN) — the older `cdn.cloudflare.steamstatic.com/steam/apps/...`
+    // asset CDN) â€” the older `cdn.cloudflare.steamstatic.com/steam/apps/...`
     // path regularly 404s for newer appids.
     const image = appid ? `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appid}/header.jpg` : null;
     steamHeaderImageCache.set(normalized, image);
@@ -2010,7 +2026,7 @@ export function transformGogGamesPost(item) {
     ? `${GOG_GAMES_BASE}/downloads/torrents/${item.torrent_filename}`
     : null;
 
-  // Build image URL from hash – GOG static images
+  // Build image URL from hash â€“ GOG static images
   const image = item.image
     ? `${GOG_GAMES_IMAGE_BASE}/${item.image}.jpg`
     : null;
@@ -2030,11 +2046,11 @@ export function transformGogGamesPost(item) {
     id: `goggames_${item.id}`,
     originalId: item.id,
     title: item.title || 'No title',
-    excerpt: descParts.join(' · ') || '',
+    excerpt: descParts.join(' Â· ') || '',
     link: `${GOG_GAMES_BASE}/game/${item.slug}`,
     date,
     slug: item.slug,
-    description: descParts.join(' · ') || '',
+    description: descParts.join(' Â· ') || '',
     categories: [],
     tags: [],
     downloadLinks: torrentUrl ? [{ url: torrentUrl, label: 'Torrent', service: 'GOG-Games' }] : [],
@@ -2043,3 +2059,4 @@ export function transformGogGamesPost(item) {
     image
   };
 }
+
