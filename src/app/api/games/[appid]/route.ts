@@ -84,8 +84,20 @@ interface SteamGameDetails {
   };
 }
 
-// GET: Get detailed game information by Steam App ID
-// Optimized for speed: uses SteamSpy first, Steam Store as optional enhancement
+function detectImageSource(url: string | null): 'steamapi' | 'igdb' | 'rawg' | 'none' {
+  if (!url) return 'none';
+  const u = url.toLowerCase();
+  if (u.includes('images.igdb.com')) return 'igdb';
+  if (u.includes('media.rawg.io')) return 'rawg';
+  return 'steamapi';
+}
+
+// GET: Get detailed game information by Steam App ID.
+// Source priority:
+// 1) SteamSpy (primary game metadata)
+// 2) Steam Store API (fallback/extended metadata)
+// 3) IGDB image
+// 4) RAWG image fallback (inside resolveIGDBImage)
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ appid: string }> }
@@ -100,7 +112,7 @@ export async function GET(
       );
     }
 
-    // Start with SteamSpy (fast and reliable) - run in parallel with Steam Store
+    // 1) Primary metadata source: SteamSpy (fast, stable).
     const fetchSteamSpy = async (): Promise<SteamSpyData | null> => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 3000);
@@ -124,7 +136,7 @@ export async function GET(
       return null;
     };
 
-    // Try Steam Store API (slower, optional)
+    // 2) Fallback/extended metadata source: Steam Store API.
     const fetchSteamStore = async () => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
@@ -151,11 +163,12 @@ export async function GET(
       return null;
     };
 
-    // Fetch both in parallel for maximum speed
-    const [steamSpyData, steamStoreData] = await Promise.all([
-      fetchSteamSpy(),
-      fetchSteamStore(),
-    ]);
+    const steamSpyData = await fetchSteamSpy();
+    // Keep SteamSpy as the primary source, but still query Steam API as a
+    // separate fallback/enrichment source for details SteamSpy does not expose
+    // (description, screenshots, categories, etc.).
+    const shouldFetchSteamStore = true;
+    const steamStoreData = shouldFetchSteamStore ? await fetchSteamStore() : null;
 
     // If we have neither source, return error
     // If we have neither Steam source, try DB + IGDB fallback
@@ -216,19 +229,33 @@ export async function GET(
       return NextResponse.json(response);
     }
 
-    // Build response prioritizing available data
+    // 3/4) Image fallback chain: steamapi header -> igdb -> rawg.
+    const bestTitleForImage =
+      steamSpyData?.name ||
+      steamStoreData?.name ||
+      '';
+    const igdbOrRawgImage = bestTitleForImage
+      ? await resolveIGDBImage(bestTitleForImage)
+      : null;
+    const selectedHeaderImage =
+      steamStoreData?.header_image ||
+      igdbOrRawgImage ||
+      `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appid}/header.jpg`;
+    const imageSource = detectImageSource(selectedHeaderImage);
+
+    // Build response prioritizing sources in explicit order.
     const response: Record<string, unknown> = {
       appid: parseInt(appid),
-      name: steamStoreData?.name || steamSpyData?.name || 'Unknown',
+      name: steamSpyData?.name || steamStoreData?.name || 'Unknown',
       type: steamStoreData?.type || 'game',
       description: steamStoreData?.detailed_description || steamStoreData?.about_the_game || '',
       short_description: steamStoreData?.short_description || steamSpyData?.name || '',
-      header_image: steamStoreData?.header_image || `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appid}/header.jpg`,
+      header_image: selectedHeaderImage,
       background: steamStoreData?.background || steamStoreData?.background_raw || `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appid}/page_bg_generated_v6b.jpg`,
       screenshots: steamStoreData?.screenshots || [],
       movies: steamStoreData?.movies || [],
-      developers: steamStoreData?.developers || (steamSpyData?.developer ? [steamSpyData.developer] : []),
-      publishers: steamStoreData?.publishers || (steamSpyData?.publisher ? [steamSpyData.publisher] : []),
+      developers: (steamSpyData?.developer ? [steamSpyData.developer] : steamStoreData?.developers) || [],
+      publishers: (steamSpyData?.publisher ? [steamSpyData.publisher] : steamStoreData?.publishers) || [],
       release_date: steamStoreData?.release_date,
       platforms: steamStoreData?.platforms,
       metacritic: steamStoreData?.metacritic,
@@ -237,7 +264,33 @@ export async function GET(
       price_overview: steamStoreData?.price_overview,
       drm_notice: steamStoreData?.drm_notice || '',
       isTracked: false,
-      dataSource: steamStoreData ? 'steam+steamspy' : 'steamspy',
+      dataSource: steamSpyData ? 'steamspy' : (steamStoreData ? 'steamapi' : 'unknown'),
+      imageSource,
+      sourceOrder: ['steamspy', 'steamapi', 'igdb', 'rawg'],
+      sourceAvailability: {
+        steamspy: !!steamSpyData,
+        steamapi: !!steamStoreData,
+        igdb: imageSource === 'igdb',
+        rawg: imageSource === 'rawg',
+      },
+      sources: {
+        steamspy: steamSpyData ? {
+          name: steamSpyData.name,
+          developer: steamSpyData.developer,
+          publisher: steamSpyData.publisher,
+          owners: steamSpyData.owners,
+          userscore: steamSpyData.userscore,
+          positive: steamSpyData.positive,
+          negative: steamSpyData.negative,
+        } : null,
+        steamapi: steamStoreData ? {
+          name: steamStoreData.name,
+          type: steamStoreData.type,
+          release_date: steamStoreData.release_date,
+          header_image: steamStoreData.header_image,
+          has_screenshots: Array.isArray(steamStoreData.screenshots) && steamStoreData.screenshots.length > 0,
+        } : null,
+      },
     };
 
     // Add SteamSpy-specific data

@@ -546,7 +546,6 @@ export default function AppIdDetailPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <h1 className="text-2xl font-bold tracking-tight sm:text-3xl text-gradient">{game.name}</h1>
                     <span className="status-badge bg-slate-100/80 text-slate-700 border border-slate-200/50 dark:bg-slate-800/50 dark:text-slate-300 dark:border-slate-600/50">AppID {game.appid}</span>
-                    <span className="status-badge bg-slate-100/80 text-slate-700 border border-slate-200/50 dark:bg-slate-800/50 dark:text-slate-300 dark:border-slate-600/50">{game.dataSource || 'steam'}</span>
                     {game.isTracked && (
                       <span className="status-badge status-online">Tracked</span>
                     )}

@@ -51,8 +51,45 @@ export async function GET() {
     .select('gameId title originalTitle cleanedTitle priority source image description gameLink lastKnownVersion steamAppId steamName steamVerified gogVerified gogProductId gogName gogVersion gogBuildId gogLastChecked buildNumberVerified currentBuildNumber buildNumberSource versionNumberVerified currentVersionNumber versionNumberSource lastVersionDate dateAdded lastChecked notificationsEnabled checkFrequency updateHistory isActive')
     .sort({ dateAdded: -1 });
     
+    // Prefer IGDB-backed images for tracking cards because source-site images
+    // are often Cloudflare-protected and fail intermittently on the dashboard.
+    // resolveIGDBImage already falls back to RAWG and uses internal caching, so
+    // repeated calls are cheap after the first pass.
+    const gamesWithPreferredImages = await Promise.all(
+      trackedGames.map(async (gameDoc) => {
+        const game = gameDoc.toObject();
+        const titleForImage =
+          game.steamName ||
+          game.gogName ||
+          game.originalTitle ||
+          game.title ||
+          '';
+
+        let preferredImage: string | null = null;
+        if (titleForImage) {
+          try {
+            preferredImage = await resolveIGDBImage(titleForImage);
+          } catch {
+            preferredImage = null;
+          }
+        }
+
+        const finalImage = preferredImage || game.image || '';
+        const imageSource =
+          preferredImage
+            ? (preferredImage.includes('media.rawg.io') ? 'rawg' : 'igdb')
+            : (game.image ? 'original' : 'none');
+
+        return {
+          ...game,
+          image: finalImage,
+          imageSource,
+        };
+      })
+    );
+
     return NextResponse.json({
-      games: trackedGames
+      games: gamesWithPreferredImages
     });
 
   } catch (error) {
