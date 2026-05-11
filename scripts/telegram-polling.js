@@ -1,12 +1,24 @@
 // Telegram Bot Polling Script for Local Development
 // This script polls Telegram for updates and forwards them to the local webhook handler
 
+import dns from 'node:dns';
 import https from 'https';
 import http from 'http';
 import dotenv from 'dotenv';
 
 // Load .env file
 dotenv.config();
+
+// Prefer / force IPv4 for outbound HTTP (same semantics as `src/lib/gameapi/net.ts`).
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {
+  // ignore
+}
+const forceIpv4 = (() => {
+  const v = (process.env.FORCE_IPV4 ?? '1').trim().toLowerCase();
+  return v !== '0' && v !== 'false' && v !== 'off';
+})();
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const WEBHOOK_URL = 'http://localhost:3000/api/telegram/webhook';
@@ -35,7 +47,8 @@ function makeRequest(url, data = null) {
       headers: data ? {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(data)
-      } : {}
+      } : {},
+      ...(forceIpv4 ? { family: 4 } : {}),
     };
 
     const protocol = urlObj.protocol === 'https:' ? https : http;
