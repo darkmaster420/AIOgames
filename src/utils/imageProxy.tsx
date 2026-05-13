@@ -1,5 +1,5 @@
 "use client";
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 
 /**
@@ -12,6 +12,7 @@ export const ImageWithFallback = ({
   height = 400, 
   className = '',
   responsive = false,
+  deferUntilVisible = false,
   ...props 
 }: {
   src: string | undefined;
@@ -20,13 +21,48 @@ export const ImageWithFallback = ({
   height?: number;
   className?: string;
   responsive?: boolean;
+  /** When true, the image request only starts after the card nears the viewport. */
+  deferUntilVisible?: boolean;
 } & React.ImgHTMLAttributes<HTMLImageElement>) => {
-  const [imageSrc, setImageSrc] = useState<string>(
-    getProxiedImageUrl(src)
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [inView, setInView] = useState(!deferUntilVisible);
+  const [imageSrc, setImageSrc] = useState<string>(() =>
+    deferUntilVisible ? '' : getProxiedImageUrl(src)
   );
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+
+  useEffect(() => {
+    if (!deferUntilVisible) {
+      setImageSrc(getProxiedImageUrl(src));
+      setIsLoading(true);
+      setHasError(false);
+      setRetryCount(0);
+      return;
+    }
+    const el = rootRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      entries => {
+        if (entries[0]?.isIntersecting) {
+          setInView(true);
+          obs.disconnect();
+        }
+      },
+      { root: null, rootMargin: '320px 0px', threshold: 0.01 }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [deferUntilVisible, src]);
+
+  useEffect(() => {
+    if (!deferUntilVisible || !inView) return;
+    setImageSrc(getProxiedImageUrl(src));
+    setIsLoading(true);
+    setHasError(false);
+    setRetryCount(0);
+  }, [deferUntilVisible, inView, src]);
 
   const handleLoad = () => {
     setIsLoading(false);
@@ -55,29 +91,37 @@ export const ImageWithFallback = ({
     // After second retry, show error state
   };
 
+  const showImage = !deferUntilVisible || inView;
+
   return (
     <div
+      ref={rootRef}
       className={`relative overflow-hidden rounded-lg ${className}`}
       style={responsive ? { width: '100%', aspectRatio: `${width} / ${height}` } : { width, height }}
     >
-      {isLoading && (
+      {(!showImage || isLoading) && (
         <div className="absolute inset-0 bg-gradient-to-br from-gray-200 to-gray-300 dark:from-gray-700 dark:to-gray-800 animate-pulse flex items-center justify-center">
-          <div className="text-gray-500 dark:text-gray-400 text-sm">Loading...</div>
+          <div className="text-gray-500 dark:text-gray-400 text-sm">
+            {showImage ? 'Loading...' : ''}
+          </div>
         </div>
       )}
-      <Image
-        {...props}
-        src={imageSrc}
-        alt={alt}
-        width={width}
-        height={height}
-        onLoad={handleLoad}
-        onError={handleError}
-        loading="lazy"
-        className={`w-full h-full object-cover transition-opacity duration-300 ${
-          isLoading ? 'opacity-0' : 'opacity-100'
-        }`}
-      />
+      {showImage && imageSrc && (
+        <Image
+          {...props}
+          src={imageSrc}
+          alt={alt}
+          width={width}
+          height={height}
+          onLoad={handleLoad}
+          onError={handleError}
+          loading="lazy"
+          fetchPriority="low"
+          className={`w-full h-full object-cover transition-opacity duration-300 ${
+            isLoading ? 'opacity-0' : 'opacity-100'
+          }`}
+        />
+      )}
       {hasError && retryCount >= 2 && (
         <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 text-gray-500 dark:text-gray-400 text-xs text-center p-2">
           <div className="flex flex-col items-center">

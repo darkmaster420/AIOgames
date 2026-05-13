@@ -91,6 +91,7 @@ export function TrackedGamePosterCard(props: TrackedGamePosterCardProps) {
           width={460}
           height={690}
           responsive
+          deferUntilVisible
           className="w-full h-full object-cover"
         />
         
