@@ -18,6 +18,7 @@ export async function middleware(request: NextRequest) {
     '/api/games/links', // Allow anonymous users to fetch post download links from search cards
     '/api/updates/recent', // Allow anonymous users to see recent game uploads
     '/api/proxy-image', // Image proxy must be public so posters load on the homepage for anon users
+    '/api/rss/feed', // Token-auth RSS; readers and browsers hit this without a session cookie
     '/icon.svg',
   ];
 
