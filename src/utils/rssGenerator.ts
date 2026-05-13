@@ -220,44 +220,82 @@ export type GamesToRSSItemsOptions = {
   enclosures?: 'torrents' | 'all';
 };
 
+type RssGameInput = {
+  _id: string;
+  title: string;
+  originalTitle?: string;
+  source: string;
+  gameLink: string;
+  image?: string;
+  lastKnownVersion?: string;
+  lastVersionDate?: string | Date;
+  lastPubTimestamp?: number;
+  dateAdded: Date;
+  description?: string;
+  rssCachedDownloadLinks?: Array<{ service: string; url: string; type?: string }>;
+  updateHistory?: Array<{
+    version: string;
+    dateFound: string | Date;
+    downloadLinks?: Array<{ service: string; url: string; type?: string }>;
+  }>;
+  latestApprovedUpdate?: {
+    version: string;
+    dateFound: string | Date;
+    downloadLinks?: Array<{ service: string; url: string; type?: string }>;
+  };
+  rssDownloadLinksFetchedAt?: string | Date;
+  /** When set (e.g. from feed aggregation), used as pubDate so ordering matches DB sort. */
+  _rssActivity?: Date | string;
+};
+
+const RSS_UPDATED_GRACE_MS = 60_000;
+
+function toTimeMs(d: unknown): number {
+  if (d == null) return 0;
+  const n = new Date(d as string | Date | number).getTime();
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Latest activity time for a tracked game (sort / pubDate fallback). */
+export function getRssFeedItemActivityMs(game: Omit<RssGameInput, '_id' | '_rssActivity'>): number {
+  const candidates: number[] = [toTimeMs(game.dateAdded)];
+
+  if (typeof game.lastPubTimestamp === 'number' && game.lastPubTimestamp > 0) {
+    candidates.push(game.lastPubTimestamp);
+  }
+
+  candidates.push(toTimeMs(game.lastVersionDate));
+  candidates.push(toTimeMs(game.latestApprovedUpdate?.dateFound));
+
+  if (game.updateHistory?.length) {
+    const sorted = [...game.updateHistory].sort(
+      (a, b) => toTimeMs(b.dateFound) - toTimeMs(a.dateFound)
+    );
+    candidates.push(toTimeMs(sorted[0]?.dateFound));
+  }
+
+  return Math.max(...candidates, 0);
+}
+
+export function getRssFeedItemActivityDate(game: Omit<RssGameInput, '_id'>): Date {
+  return new Date(getRssFeedItemActivityMs(game) || Date.now());
+}
+
+function shouldMarkRssItemUpdated(game: RssGameInput, pubDate: Date): boolean {
+  const added = toTimeMs(game.dateAdded);
+  if (!added) return false;
+  return pubDate.getTime() > added + RSS_UPDATED_GRACE_MS;
+}
+
 export function gamesToRSSItems(
-  games: Array<{
-    _id: string;
-    title: string;
-    originalTitle?: string;
-    source: string;
-    gameLink: string;
-    image?: string;
-    lastKnownVersion?: string;
-    lastVersionDate?: string | Date;
-    dateAdded: Date;
-    description?: string;
-    rssCachedDownloadLinks?: Array<{ service: string; url: string; type?: string }>;
-    updateHistory?: Array<{
-      version: string;
-      dateFound: string | Date;
-      downloadLinks?: Array<{ service: string; url: string; type?: string }>;
-    }>;
-    latestApprovedUpdate?: {
-      version: string;
-      dateFound: string | Date;
-      downloadLinks?: Array<{ service: string; url: string; type?: string }>;
-    };
-    rssDownloadLinksFetchedAt?: string | Date;
-  }>,
+  games: RssGameInput[],
   options?: GamesToRSSItemsOptions
 ): RSSItem[] {
   const enclosureMode = options?.enclosures === 'all' ? 'all' : 'torrents';
-  return games.map(game => {
-    let pubDate = new Date();
-
-    if (game.latestApprovedUpdate?.dateFound) {
-      pubDate = new Date(game.latestApprovedUpdate.dateFound);
-    } else if (game.lastVersionDate) {
-      pubDate = new Date(game.lastVersionDate);
-    } else {
-      pubDate = game.dateAdded;
-    }
+  const items = games.map(game => {
+    const pubDate = game._rssActivity
+      ? new Date(game._rssActivity)
+      : getRssFeedItemActivityDate(game);
 
     let description = game.description || '';
 
@@ -285,8 +323,13 @@ export function gamesToRSSItems(
       length: undefined
     }));
 
+    const baseTitle = game.title || game.originalTitle || 'Unknown Game';
+    const title = shouldMarkRssItemUpdated(game, pubDate)
+      ? `[Updated] ${baseTitle}`
+      : baseTitle;
+
     return {
-      title: game.title || game.originalTitle || 'Unknown Game',
+      title,
       description,
       link: game.gameLink,
       guid: `${game._id}:${pubDate.getTime()}`,
@@ -297,4 +340,6 @@ export function gamesToRSSItems(
       enclosures: enclosures.length > 0 ? enclosures : undefined
     };
   });
+
+  return items.sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime());
 }

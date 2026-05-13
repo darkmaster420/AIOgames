@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { PipelineStage } from 'mongoose';
 import connectDB from '../../../../lib/db';
 import { TrackedGame, User } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
@@ -21,6 +22,9 @@ import logger from '../../../../utils/logger';
  *   - 'updated': Games that have had updates
  * - limit: Number of items to include (default: 50, max: 500)
  * - enclosures: 'torrents' (default) | 'all' — torrents: only magnet / .torrent in <enclosure> (qBittorrent); all: every link as enclosure
+ *
+ * Items are ordered by most recent activity (latest approved update, history, version date, or pub timestamp), newest first.
+ * Titles are prefixed with `[Updated]` when activity is newer than when the game was first tracked.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -109,13 +113,71 @@ export async function GET(req: NextRequest) {
     }
     // 'all' mode uses the base query
 
-    const trackedGames = await TrackedGame.find(query)
-      .select(
-        'title originalTitle source gameId gameLink image description lastKnownVersion lastVersionDate dateAdded updateHistory latestApprovedUpdate rssCachedDownloadLinks rssDownloadLinksFetchedAt'
-      )
-      .sort({ 'latestApprovedUpdate.dateFound': -1, dateAdded: -1 })
-      .limit(limit)
-      .lean();
+    const pipeline: PipelineStage[] = [
+      { $match: query },
+      {
+        $addFields: {
+          _histMax: {
+            $cond: [
+              { $gt: [{ $size: { $ifNull: ['$updateHistory', []] } }, 0] },
+              {
+                $max: {
+                  $map: {
+                    input: '$updateHistory',
+                    as: 'h',
+                    in: { $ifNull: ['$$h.dateFound', new Date(0)] },
+                  },
+                },
+              },
+              new Date(0),
+            ],
+          },
+        },
+      },
+      {
+        $addFields: {
+          _lastVersionAsDate: {
+            $convert: {
+              input: '$lastVersionDate',
+              to: 'date',
+              onError: new Date(0),
+              onNull: new Date(0),
+            },
+          },
+          _pubFromTimestamp: {
+            $cond: [
+              { $gt: [{ $ifNull: ['$lastPubTimestamp', 0] }, 0] },
+              { $toDate: { $toLong: '$lastPubTimestamp' } },
+              new Date(0),
+            ],
+          },
+        },
+      },
+      {
+        $addFields: {
+          _rssActivity: {
+            $max: [
+              { $ifNull: ['$dateAdded', new Date(0)] },
+              { $ifNull: ['$latestApprovedUpdate.dateFound', new Date(0)] },
+              '$_histMax',
+              '$_lastVersionAsDate',
+              '$_pubFromTimestamp',
+            ],
+          },
+        },
+      },
+      { $sort: { _rssActivity: -1 } },
+      { $limit: limit },
+      {
+        $project: {
+          _histMax: 0,
+          _lastVersionAsDate: 0,
+          _pubFromTimestamp: 0,
+        },
+      },
+    ];
+
+    const trackedGames = await TrackedGame.aggregate(pipeline);
 
     if (!trackedGames || trackedGames.length === 0) {
       // Return empty but valid RSS feed

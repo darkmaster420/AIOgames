@@ -267,7 +267,7 @@ function sleepMs(ms: number): Promise<void> {
 }
 
 export type WarmRssDownloadLinksCacheOptions = {
-  /** Max games to process in one batch (default 20, capped at 150). */
+  /** Max games to process in one batch (default 20 for API; scheduler caps at 10). Hard cap 150. */
   maxGames?: number;
   /** Pause between gameapi calls to avoid bursting upstream (default 450ms). */
   delayMs?: number;

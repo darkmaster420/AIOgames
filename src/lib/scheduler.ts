@@ -400,16 +400,18 @@ class UpdateScheduler {
 
   /**
    * Fill `rssCachedDownloadLinks` for a small batch of tracked games (all users).
-   * Controlled by env: RSS_CACHE_WARM_MAX_PER_RUN, RSS_CACHE_WARM_MAX_AGE_DAYS.
+   * Hard-capped at 10 games per run so the scheduler never fans out across the whole library.
+   * Optional env `RSS_CACHE_WARM_MAX_PER_RUN` may only lower that cap (1–10). Stale age: `RSS_CACHE_WARM_MAX_AGE_DAYS`.
    */
   private async warmRssDownloadLinksCacheRound(): Promise<void> {
     try {
       await connectDB();
       const { warmRssDownloadLinksCacheBatch } = await import('./trackedGameDownloadLinks');
-      const maxGames = Math.min(
-        Math.max(parseInt(process.env.RSS_CACHE_WARM_MAX_PER_RUN || '18', 10), 1),
-        80
-      );
+      const schedulerMax = 10;
+      const fromEnv = parseInt(process.env.RSS_CACHE_WARM_MAX_PER_RUN || '', 10);
+      const maxGames = Number.isFinite(fromEnv) && fromEnv > 0
+        ? Math.min(Math.max(fromEnv, 1), schedulerMax)
+        : schedulerMax;
       const days = process.env.RSS_CACHE_WARM_MAX_AGE_DAYS;
       const maxAgeMs =
         days && !Number.isNaN(parseInt(days, 10)) && parseInt(days, 10) > 0
