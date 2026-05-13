@@ -2,7 +2,6 @@ import {
   mergeDownloadLinksForRss,
   type TrackedDownloadLink
 } from '../lib/trackedGameDownloadLinks';
-import { decodeHtmlEntities } from './steamApi';
 
 export interface RSSItem {
   title: string;
