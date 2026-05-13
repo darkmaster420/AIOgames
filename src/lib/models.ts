@@ -189,7 +189,37 @@ const userSchema = new mongoose.Schema({
   },
   rssFeedTokenCreatedAt: {
     type: Date
-  }
+  },
+  /** Newest-first snapshots from successful Telegram update notifications (RSS + prod-friendly links). */
+  rssTelegramFeed: [
+    {
+      sentAt: { type: Date, default: Date.now },
+      gameTitle: { type: String, default: '' },
+      displayTitle: { type: String, default: '' },
+      version: { type: String, default: '' },
+      updateType: {
+        type: String,
+        enum: ['update', 'sequel'],
+        default: 'update',
+      },
+      gameLink: { type: String, default: '' },
+      imageUrl: { type: String, default: '' },
+      source: { type: String, default: '' },
+      previousVersion: { type: String, default: '' },
+      downloadLinks: [
+        {
+          service: { type: String, required: true },
+          url: { type: String, required: true },
+          type: { type: String, default: 'download' },
+        },
+      ],
+      trackedGameId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'TrackedGame',
+        required: false,
+      },
+    },
+  ],
 }, {
   timestamps: true
 });

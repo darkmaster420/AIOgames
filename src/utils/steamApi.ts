@@ -69,16 +69,29 @@ interface SteamApiError {
 // Use local integrated Steam API instead of external worker
 // In browser/Next.js context, use relative URL. In Node.js, need absolute URL.
 const getDefaultBase = () => {
-  // If running in browser/Next.js, use relative URL
   if (typeof window !== 'undefined') {
     return '/api/steam';
   }
-  // In Node.js (e.g., tests, scripts), use NEXTAUTH_URL or fallback to localhost:3000
-  return process.env.NEXTAUTH_URL 
-    ? `${process.env.NEXTAUTH_URL}/api/steam`
-    : process.env.NEXT_PUBLIC_APP_URL 
-    ? `${process.env.NEXT_PUBLIC_APP_URL}/api/steam`
-    : 'http://localhost:3000/api/steam';
+  const stripSlash = (u: string) => u.replace(/\/$/, '');
+  // Server-side: INTERNAL_APP_URL / INTERNAL_API_BASE = same-origin API base without path
+  // (e.g. http://127.0.0.1:3000) so Steam search does not rely on hairpin NAT to your public URL.
+  const internal =
+    process.env.INTERNAL_APP_URL?.trim() ||
+    process.env.INTERNAL_API_BASE?.trim();
+  if (internal) {
+    return `${stripSlash(internal)}/api/steam`;
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}/api/steam`;
+  }
+  if (process.env.NEXTAUTH_URL) {
+    return `${stripSlash(process.env.NEXTAUTH_URL)}/api/steam`;
+  }
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    return `${stripSlash(process.env.NEXT_PUBLIC_APP_URL)}/api/steam`;
+  }
+  const port = process.env.PORT || '3000';
+  return `http://127.0.0.1:${port}/api/steam`;
 };
 
 export const STEAM_API_BASE =

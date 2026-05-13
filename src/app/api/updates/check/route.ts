@@ -965,7 +965,8 @@ export async function POST(request: Request) {
                             gameLink: recentGame.link,
                             imageUrl: recentGame.image ?? undefined,
                             updateType: 'update',
-                            downloadLinks: downloadLinks
+                            downloadLinks: downloadLinks,
+                            trackedGameId: String(existingTrackedSequel._id),
                           });
                           await sendUpdateNotification(game.userId.toString(), notificationData);
                           logger.info(`Sequel update notification sent: ${cleanedSequelTitle} -> ${versionString}`);
@@ -1029,7 +1030,8 @@ export async function POST(request: Request) {
                           version: versionString,
                           gameLink: recentGame.link,
                           imageUrl: recentGame.image ?? undefined,
-                          updateType: 'sequel'
+                          updateType: 'sequel',
+                          trackedGameId: String(newSequelGame._id),
                         });
                         await sendUpdateNotification(game.userId.toString(), notificationData);
                         logger.info(`New sequel tracking notification sent: ${cleanedSequelTitle}`);
@@ -1659,7 +1661,8 @@ export async function POST(request: Request) {
                       gameLink: bestMatch.link,
                       imageUrl: bestMatch.image ?? undefined,
                       updateType: 'update',
-                      downloadLinks: downloadLinks
+                      downloadLinks: downloadLinks,
+                      trackedGameId: String(game._id),
                     });
                     
                     await sendUpdateNotification(game.userId.toString(), notificationData);

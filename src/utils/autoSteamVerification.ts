@@ -140,6 +140,53 @@ export async function autoVerifyWithSteam(
 }
 
 /**
+ * Multi-step Steam auto-verify for add-tracking: raw title, cleaned title, then lower thresholds.
+ * Avoids the old bug where retry was skipped when cleaned string matched `title.toLowerCase().trim()`.
+ */
+export async function autoVerifyWithSteamLadderForTrack(
+  titleFromUser: string,
+  clientCleanedTitle?: string
+): Promise<AutoVerificationResult> {
+  const primary = (titleFromUser || '').trim();
+  if (!primary) {
+    return { success: false, confidence: 0, reason: 'Empty title' };
+  }
+  const cleaned = cleanGameTitle(primary);
+
+  const stages: Array<{ query: string; threshold: number }> = [
+    { query: primary, threshold: 0.85 },
+    { query: cleaned, threshold: 0.8 },
+    { query: cleaned, threshold: 0.72 },
+    { query: cleaned, threshold: 0.65 },
+  ];
+
+  const cc = (clientCleanedTitle || '').trim();
+  if (cc) {
+    const ccNorm = cleanGameTitle(cc);
+    if (ccNorm && ccNorm !== cleaned) {
+      stages.push({ query: ccNorm, threshold: 0.72 });
+    }
+  }
+
+  let last: AutoVerificationResult = {
+    success: false,
+    confidence: 0,
+    reason: 'No match',
+  };
+  const tried = new Set<string>();
+
+  for (const { query, threshold } of stages) {
+    if (!query) continue;
+    const key = `${query}\0${threshold}`;
+    if (tried.has(key)) continue;
+    tried.add(key);
+    last = await autoVerifyWithSteam(query, threshold);
+    if (last.success) return last;
+  }
+  return last;
+}
+
+/**
  * Calculate confidence score for Steam game match
  * Enhanced version that considers multiple factors
  */

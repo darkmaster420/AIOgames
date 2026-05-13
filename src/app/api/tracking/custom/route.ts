@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
 import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
-import { autoVerifyWithSteam } from '../../../../utils/autoSteamVerification';
+import { autoVerifyWithSteamLadderForTrack } from '../../../../utils/autoSteamVerification';
 import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild } from '../../../../utils/steamApi';
 import { updateScheduler } from '../../../../lib/scheduler';
 import { syncRssDownloadLinksCache } from '../../../../lib/trackedGameDownloadLinks';
@@ -342,18 +342,8 @@ export async function POST(req: NextRequest) {
       // Attempt automatic Steam verification
       try {
         logger.info(`Auto Steam verification for newly added game: "${bestMatch.title}"`);
-        
-        // Try with original title first
-        let autoVerification = await autoVerifyWithSteam(bestMatch.title, 0.85);
-        
-        // If original title fails, try with cleaned title
-        if (!autoVerification.success) {
-          const cleanedTitle = cleanGameTitle(bestMatch.title);
-          if (cleanedTitle !== bestMatch.title.toLowerCase().trim()) {
-            logger.debug(`Retry auto Steam verification with cleaned title: "${cleanedTitle}"`);
-            autoVerification = await autoVerifyWithSteam(cleanedTitle, 0.80); // Slightly lower threshold for cleaned title
-          }
-        }
+
+        const autoVerification = await autoVerifyWithSteamLadderForTrack(bestMatch.title);
         
         if (autoVerification.success && autoVerification.steamAppId && autoVerification.steamName) {
           // Update the game with Steam verification data

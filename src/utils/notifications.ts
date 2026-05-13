@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { User } from '../lib/models';
 import { 
   sendTelegramMessage, 
@@ -92,6 +93,48 @@ function markNotificationSent(cacheKey: string): void {
   }
 }
 
+async function appendUserRssTelegramFeedEntry(
+  userId: string,
+  updateData: UpdateNotificationData
+): Promise<void> {
+  const displayTitle =
+    updateData.steamName || updateData.gogName || updateData.gameTitle;
+  const entry: Record<string, unknown> = {
+    sentAt: new Date(),
+    gameTitle: updateData.gameTitle,
+    displayTitle,
+    version: updateData.version ?? '',
+    updateType: updateData.updateType,
+    gameLink: updateData.gameLink ?? '',
+    imageUrl: updateData.imageUrl ?? '',
+    source: updateData.source ?? '',
+    previousVersion: updateData.previousVersion ?? '',
+    downloadLinks: (updateData.downloadLinks ?? []).map(l => ({
+      service: l.service,
+      url: l.url,
+      type: l.type ?? 'download',
+    })),
+  };
+  if (
+    updateData.trackedGameId &&
+    mongoose.Types.ObjectId.isValid(updateData.trackedGameId)
+  ) {
+    entry.trackedGameId = new mongoose.Types.ObjectId(updateData.trackedGameId);
+  }
+  await User.updateOne(
+    { _id: userId },
+    {
+      $push: {
+        rssTelegramFeed: {
+          $each: [entry],
+          $position: 0,
+          $slice: 100,
+        },
+      },
+    }
+  );
+}
+
 /**
  * Add delay between Telegram notifications to prevent rate limiting
  */
@@ -120,6 +163,7 @@ export interface UpdateNotificationData {
   downloadLinks?: Array<{ service: string; url: string; type?: string }>;
   previousVersion?: string;
   source?: string;
+  trackedGameId?: string;
 }
 
 /**
@@ -136,6 +180,7 @@ export function createUpdateNotificationData(params: {
   downloadLinks?: Array<{ service: string; url: string; type?: string }>;
   previousVersion?: string;
   source?: string;
+  trackedGameId?: string;
 }): UpdateNotificationData {
   return {
     gameTitle: params.gameTitle,
@@ -148,6 +193,7 @@ export function createUpdateNotificationData(params: {
     downloadLinks: params.downloadLinks,
     previousVersion: params.previousVersion,
     source: params.source,
+    trackedGameId: params.trackedGameId,
   };
 }
 
@@ -282,6 +328,9 @@ export async function sendUpdateNotification(
             console.log(`[Notifications] Telegram message sent successfully to user ${userId}`);
             result.methods.telegram.sent++;
             result.sentCount++;
+            void appendUserRssTelegramFeedEntry(userId, updateData).catch(err =>
+              console.error('[Notifications] rssTelegramFeed append failed:', err)
+            );
           } else {
             console.error(`[Notifications] Telegram failed for user ${userId}:`, telegramResult.error);
             result.methods.telegram.failed++;

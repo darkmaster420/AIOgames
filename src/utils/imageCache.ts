@@ -1,10 +1,18 @@
 /**
- * Server-side image cache.
+ * Server-side image cache for `/api/proxy-image` only.
+ *
+ * This is **not** used for WordPress REST or HTML scraping. Those flows stay
+ * in `lib/gameapi/helpers.js` (`fetchSkidrow`, `fetchSteamrip`, etc.) and still
+ * use FlareSolverr / cf_clearance when Cloudflare blocks JSON or pages.
+ *
+ * Here we only cache **poster image bytes**. Skidrow media hosts are fetched
+ * with plain HTTPS (plus a site Referer for hotlink rules), not FlareSolverr.
+ * SteamRip / DODI image URLs may still use cookie jars below when their CDNs
+ * require it.
  *
  * Caches the raw bytes of images fetched through the proxy so that:
  *   1) Repeat requests for the same image are served from memory instantly,
- *      without re-hitting external CDNs or running another FlareSolverr
- *      Cloudflare-clearance dance.
+ *      without re-hitting external CDNs or repeating expensive cookie refresh.
  *   2) Background jobs (see /api/games/recent enrichment) can *warm* the cache
  *      after scraping, so by the time the user's browser asks for each image
  *      it's a fast memory hit — no contention with the browser's per-origin
@@ -16,10 +24,8 @@
 
 import {
   getValidSteamripCookie,
-  getValidSkidrowCookie,
   getValidDodiCookie,
   getFreshSteamripCookie,
-  getFreshSkidrowCookie,
   getFreshDodiCookie,
 } from '../lib/gameapi/helpers.js';
 
@@ -30,7 +36,7 @@ interface CookieJar {
   expires_at: number;
 }
 
-type SiteKey = 'steamrip' | 'skidrow' | 'dodi';
+type SiteKey = 'steamrip' | 'dodi';
 
 const HOST_MATCHERS: Array<{
   match: (host: string) => boolean;
@@ -38,17 +44,13 @@ const HOST_MATCHERS: Array<{
   getValid: () => Promise<CookieJar>;
   getFresh: () => Promise<CookieJar>;
 }> = [
+  // Skidrow is intentionally omitted: wp-json + HTML use FlareSolverr via
+  // `fetchSkidrow` in helpers.js; only poster URLs hit imageCache / proxy-image.
   {
     match: h => h.includes('steamrip.com'),
     key: 'steamrip',
     getValid: getValidSteamripCookie as () => Promise<CookieJar>,
     getFresh: getFreshSteamripCookie as () => Promise<CookieJar>,
-  },
-  {
-    match: h => h.includes('skidrowreloaded.com'),
-    key: 'skidrow',
-    getValid: getValidSkidrowCookie as () => Promise<CookieJar>,
-    getFresh: getFreshSkidrowCookie as () => Promise<CookieJar>,
   },
   {
     match: h => h.includes('dodi-repacks.download') || h.includes('dodi-repacks.site') || h.includes('dodi-repacks.com'),
@@ -218,17 +220,23 @@ async function fetchImage(url: string): Promise<CachedImage | null> {
     }
   }
 
-  // Fallback (or default path for hosts like IGDB/RAWG/Steam CDN that don't
-  // need cookies). We deliberately skip the Referer header here — IGDB in
-  // particular 403s requests with a mismatched Referer.
+  // Fallback (or default path for hosts like IGDB/RAWG/Steam CDN / Skidrow
+  // media that no longer need cf_clearance). We skip Referer for most CDNs —
+  // IGDB in particular 403s mismatched Referer. Skidrow uploads often expect
+  // a same-site Referer when not using cookies.
   if (!response || !response.ok || looksLikeChallenge(response)) {
+    const skidrowHost = host.includes('skidrowreloaded.com');
     // Retry up to 2 times on transient errors. Steam CDN occasionally
     // returns connection errors or transient 5xx that succeed on an
     // immediate retry.
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         response = await fetch(url, {
-          headers: buildHeaders(null, validUrl.origin, false),
+          headers: buildHeaders(
+            null,
+            skidrowHost ? 'https://www.skidrowreloaded.com/' : validUrl.origin,
+            skidrowHost
+          ),
           signal: AbortSignal.timeout(15000),
         });
         if (response.ok && !looksLikeChallenge(response)) break;

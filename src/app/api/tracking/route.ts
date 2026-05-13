@@ -4,7 +4,7 @@ import { TrackedGame } from '../../../lib/models';
 import { getCurrentUser } from '../../../lib/auth';
 import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, resolveVersionFromDate, resolveComparableVersionData, calculateGamePriority, detectAndResolveGameConflicts, resolvePubTimestampFromBuild, resolveLatestPubTimestamp } from '../../../utils/steamApi';
 import logger from '../../../utils/logger';
-import { autoVerifyWithSteam } from '../../../utils/autoSteamVerification';
+import { autoVerifyWithSteamLadderForTrack } from '../../../utils/autoSteamVerification';
 import { resolveIGDBImage } from '../../../utils/igdb';
 import { updateScheduler } from '../../../lib/scheduler';
 import { analyzeGameTitle } from '../../../utils/versionDetection';
@@ -371,8 +371,14 @@ export async function POST(request: NextRequest) {
       await initializeGOGDB();
       logger.info(`🔍 Auto GOG verification for newly added game: "${originalTitle || title}"`);
       
-      const titleForGOG = originalTitle || title;
-      const gogResults = await searchGOGDBIndex(titleForGOG, 5);
+      const titleForGOG = (originalTitle || title || '').trim();
+      let gogResults = await searchGOGDBIndex(titleForGOG, 5);
+      if (gogResults.length === 0) {
+        const gogAlt = cleanGameTitle(titleForGOG);
+        if (gogAlt && gogAlt !== titleForGOG.toLowerCase().replace(/\s+/g, ' ').trim()) {
+          gogResults = await searchGOGDBIndex(gogAlt, 5);
+        }
+      }
       
       if (gogResults.length > 0) {
         // Find best match (exact or highest similarity)
@@ -425,21 +431,11 @@ export async function POST(request: NextRequest) {
         await trackedGame.save();
         logger.info(`Steam verification complete: ${autoSteamName || 'AppID verified'} (${autoSteamAppId})`);
       } else {
-        // Otherwise, attempt normal auto Steam verification
+        // Otherwise, attempt normal auto Steam verification (multi-step: raw → cleaned → lower thresholds)
         logger.info(`Auto Steam verification for newly added game: "${originalTitle || title}"`);
-        
-        // Try with original title first (best for Steam matching)
-        const titleForSteam = originalTitle || title;
-        let autoVerification = await autoVerifyWithSteam(titleForSteam, 0.85);
-        
-        // If original title fails, try with cleaned title
-        if (!autoVerification.success) {
-          const cleanedTitleForSteam = cleanedTitle || cleanGameTitle(title);
-          if (cleanedTitleForSteam !== titleForSteam.toLowerCase().trim()) {
-            logger.debug(`Retry auto Steam verification with cleaned title: "${cleanedTitleForSteam}"`);
-            autoVerification = await autoVerifyWithSteam(cleanedTitleForSteam, 0.80); // Slightly lower threshold for cleaned title
-          }
-        }
+
+        const titleForSteam = (originalTitle || title || '').trim();
+        const autoVerification = await autoVerifyWithSteamLadderForTrack(titleForSteam, cleanedTitle);
         
         if (autoVerification.success && autoVerification.steamAppId && autoVerification.steamName) {
           // Update the game with Steam verification data

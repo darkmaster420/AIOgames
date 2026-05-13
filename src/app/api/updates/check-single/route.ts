@@ -1312,7 +1312,8 @@ export async function POST(request: Request) {
                   gameLink: result.link,
                   imageUrl: result.image ?? undefined,
                   downloadLinks: result.downloadLinks,
-                  previousVersion: game.lastKnownVersion || game.title
+                  previousVersion: game.lastKnownVersion || game.title,
+                  trackedGameId: String(game._id),
                 });
                 
                 logger.debug(`📤 Notification data:`, {

@@ -23,6 +23,8 @@ services:
       - NODE_ENV=development
       - MONGODB_URI=mongodb://aiogames:aiogames123@mongodb:27017/aiogames
       - NEXTAUTH_URL=http://localhost:3000
+      # Server-side Steam/GOG auto-verify calls /api/steam from Node; use loopback so it works when NEXTAUTH_URL is a public URL in prod.
+      - INTERNAL_APP_URL=http://127.0.0.1:3000
     env_file: 
       - .env.development  # Development environment file
     depends_on:

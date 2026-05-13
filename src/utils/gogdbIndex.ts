@@ -117,9 +117,21 @@ export async function searchGOGDBIndex(query: string, limit: number = 10): Promi
     }));
 
     // Filter by minimum similarity and sort by best match
-    const filteredResults = resultsWithSimilarity
+    let filteredResults = resultsWithSimilarity
       .filter(r => r.similarity >= MIN_SIMILARITY)
       .sort((a, b) => b.similarity - a.similarity);
+
+    if (filteredResults.length === 0 && resultsWithSimilarity.length > 0) {
+      const sorted = [...resultsWithSimilarity].sort((a, b) => b.similarity - a.similarity);
+      const best = sorted[0];
+      const RELAXED = 0.78;
+      if (best && best.similarity >= RELAXED) {
+        logger.warn(
+          `GOG catalog: no hit ≥${MIN_SIMILARITY}; using best match "${best.title}" at ${(best.similarity * 100).toFixed(1)}%`
+        );
+        filteredResults = [best];
+      }
+    }
 
     logger.info(`🎮 Filtered to ${filteredResults.length} game(s) from ${allResults.length} total results (min similarity: ${MIN_SIMILARITY})`);
     

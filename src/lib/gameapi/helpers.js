@@ -891,6 +891,12 @@ function hasCloudflareProtection(response, htmlContent = null) {
   return false;
 }
 
+/**
+ * SkidrowReloaded: WordPress REST (`/wp-json/...`) and HTML post pages.
+ * Still uses FlareSolverr + cf_clearance when Cloudflare blocks — unchanged.
+ * Poster images are loaded separately via `/api/proxy-image` + `imageCache.ts`
+ * (plain HTTPS for skidrowreloaded.com media, no FlareSolverr).
+ */
 export async function fetchSkidrow(url, isPageRequest = false) {
   if (isSkidrowCircuitOpen()) {
     const remainingMs = skidrowCircuit.cooldownUntil - Date.now();
@@ -1232,11 +1238,8 @@ export async function transformPostForV2(post, site, fetchLinks = false) {
   const downloadLinks = fetchLinks ? await extractDownloadLinksForV2(post.link, site.type, post.content?.rendered) : [];
   
   // Enhanced image extraction.
-  // NOTE: skidrow images are served by a Cloudflare-protected host; previously
-  // we skipped them entirely because the browser couldn't load them. Now that
-  // /api/proxy-image forwards requests with the FlareSolverr-issued cf_clearance
-  // cookie, skidrow images load correctly and we treat them like every other
-  // site.
+  // Skidrow / WordPress media: served as normal HTTPS now; browser loads via
+  // /api/proxy-image with a same-site Referer when needed (see imageCache).
   let image = null;
   if (site.type === 'gamedrive') {
     image = post.featured_image_src || post.jetpack_featured_media_url;

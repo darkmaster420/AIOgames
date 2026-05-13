@@ -212,6 +212,96 @@ export function formatRssDownloadShowcase(
   return parts.join('');
 }
 
+/** Canonical host+path+search for deduping Telegram RSS head vs tracked-game items. */
+export function normalizeGameLinkForRssDedupe(link?: string): string | null {
+  if (!link || link === '/tracking') return null;
+  const trimmed = link.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  try {
+    const u = new URL(trimmed);
+    const host = u.hostname.toLowerCase();
+    const path = u.pathname.replace(/\/$/, '') || '/';
+    return `${host}${path}${u.search}`;
+  } catch {
+    return null;
+  }
+}
+
+export type RssTelegramFeedEntryLean = {
+  sentAt?: Date | string;
+  gameTitle?: string;
+  displayTitle?: string;
+  version?: string;
+  updateType?: 'update' | 'sequel';
+  gameLink?: string;
+  imageUrl?: string;
+  source?: string;
+  previousVersion?: string;
+  downloadLinks?: Array<{ service: string; url: string; type?: string }>;
+  trackedGameId?: { toString(): string } | string;
+};
+
+function enclosureMimeTypeForLink(link: { url: string; type?: string }): string {
+  return isTorrentEnclosureLink(link) ? 'application/x-bittorrent' : 'application/octet-stream';
+}
+
+/** Build RSS items from persisted Telegram notification snapshots (download links as sent). */
+export function telegramFeedToRssItems(
+  entries: RssTelegramFeedEntryLean[],
+  options?: GamesToRSSItemsOptions
+): RSSItem[] {
+  const enclosureMode = options?.enclosures === 'all' ? 'all' : 'torrents';
+  return entries.map(entry => {
+    const rawSent = entry.sentAt ? new Date(entry.sentAt) : new Date();
+    const pubDate = Number.isFinite(rawSent.getTime()) ? rawSent : new Date();
+    const links = entry.downloadLinks ?? [];
+    const { preferredHoster, magnetOrTorrent } = pickRssDownloadShowcaseLinks(links);
+    let description = '';
+    if (entry.version) {
+      description += `<strong>Version:</strong> ${escapeXml(String(entry.version))}`;
+    }
+    if (entry.previousVersion) {
+      if (description) description += '<br/>';
+      description += `<strong>Previous:</strong> ${escapeXml(String(entry.previousVersion))}`;
+    }
+    if (entry.source) {
+      if (description) description += '<br/>';
+      description += `<strong>Source:</strong> ${escapeXml(String(entry.source))}`;
+    }
+    description += formatRssDownloadShowcase(preferredHoster, magnetOrTorrent);
+
+    const enclosureLinks =
+      enclosureMode === 'all'
+        ? links.filter(l => l.url)
+        : links.filter(l => l.url && isTorrentEnclosureLink(l));
+    const enclosures = enclosureLinks.map(link => ({
+      url: link.url,
+      type: enclosureMimeTypeForLink(link),
+      length: undefined as number | undefined,
+    }));
+
+    const displayTitle = (entry.displayTitle || entry.gameTitle || 'Game update').trim() || 'Game update';
+    const link = (entry.gameLink || '/tracking').trim() || '/tracking';
+    const tid =
+      entry.trackedGameId != null
+        ? typeof entry.trackedGameId === 'object' && 'toString' in entry.trackedGameId
+          ? (entry.trackedGameId as { toString(): string }).toString()
+          : String(entry.trackedGameId)
+        : 'na';
+
+    return {
+      title: `[Updated] ${displayTitle}`,
+      description: description || '<p>Update notification</p>',
+      link,
+      guid: `tg:${tid}:${pubDate.getTime()}:${link.slice(0, 160)}`,
+      pubDate,
+      image: entry.imageUrl || undefined,
+      category: entry.updateType ? [entry.updateType] : undefined,
+      enclosures: enclosures.length > 0 ? enclosures : undefined,
+    };
+  });
+}
+
 /**
  * Convert tracked game data to RSS items
  */
