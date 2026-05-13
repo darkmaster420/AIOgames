@@ -14,23 +14,38 @@ export async function seedOwner(): Promise<void> {
     const ownerName = process.env.OWNER_NAME || 'Owner';
 
     if (!ownerEmail || !ownerPassword) {
-      logger.info('⚠️ OWNER_EMAIL and OWNER_PASSWORD not set in environment - skipping owner seed');
+      const msg =
+        'OWNER_EMAIL and OWNER_PASSWORD not set in environment — skipping owner seed';
+      console.log('[AIOgames]', msg);
+      logger.info(`⚠️ ${msg}`);
       return;
     }
 
     await connectDB();
 
+    const emailKey = ownerEmail.toLowerCase().trim();
+
     // Check if owner already exists
-    const existingOwner = await User.findOne({ email: ownerEmail });
+    const existingOwner = await User.findOne({ email: emailKey });
 
     if (existingOwner) {
-      // Update to owner role if not already
+      let dirty = false;
       if (existingOwner.role !== 'owner') {
         existingOwner.role = 'owner';
+        dirty = true;
+        logger.info(`✅ Updated existing user ${emailKey} to owner role`);
+      }
+      // Keep DB password in sync with OWNER_PASSWORD so .env changes / stale hashes don't cause 401 on login
+      const matches = await bcrypt.compare(ownerPassword, existingOwner.password);
+      if (!matches) {
+        existingOwner.password = await bcrypt.hash(ownerPassword, 10);
+        dirty = true;
+        logger.info(`✅ Refreshed owner password from OWNER_PASSWORD for ${emailKey}`);
+      }
+      if (dirty) {
         await existingOwner.save();
-        logger.info(`✅ Updated existing user ${ownerEmail} to owner role`);
       } else {
-        logger.info(`✅ Owner user ${ownerEmail} already exists`);
+        logger.info(`✅ Owner user ${emailKey} already exists`);
       }
       return;
     }
@@ -39,7 +54,7 @@ export async function seedOwner(): Promise<void> {
     const hashedPassword = await bcrypt.hash(ownerPassword, 10);
 
     const owner = new User({
-      email: ownerEmail,
+      email: emailKey,
       password: hashedPassword,
       name: ownerName,
       role: 'owner',

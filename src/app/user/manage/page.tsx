@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useNotification } from '../../../contexts/NotificationContext';
 import { useConfirm } from '../../../contexts/ConfirmContext';
+import RSSFeedManager from '../../../components/RSSFeedManager';
 
 export default function UserManagePage() {
   const { showSuccess, showError } = useNotification();
@@ -444,6 +445,9 @@ export default function UserManagePage() {
               </div>
             </div>
           </div>
+
+          {/* RSS Feed Manager */}
+          <RSSFeedManager />
 
           {error && <div className="text-sm text-red-600 dark:text-red-300">{error}</div>}
           {success && <div className="text-sm text-green-600 dark:text-green-300">{success}</div>}

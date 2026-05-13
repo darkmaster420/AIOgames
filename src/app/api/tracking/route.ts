@@ -9,6 +9,10 @@ import { resolveIGDBImage } from '../../../utils/igdb';
 import { updateScheduler } from '../../../lib/scheduler';
 import { analyzeGameTitle } from '../../../utils/versionDetection';
 import { searchGOGDBIndex, getLatestGOGVersion, initializeGOGDB } from '../../../utils/gogdbIndex';
+import { syncRssDownloadLinksCache } from '../../../lib/trackedGameDownloadLinks';
+
+/** Steam auto-verify + GOG + version detection can exceed the default serverless limit. */
+export const maxDuration = 120;
 
 /**
  * Compare two version strings (e.g., "1.2.3" vs "1.3.0")
@@ -335,6 +339,8 @@ export async function POST(request: NextRequest) {
 
       await replacementTarget.save();
 
+      void syncRssDownloadLinksCache(replacementTarget._id.toString()).catch(() => {});
+
       return NextResponse.json({
         message: shouldReplace
           ? `Tracked game updated to the selected result: ${comparisonReason}`
@@ -587,6 +593,8 @@ export async function POST(request: NextRequest) {
   logger.error('Failed to update scheduler:', schedulerError);
       // Don't fail the request if scheduler update fails
     }
+
+    void syncRssDownloadLinksCache(trackedGame._id.toString()).catch(() => {});
 
     return NextResponse.json({
       message: 'Game added to tracking',

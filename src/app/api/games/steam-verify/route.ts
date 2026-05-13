@@ -6,6 +6,8 @@ import { searchSteamGames, buildSteamSearchQueryVariants, resolvePubTimestampFro
 import { analyzeGameTitle } from '@/utils/versionDetection';
 import { resolveIGDBImage } from '@/utils/igdb';
 
+export const maxDuration = 120;
+
 /**
  * POST /api/games/steam-verify
  * Search Steam API for game matches

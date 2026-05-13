@@ -5,11 +5,15 @@ import { getCurrentUser } from '../../../../lib/auth';
 import { autoVerifyWithSteam } from '../../../../utils/autoSteamVerification';
 import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild } from '../../../../utils/steamApi';
 import { updateScheduler } from '../../../../lib/scheduler';
+import { syncRssDownloadLinksCache } from '../../../../lib/trackedGameDownloadLinks';
 import { analyzeGameTitle } from '../../../../utils/versionDetection';
 import { searchIGDB, type IGDBSearchResult } from '../../../../utils/igdb';
 import logger from '../../../../utils/logger';
 import { rateLimit, validateInput, schemas } from '../../../../utils/validation';
 import { searchGames } from '../../../../lib/gameapi';
+
+/** Steam auto-verify + version detection can exceed the default serverless limit. */
+export const maxDuration = 120;
 
 // Helper function to calculate similarity between two strings
 function calculateSimilarity(str1: string, str2: string): number {
@@ -445,6 +449,8 @@ export async function POST(req: NextRequest) {
         logger.error('Failed to update scheduler:', schedulerError);
         // Don't fail the request if scheduler update fails
       }
+
+      void syncRssDownloadLinksCache(newTrackedGame._id.toString()).catch(() => {});
 
       // Calculate similarity for success message
       const similarity = bestMatch.similarity || calculateSimilarity(trimmedGameName, bestMatch.title);

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
 import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
+import { syncRssDownloadLinksCache } from '../../../../lib/trackedGameDownloadLinks';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -92,6 +93,8 @@ export async function PATCH(request: Request, context: RouteContext) {
     game.newUpdateSeen = true;
 
     await game.save();
+
+    void syncRssDownloadLinksCache(game._id.toString()).catch(() => {});
 
     return NextResponse.json({ success: true, lastKnownVersion: newVersion });
   } catch (error) {

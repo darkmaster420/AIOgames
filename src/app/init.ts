@@ -10,13 +10,8 @@ if (!isBuildPhase) {
     console.error('Failed to load scheduler:', error);
   });
 
-  import('../lib/seedOwner').then(({ seedOwner }) => {
-    seedOwner().catch((error) => {
-      console.error('Failed to seed owner:', error);
-    });
-  }).catch((error) => {
-    console.error('Failed to load seedOwner:', error);
-  });
+  // Owner/admin seeding runs in src/instrumentation.ts register() so it executes
+  // at Node server boot (reliable in next dev). Do not duplicate here.
 
   // Set up Telegram webhook and commands in production
   if (process.env.NODE_ENV === 'production' && process.env.TELEGRAM_BOT_TOKEN && process.env.NEXTAUTH_URL) {

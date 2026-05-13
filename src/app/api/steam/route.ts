@@ -5,6 +5,9 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
+/** Allow Steam name search + retries (Steam Web + SteamSpy fallback) to finish. */
+export const maxDuration = 90;
+
 const SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours (appid results don't change)
 const APPID_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -293,6 +296,60 @@ function setCachedResponse(cacheKey: string, value: SteamRoutePayload, ttlMs: nu
 
 // Helper functions
 
+/** Steam Community / SteamSpy can be slow; keep attempts bounded so total stays under `maxDuration`. */
+const STEAM_NAME_SEARCH_TIMEOUT_MS = 14_000;
+const STEAM_NAME_SEARCH_MAX_ATTEMPTS = 3;
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function shouldRetrySteamUpstream(
+  attempt: number,
+  maxAttempts: number,
+  error?: unknown,
+  response?: Response
+): boolean {
+  if (attempt >= maxAttempts) return false;
+  if (error instanceof Error) {
+    const n = error.name;
+    if (n === 'AbortError' || n === 'TimeoutError') return true;
+    const m = error.message.toLowerCase();
+    return /timeout|abort|fetch failed|network|econnreset|etimedout|enotfound|socket/i.test(m);
+  }
+  if (response && !response.ok) {
+    return [502, 503, 504, 429].includes(response.status);
+  }
+  return false;
+}
+
+/**
+ * Fetch with a generous per-attempt timeout and a few retries (timeouts / flaky Steam edges).
+ */
+async function fetchSteamNameSearchUpstream(url: string): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= STEAM_NAME_SEARCH_MAX_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetch(url, {
+        next: { revalidate: 3600 },
+        signal: AbortSignal.timeout(STEAM_NAME_SEARCH_TIMEOUT_MS),
+      });
+      if (!response.ok && shouldRetrySteamUpstream(attempt, STEAM_NAME_SEARCH_MAX_ATTEMPTS, undefined, response)) {
+        await sleep(350 * attempt);
+        continue;
+      }
+      return response;
+    } catch (e) {
+      lastError = e;
+      if (!shouldRetrySteamUpstream(attempt, STEAM_NAME_SEARCH_MAX_ATTEMPTS, e)) {
+        throw e;
+      }
+      await sleep(400 * attempt);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 async function fetchSteamSpyAppDetails(appid: string) {
   const response = await fetch(
     `https://steamspy.com/api.php?request=appdetails&appid=${appid}`,
@@ -319,12 +376,8 @@ async function fetchSteamDBRss(appid: string) {
 
 async function searchSteamSpyByName(query: string) {
   try {
-    const response = await fetch(
-      `https://steamspy.com/api.php?request=search&query=${encodeURIComponent(query)}`,
-      { 
-        next: { revalidate: 3600 },
-        signal: AbortSignal.timeout(5000) // 5 second timeout
-      }
+    const response = await fetchSteamNameSearchUpstream(
+      `https://steamspy.com/api.php?request=search&query=${encodeURIComponent(query)}`
     );
     
     if (!response.ok) {
@@ -368,12 +421,8 @@ async function searchSteamSpyByName(query: string) {
 
 async function searchSteamWebAPI(query: string) {
   try {
-    const response = await fetch(
-      `https://steamcommunity.com/actions/SearchApps/${encodeURIComponent(query)}`,
-      { 
-        next: { revalidate: 3600 },
-        signal: AbortSignal.timeout(5000) // 5 second timeout
-      }
+    const response = await fetchSteamNameSearchUpstream(
+      `https://steamcommunity.com/actions/SearchApps/${encodeURIComponent(query)}`
     );
     
     if (!response.ok) {

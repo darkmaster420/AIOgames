@@ -13,8 +13,8 @@ export function validateEmailOrUsername(input: string): {
 
   const trimmed = input.trim();
 
-  // Check if it looks like an email
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  // Check if it looks like an email (allow owner@localhost-style dev addresses)
+  const emailRegex = /^[^\s@]+@[^\s@]+(?:\.[^\s@]+)*$/;
   if (emailRegex.test(trimmed)) {
     return { isValid: true, type: 'email' };
   }

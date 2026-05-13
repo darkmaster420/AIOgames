@@ -54,7 +54,8 @@ export async function middleware(request: NextRequest) {
   }
 
   // Admin route protection
-  if ((pathname.startsWith('/admin') || pathname.startsWith('/api/admin')) && token.role !== 'admin') {
+  const isAdminOrOwner = token.role === 'admin' || token.role === 'owner';
+  if ((pathname.startsWith('/admin') || pathname.startsWith('/api/admin')) && !isAdminOrOwner) {
     return NextResponse.redirect(new URL('/', request.url));
   }
 

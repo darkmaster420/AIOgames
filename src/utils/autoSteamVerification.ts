@@ -1,4 +1,10 @@
-import { searchSteamGames, calculateGameSimilarity, cleanGameTitle, buildSteamSearchQueryVariants } from './steamApi';
+import {
+  searchSteamGames,
+  calculateGameSimilarity,
+  cleanGameTitle,
+  buildSteamSearchQueryVariants,
+  isRetryableSteamTransportError
+} from './steamApi';
 
 // Use the same interface as steamApi.ts for consistency
 interface SteamGameResult {
@@ -21,6 +27,76 @@ interface AutoVerificationResult {
   reason: string;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function runAutoVerifyCore(
+  gameTitle: string,
+  confidenceThreshold: number
+): Promise<AutoVerificationResult> {
+  const queryVariants = buildSteamSearchQueryVariants(gameTitle);
+  const mergedResults: SteamGameResult[] = [];
+  const seenAppIds = new Set<string>();
+
+  for (const query of queryVariants) {
+    const searchResponse = await searchSteamGames(query, 5);
+    if (!searchResponse.results || searchResponse.results.length === 0) {
+      continue;
+    }
+
+    for (const result of searchResponse.results) {
+      if (!result.appid || seenAppIds.has(result.appid)) continue;
+      seenAppIds.add(result.appid);
+      mergedResults.push(result);
+    }
+  }
+
+  if (mergedResults.length === 0) {
+    return {
+      success: false,
+      confidence: 0,
+      reason: 'No Steam results found'
+    };
+  }
+
+  let bestMatch: SteamGameResult | null = null;
+  let bestConfidence = 0;
+
+  for (const result of mergedResults) {
+    if (!result.appid || result.name.includes('No games found')) {
+      continue;
+    }
+
+    if (result.type && !['game', 'app'].includes(result.type)) {
+      continue;
+    }
+
+    const confidence = calculateConfidence(gameTitle, result);
+
+    if (confidence > bestConfidence && confidence >= confidenceThreshold) {
+      bestMatch = result;
+      bestConfidence = confidence;
+    }
+  }
+
+  if (bestMatch && bestConfidence >= confidenceThreshold) {
+    return {
+      success: true,
+      steamAppId: parseInt(bestMatch.appid, 10),
+      steamName: bestMatch.name,
+      confidence: bestConfidence,
+      reason: `High confidence match found (${(bestConfidence * 100).toFixed(1)}%)`
+    };
+  }
+
+  return {
+    success: false,
+    confidence: bestConfidence,
+    reason: `Best match confidence (${(bestConfidence * 100).toFixed(1)}%) below threshold (${(confidenceThreshold * 100).toFixed(1)}%)`
+  };
+}
+
 /**
  * Automatically attempt Steam verification for a game
  * @param gameTitle - The title of the game to verify
@@ -28,89 +104,39 @@ interface AutoVerificationResult {
  * @returns Promise<AutoVerificationResult>
  */
 export async function autoVerifyWithSteam(
-  gameTitle: string, 
+  gameTitle: string,
   confidenceThreshold: number = 0.80
 ): Promise<AutoVerificationResult> {
-  try {
-    // Attempting auto Steam verification
-    
-    const queryVariants = buildSteamSearchQueryVariants(gameTitle);
-    const mergedResults: SteamGameResult[] = [];
-    const seenAppIds = new Set<string>();
+  const maxTransportAttempts = 3;
 
-    for (const query of queryVariants) {
-      const searchResponse = await searchSteamGames(query, 5);
-      if (!searchResponse.results || searchResponse.results.length === 0) {
+  for (let attempt = 1; attempt <= maxTransportAttempts; attempt++) {
+    try {
+      return await runAutoVerifyCore(gameTitle, confidenceThreshold);
+    } catch (error) {
+      const retryable =
+        attempt < maxTransportAttempts && isRetryableSteamTransportError(error);
+      if (retryable) {
+        console.warn(
+          `Auto Steam verify transport retry ${attempt}/${maxTransportAttempts} for "${gameTitle}":`,
+          error
+        );
+        await sleep(650 * attempt);
         continue;
       }
-
-      for (const result of searchResponse.results) {
-        if (!result.appid || seenAppIds.has(result.appid)) continue;
-        seenAppIds.add(result.appid);
-        mergedResults.push(result);
-      }
-    }
-
-    if (mergedResults.length === 0) {
+      console.error(`Auto Steam verification error for "${gameTitle}":`, error);
       return {
         success: false,
         confidence: 0,
-        reason: 'No Steam results found'
+        reason: error instanceof Error ? error.message : 'Unknown error occurred'
       };
     }
-    
-    // Find the best match
-    let bestMatch: SteamGameResult | null = null;
-    let bestConfidence = 0;
-    
-    for (const result of mergedResults) {
-      // Skip error messages or invalid results
-      if (!result.appid || result.name.includes('No games found')) {
-        continue;
-      }
-      
-      // Only consider actual games, not DLC or demos (if type is provided)
-      if (result.type && !['game', 'app'].includes(result.type)) {
-        continue;
-      }
-      
-      const confidence = calculateConfidence(gameTitle, result);
-      
-      if (confidence > bestConfidence && confidence >= confidenceThreshold) {
-        bestMatch = result;
-        bestConfidence = confidence;
-      }
-    }
-    
-    if (bestMatch && bestConfidence >= confidenceThreshold) {
-      // Auto Steam verification successful
-      
-      return {
-        success: true,
-        steamAppId: parseInt(bestMatch.appid, 10), // Convert string to number
-        steamName: bestMatch.name,
-        confidence: bestConfidence,
-        reason: `High confidence match found (${(bestConfidence * 100).toFixed(1)}%)`
-      };
-    } else {
-      // Auto Steam verification failed - confidence below threshold
-      
-      return {
-        success: false,
-        confidence: bestConfidence,
-        reason: `Best match confidence (${(bestConfidence * 100).toFixed(1)}%) below threshold (${(confidenceThreshold * 100).toFixed(1)}%)`
-      };
-    }
-    
-  } catch (error) {
-    console.error(`❌ Auto Steam verification error for "${gameTitle}":`, error);
-    
-    return {
-      success: false,
-      confidence: 0,
-      reason: error instanceof Error ? error.message : 'Unknown error occurred'
-    };
   }
+
+  return {
+    success: false,
+    confidence: 0,
+    reason: 'Steam verification failed after retries'
+  };
 }
 
 /**
@@ -118,78 +144,72 @@ export async function autoVerifyWithSteam(
  * Enhanced version that considers multiple factors
  */
 function calculateConfidence(searchTitle: string, steamGame: SteamGameResult): number {
-  // Base similarity calculation
   const similarity = calculateGameSimilarity(searchTitle, steamGame.name);
   let confidence = similarity;
-  
-  // Enhanced normalization for better matching
+
   const normalize = (str: string) => {
     return str
       .toLowerCase()
-      .replace(/[\u2018\u2019\u2032'"`]/g, '') // Remove apostrophes/quotes: "Marvel's" -> "Marvels"
-      .replace(/[-:]/g, ' ')         // Convert dashes/colons to spaces: "Spider-Man" -> "Spider Man"
-      .replace(/\s+/g, ' ')          // Normalize whitespace
+      .replace(/[\u2018\u2019\u2032'"`]/g, '')
+      .replace(/[-:]/g, ' ')
+      .replace(/\s+/g, ' ')
       .trim();
   };
-  
+
   const normSearchTitle = normalize(searchTitle);
   const normSteamName = normalize(steamGame.name);
-  
-  // Boost for exact matches after normalization
+
   if (normSearchTitle === normSteamName) {
     confidence = Math.max(confidence, 0.95);
   }
-  
-  // Check for cleaned title match
+
   const cleanedSearchTitle = cleanGameTitle(searchTitle);
   const cleanedSteamName = cleanGameTitle(steamGame.name);
   if (cleanedSearchTitle === cleanedSteamName) {
     confidence = Math.max(confidence, 0.90);
   }
-  
-  // Special handling for common title variations
+
   const searchWords = normSearchTitle.split(/\s+/);
   const steamWords = normSteamName.split(/\s+/);
-  
-  // Handle possessive variations (Marvel's vs Marvels)
+
   if (searchWords.length === steamWords.length) {
     let possessiveMatch = true;
     for (let i = 0; i < searchWords.length; i++) {
       const word1 = searchWords[i];
       const word2 = steamWords[i];
-      
-      // Check if words match exactly or are possessive variants
+
       if (word1 !== word2) {
-        if (!((word1 === 'marvels' && word2 === 'marvel') || 
-              (word1 === 'marvel' && word2 === 'marvels') ||
-              (word1.endsWith('s') && word1.slice(0, -1) === word2) ||
-              (word2.endsWith('s') && word2.slice(0, -1) === word1))) {
+        if (
+          !(
+            (word1 === 'marvels' && word2 === 'marvel') ||
+            (word1 === 'marvel' && word2 === 'marvels') ||
+            (word1.endsWith('s') && word1.slice(0, -1) === word2) ||
+            (word2.endsWith('s') && word2.slice(0, -1) === word1)
+          )
+        ) {
           possessiveMatch = false;
           break;
         }
       }
     }
-    
+
     if (possessiveMatch) {
       confidence = Math.max(confidence, 0.92);
     }
   }
-  
-  // Boost for games with good metadata (indicates it's a real, well-documented game)
+
   if (steamGame.developers && steamGame.developers.length > 0) {
     confidence += 0.05;
   }
-  
-  // Boost for popular/well-rated games
+
   if (steamGame.userscore && steamGame.userscore > 75) {
     confidence += 0.03;
   }
-  
+
   if (steamGame.positive && steamGame.positive > 1000) {
     confidence += 0.02;
   }
-  
-  // Slight boost for highly ranked games
+
   if (steamGame.score_rank) {
     const rank = parseInt(steamGame.score_rank);
     if (rank <= 100) {
@@ -198,6 +218,6 @@ function calculateConfidence(searchTitle: string, steamGame: SteamGameResult): n
       confidence += 0.01;
     }
   }
-  
-  return Math.min(confidence, 1.0); // Cap at 1.0
+
+  return Math.min(confidence, 1.0);
 }

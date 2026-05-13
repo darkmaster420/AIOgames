@@ -8,9 +8,10 @@ import { ThemeToggle } from './ThemeToggle';
 export function Navigation() {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const isAdmin = (session?.user && typeof session.user === 'object' && 'role' in session.user)
-    ? (session.user as { role?: string }).role === 'admin'
-    : false;
+  const role = session?.user && typeof session.user === 'object' && 'role' in session.user
+    ? (session.user as { role?: string }).role
+    : undefined;
+  const isAdmin = role === 'admin' || role === 'owner';
 
   const handleLogout = () => {
     // Clear custom cookies before signing out
@@ -67,7 +68,8 @@ export function Navigation() {
                   title="Manage Account"
                 >
                   👋 {('username' in session.user ? (session.user as { username?: string }).username : undefined) || session.user?.name}
-                  {isAdmin && <span className="ml-1 status-badge status-admin">ADMIN</span>}
+                  {role === 'owner' && <span className="ml-1 status-badge status-admin">OWNER</span>}
+                  {role === 'admin' && <span className="ml-1 status-badge status-admin">ADMIN</span>}
                 </Link>
                 <button
                   onClick={handleLogout}

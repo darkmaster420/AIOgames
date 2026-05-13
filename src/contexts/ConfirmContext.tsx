@@ -12,16 +12,20 @@ interface ConfirmDialogState {
   resolve?: (value: boolean) => void;
 }
 
+export type ConfirmOptions = {
+  confirmText?: string;
+  cancelText?: string;
+  type?: 'danger' | 'info' | 'warning';
+};
+
+/** Single-argument form (e.g. `confirm({ title, message, type: 'danger' })`) */
+export type ConfirmPayload = { title: string; message: string } & ConfirmOptions;
+
 interface ConfirmContextType {
-  confirm: (
-    title: string,
-    message: string,
-    options?: {
-      confirmText?: string;
-      cancelText?: string;
-      type?: 'danger' | 'info' | 'warning';
-    }
-  ) => Promise<boolean>;
+  confirm: {
+    (title: string, message: string, options?: ConfirmOptions): Promise<boolean>;
+    (payload: ConfirmPayload): Promise<boolean>;
+  };
 }
 
 const ConfirmContext = createContext<ConfirmContextType | null>(null);
@@ -46,22 +50,46 @@ export const ConfirmProvider: React.FC<ConfirmProviderProps> = ({ children }) =>
   });
 
   const confirm = (
-    title: string,
-    message: string,
-    options?: {
-      confirmText?: string;
-      cancelText?: string;
-      type?: 'danger' | 'info' | 'warning';
-    }
+    titleOrPayload: string | ConfirmPayload,
+    message?: string,
+    options?: ConfirmOptions
   ): Promise<boolean> => {
+    let title: string;
+    let body: string;
+    let merged: ConfirmOptions | undefined;
+
+    if (
+      typeof titleOrPayload === 'object' &&
+      titleOrPayload !== null &&
+      'title' in titleOrPayload &&
+      'message' in titleOrPayload
+    ) {
+      const p = titleOrPayload;
+      title = p.title;
+      body = p.message;
+      merged = {
+        confirmText: p.confirmText,
+        cancelText: p.cancelText,
+        type: p.type
+      };
+    } else if (typeof titleOrPayload === 'string' && typeof message === 'string') {
+      title = titleOrPayload;
+      body = message;
+      merged = options;
+    } else {
+      title = 'Confirm';
+      body = 'Something went wrong showing this dialog.';
+      merged = { type: 'warning' };
+    }
+
     return new Promise((resolve) => {
       setDialog({
         isOpen: true,
         title,
-        message,
-        confirmText: options?.confirmText,
-        cancelText: options?.cancelText,
-        type: options?.type,
+        message: body,
+        confirmText: merged?.confirmText,
+        cancelText: merged?.cancelText,
+        type: merged?.type,
         resolve
       });
     });

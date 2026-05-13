@@ -84,14 +84,41 @@ const getDefaultBase = () => {
 export const STEAM_API_BASE =
   (typeof process !== 'undefined' && (process.env.NEXT_PUBLIC_STEAM_API_BASE || process.env.STEAM_API_BASE)) ||
   getDefaultBase();
-const REQUEST_TIMEOUT = 10000; // 10 seconds
-const SEARCH_TIMEOUT = 20000; // 20 seconds for search (can be slower)
+const REQUEST_TIMEOUT = 15000; // 15 seconds default for Steam API worker calls
+/** Must exceed worst-case `/api/steam` search (upstream retries + SteamSpy fallback). */
+const SEARCH_TIMEOUT = 110000;
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
 // Shorter TTL for frequently changing builds from SteamDB via Worker
 const BUILDS_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
 // In-memory cache for Steam API responses
 const steamCache = new Map<string, { data: unknown; timestamp: number; ttl: number }>();
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/** True for timeouts, common network failures, and transient HTTP errors surfaced as messages. */
+export function isRetryableSteamTransportError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const m = error.message.toLowerCase();
+  return (
+    m.includes('timeout') ||
+    m.includes('abort') ||
+    m.includes('fetch failed') ||
+    m.includes('econnreset') ||
+    m.includes('etimedout') ||
+    m.includes('enetunreach') ||
+    m.includes('enotfound') ||
+    m.includes('socket') ||
+    m.includes('network') ||
+    m.includes(' 502') ||
+    m.includes(' 503') ||
+    m.includes(' 504') ||
+    m.includes(' 429') ||
+    m.includes('steam api error')
+  );
+}
 
 /**
  * Generic fetch wrapper with timeout and error handling
@@ -503,20 +530,26 @@ export async function searchSteamGames(query: string, limit: number = 10): Promi
   try {
     const encodedQuery = encodeURIComponent(query.trim());
     const url = `${STEAM_API_BASE}?action=search&q=${encodedQuery}`;
-    
-    let response: { results?: SteamGameResult[]; total?: number; source?: string };
-    try {
-      response = await steamApiFetch(url, SEARCH_TIMEOUT) as typeof response;
-    } catch (firstError) {
-      // Retry once on timeout
-      if (firstError instanceof Error && firstError.message.includes('timeout')) {
-        console.warn(`Steam search timeout for "${query}", retrying...`);
-        response = await steamApiFetch(url, SEARCH_TIMEOUT) as typeof response;
-      } else {
-        throw firstError;
+
+    const MAX_ATTEMPTS = 3;
+    let response: { results?: SteamGameResult[]; total?: number; source?: string } | undefined;
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        response = (await steamApiFetch(url, SEARCH_TIMEOUT)) as typeof response;
+        break;
+      } catch (e) {
+        if (attempt === MAX_ATTEMPTS || !isRetryableSteamTransportError(e)) {
+          throw e;
+        }
+        console.warn(`Steam search attempt ${attempt}/${MAX_ATTEMPTS} failed for "${query}", retrying...`, e);
+        await sleep(500 * attempt);
       }
     }
-    
+
+    if (!response) {
+      throw new Error('Steam search returned no response');
+    }
     const result: SteamSearchResponse = {
       query: query.trim(),
       results: response.results || [],

@@ -27,7 +27,8 @@ const userSchema = new mongoose.Schema({
     trim: true,
     validate: {
       validator: function(v: string) {
-        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+        // Allow single-label hosts (e.g. owner@localhost) for local dev, plus normal domains
+        return /^[^\s@]+@[^\s@]+(?:\.[^\s@]+)*$/.test(v);
       },
       message: 'Please enter a valid email address'
     }
@@ -179,6 +180,15 @@ const userSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
+  },
+  rssFeedToken: {
+    type: String,
+    default: null,
+    sparse: true,
+    index: true
+  },
+  rssFeedTokenCreatedAt: {
+    type: Date
   }
 }, {
   timestamps: true
@@ -422,6 +432,24 @@ const trackedGameSchema = new mongoose.Schema({
         default: 'download'
       }
     }]
+  },
+  /** Snapshot for RSS readers — filled when games are added/updated (avoids scraping on every RSS fetch). */
+  rssCachedDownloadLinks: [{
+    service: {
+      type: String,
+      required: true
+    },
+    url: {
+      type: String,
+      required: true
+    },
+    type: {
+      type: String,
+      default: 'download'
+    }
+  }],
+  rssDownloadLinksFetchedAt: {
+    type: Date
   },
   sequelNotifications: [{
     detectedTitle: {

@@ -307,33 +307,64 @@ export default function AppIdDetailPage() {
     setTrackingError('');
 
     try {
-      const bestResult = gameResults[0];
-      const trackPayload = {
-        gameId: String(game.appid),
-        title: game.name,
-        originalTitle: game.name,
-        cleanedTitle: cleanGameTitle(game.name),
-        source: bestResult?.source || 'Steam',
-        image: bestResult?.image || game.header_image || '',
-        description: summary || game.short_description || game.description || '',
-        gameLink: bestResult?.link || `https://store.steampowered.com/app/${game.appid}`,
-      };
+      const appIdStr = String(game.appid);
+      const best =
+        gameResults.find(
+          (r) =>
+            String(r.originalId ?? '') === appIdStr ||
+            (r.link || '').includes(`/app/${appIdStr}`) ||
+            (r.link || '').includes(`app/${appIdStr}/`)
+        ) || gameResults[0];
 
-      const response = await fetch('/api/tracking', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(trackPayload),
-      });
+      if (best?.id) {
+        const displayTitle = best.originalTitle || best.title || game.name;
+        const src = (best.source || best.siteType || '').trim() || 'Unknown';
+        const response = await fetch('/api/tracking', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            gameId: best.id,
+            title: displayTitle,
+            originalTitle: displayTitle,
+            cleanedTitle: cleanGameTitle(displayTitle),
+            steamAppId: game.appid,
+            source: src,
+            image: best.image || game.header_image || '',
+            description:
+              best.description ||
+              best.excerpt ||
+              summary ||
+              game.short_description ||
+              game.description ||
+              '',
+            gameLink: best.link || `https://store.steampowered.com/app/${game.appid}`,
+          }),
+        });
 
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data?.error || 'Failed to track game.');
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data?.error || 'Failed to track game.');
+        }
+      } else {
+        const name = game.name?.trim();
+        if (!name) {
+          throw new Error('Game name is missing; cannot track yet.');
+        }
+        const response = await fetch('/api/tracking/custom', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gameName: name }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(
+            data?.error ||
+              'No search results yet. Wait for results below or use Quick Add from Tracking.'
+          );
+        }
       }
 
-      setGame(prev => prev ? {
-        ...prev,
-        isTracked: true,
-      } : prev);
+      await loadGameByAppId();
     } catch (err) {
       setTrackingError(err instanceof Error ? err.message : 'Failed to track game.');
     } finally {

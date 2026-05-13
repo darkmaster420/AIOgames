@@ -1,41 +1,53 @@
 import bcrypt from 'bcryptjs';
 import connectDB from './db';
 import { User } from './models';
+import logger from '../utils/logger';
 
 export async function seedAdminUser() {
   try {
-    // Only run in development or if explicitly enabled
     const adminEmail = process.env.ADMIN_EMAIL;
     const adminPassword = process.env.ADMIN_PASSWORD;
     const adminName = process.env.ADMIN_NAME;
 
     if (!adminEmail || !adminPassword || !adminName) {
-      // Admin user environment variables not set, skipping admin seeding
+      const msg =
+        'Admin seed skipped: set ADMIN_EMAIL, ADMIN_PASSWORD, and ADMIN_NAME in .env (see .env.development.example). With no admin in the database, use POST /api/admin/seed from localhost in development after setting them.';
+      console.warn('[AIOgames]', msg);
+      logger.warn(msg);
       return false;
     }
 
     await connectDB();
 
+    const emailKey = adminEmail.toLowerCase().trim();
+
     // Check if admin user already exists
-    const existingAdmin = await User.findOne({ email: adminEmail });
+    const existingAdmin = await User.findOne({ email: emailKey });
     if (existingAdmin) {
-      // If user exists but isn't admin, promote them
       if (existingAdmin.role !== 'admin') {
         existingAdmin.role = 'admin';
+        existingAdmin.name = adminName;
+        existingAdmin.password = await bcrypt.hash(adminPassword, 12);
         await existingAdmin.save();
-        // Promoted existing user to admin
-        return true;
-      } else {
-        // Admin user already exists
+        console.log('[AIOgames]', `Admin seed: promoted existing user ${emailKey} to admin`);
+        logger.info(`Admin seed: promoted existing user ${emailKey} to admin`);
         return true;
       }
+      const matches = await bcrypt.compare(adminPassword, existingAdmin.password);
+      if (!matches) {
+        existingAdmin.password = await bcrypt.hash(adminPassword, 12);
+        await existingAdmin.save();
+        console.log('[AIOgames]', `Admin seed: refreshed password from ADMIN_PASSWORD for ${emailKey}`);
+        logger.info(`Admin seed: refreshed password from ADMIN_PASSWORD for ${emailKey}`);
+      }
+      return true;
     }
 
     // Create new admin user
     const hashedPassword = await bcrypt.hash(adminPassword, 12);
-    
+
     const adminUser = new User({
-      email: adminEmail,
+      email: emailKey,
       password: hashedPassword,
       name: adminName,
       role: 'admin',
@@ -51,11 +63,12 @@ export async function seedAdminUser() {
     });
 
     await adminUser.save();
-    // Admin user created successfully
-    
+    console.log('[AIOgames]', `Admin seed: created admin user ${adminEmail}`);
+    logger.info(`Admin seed: created admin user ${adminEmail}`);
+
     return true;
   } catch (error) {
-    console.error('❌ Error seeding admin user:', error);
+    logger.error('Error seeding admin user:', error);
     return false;
   }
 }
@@ -68,13 +81,12 @@ export async function ensureAdminExists() {
     const adminCount = await User.countDocuments({ role: 'admin' });
     
     if (adminCount === 0) {
-      // No admin users found, attempting to seed admin user
       return await seedAdminUser();
     }
-    
+
     return true;
   } catch (error) {
-    console.error('❌ Error checking for admin users:', error);
+    logger.error('Error checking for admin users:', error);
     return false;
   }
 }

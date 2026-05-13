@@ -8,6 +8,7 @@ import { sendUpdateNotification, createUpdateNotificationData } from '../../../.
 import { cleanGameTitle, decodeHtmlEntities, extractReleaseGroup, is0xdeadcodeRelease, isOnlineFixRelease, resolveComparableVersionData, resolvePubTimestampFromBuild, resolvePubTimestampFromVersion } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
 import { getPostDetails, getRecentUploads, clearGameApiCache } from '../../../../lib/gameapi';
+import { syncRssDownloadLinksCache } from '../../../../lib/trackedGameDownloadLinks';
 
 import { calculateGameSimilarity } from '../../../../utils/titleMatching';
 
@@ -897,6 +898,8 @@ export async function POST(request: Request) {
                     if (comparison.isNewer) {
                       // Update the existing sequel with the new version
                       const versionString = newVersionInfo.fullVersionString || newVersionInfo.version || 'Unknown Version';
+                      const hasEmbeddedSequelLinks =
+                        Array.isArray(recentGame.downloadLinks) && recentGame.downloadLinks.length > 0;
                       
                       await TrackedGame.findByIdAndUpdate(existingTrackedSequel._id, {
                         title: cleanedSequelTitle,
@@ -920,12 +923,41 @@ export async function POST(request: Request) {
                           }
                         }
                       });
+
+                      if (
+                        Array.isArray(recentGame.downloadLinks) &&
+                        recentGame.downloadLinks.length > 0
+                      ) {
+                        await TrackedGame.updateOne(
+                          { _id: existingTrackedSequel._id },
+                          {
+                            $set: {
+                              rssCachedDownloadLinks: recentGame.downloadLinks,
+                              rssDownloadLinksFetchedAt: new Date()
+                            }
+                          }
+                        );
+                      }
                       
+                      let sequelRssFromNotificationFetch = false;
+
                       // Send notification for the sequel update if immediate notifications are enabled
                       if (sequelPreferences.notifyImmediately) {
                         try {
                           // Fetch download links for the sequel
                           const downloadLinks = await fetchDownloadLinks(recentGame);
+                          if (downloadLinks.length > 0) {
+                            sequelRssFromNotificationFetch = true;
+                            await TrackedGame.updateOne(
+                              { _id: existingTrackedSequel._id },
+                              {
+                                $set: {
+                                  rssCachedDownloadLinks: downloadLinks,
+                                  rssDownloadLinksFetchedAt: new Date()
+                                }
+                              }
+                            );
+                          }
                           
                           const notificationData = createUpdateNotificationData({
                             gameTitle: cleanedSequelTitle,
@@ -942,6 +974,10 @@ export async function POST(request: Request) {
                         }
                       } else {
                         logger.info(`Sequel update found but immediate notifications disabled: ${cleanedSequelTitle} -> ${versionString}`);
+                      }
+
+                      if (!hasEmbeddedSequelLinks && !sequelRssFromNotificationFetch) {
+                        void syncRssDownloadLinksCache(String(existingTrackedSequel._id)).catch(() => {});
                       }
                       
                       updatesFound++;
@@ -982,6 +1018,8 @@ export async function POST(request: Request) {
                     });
                     
                     await newSequelGame.save();
+
+                    void syncRssDownloadLinksCache(String(newSequelGame._id)).catch(() => {});
                     
                     // Send notification for the new sequel if immediate notifications are enabled
                     if (sequelPreferences.notifyImmediately) {
@@ -1500,6 +1538,8 @@ export async function POST(request: Request) {
               }
 
               if (shouldAutoApprove) {
+                const hasEmbeddedLinks =
+                  Array.isArray(bestMatch.downloadLinks) && bestMatch.downloadLinks.length > 0;
                 // Auto-approve high confidence updates
                 const approvedUpdate = {
                   version: versionString,
@@ -1537,7 +1577,13 @@ export async function POST(request: Request) {
                     dateFound: bestMatch.date || new Date().toISOString(),
                     gameLink: bestMatch.link,
                     downloadLinks: bestMatch.downloadLinks || []
-                  }
+                  },
+                  ...(hasEmbeddedLinks
+                    ? {
+                        rssCachedDownloadLinks: bestMatch.downloadLinks,
+                        rssDownloadLinksFetchedAt: new Date()
+                      }
+                    : {})
                 };
 
                 // Update version or build numbers based on what was detected
@@ -1587,11 +1633,25 @@ export async function POST(request: Request) {
                 logger.info(`Auto-approved update for ${game.title}: ${versionString}`);
                 updatesFound++;
                 
+                let rssFilledFromNotificationFetch = false;
+
                 // Send notification only if enabled for this game
                 if (game.notificationsEnabled) {
                   try {
                     // Fetch full download links for auto-approved updates
                     const downloadLinks = await fetchDownloadLinks(bestMatch);
+                    if (downloadLinks.length > 0) {
+                      rssFilledFromNotificationFetch = true;
+                      await TrackedGame.updateOne(
+                        { _id: game._id },
+                        {
+                          $set: {
+                            rssCachedDownloadLinks: downloadLinks,
+                            rssDownloadLinksFetchedAt: new Date()
+                          }
+                        }
+                      );
+                    }
                     
                     const notificationData = createUpdateNotificationData({
                       gameTitle: game.title,
@@ -1616,6 +1676,10 @@ export async function POST(request: Request) {
                   }
                 } else {
                   logger.info(`Update found for ${game.title} but notifications are disabled`);
+                }
+
+                if (!hasEmbeddedLinks && !rssFilledFromNotificationFetch) {
+                  void syncRssDownloadLinksCache(String(game._id)).catch(() => {});
                 }
               } else {
                 logger.debug(`⏩ Skipping update that did not meet auto-approval criteria: "${decodedTitle}" | ${comparisonReason}`);

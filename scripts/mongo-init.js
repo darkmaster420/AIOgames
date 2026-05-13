@@ -1,5 +1,7 @@
 // MongoDB initialization script for development
-// Creates the application user and database
+// Creates the application DATABASE LOGIN (Mongo user "aiogames") — not Next.js app users.
+// Admin accounts for the app are created from ADMIN_EMAIL / ADMIN_PASSWORD / ADMIN_NAME
+// when the Next.js server starts (see src/lib/seedAdmin.ts) or via POST /api/admin/seed (dev).
 
 db = db.getSiblingDB('aiogames');
 

@@ -1,5 +1,4 @@
 import mongoose from 'mongoose';
-import { ensureAdminExists } from './seedAdmin';
 import logger from '../utils/logger';
 
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -8,14 +7,13 @@ declare global {
   var mongoose: {
     conn: typeof import('mongoose') | null;
     promise: Promise<typeof import('mongoose')> | null;
-    adminSeeded: boolean;
   };
 }
 
 let cached = global.mongoose;
 
 if (!cached) {
-  cached = global.mongoose = { conn: null, promise: null, adminSeeded: false };
+  cached = global.mongoose = { conn: null, promise: null };
 }
 
 // mongoose.connection.readyState values:
@@ -41,14 +39,6 @@ async function connectDB() {
   }
 
   if (cached.conn) {
-    // Only seed admin once per application lifecycle
-    if (!cached.adminSeeded) {
-      cached.adminSeeded = true;
-      // Run admin seeding in background to not block requests
-      setTimeout(async () => {
-        await ensureAdminExists();
-      }, 1000);
-    }
     return cached.conn;
   }
 
@@ -59,16 +49,7 @@ async function connectDB() {
       heartbeatFrequencyMS: 10000,
     };
 
-    cached.promise = mongoose.connect(MONGODB_URI, opts).then(async (mongoose) => {
-      // Seed admin user after successful connection
-      if (!cached.adminSeeded) {
-        cached.adminSeeded = true;
-        setTimeout(async () => {
-          await ensureAdminExists();
-        }, 1000);
-      }
-      return mongoose;
-    });
+    cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => mongoose);
   }
 
   try {

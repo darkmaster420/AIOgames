@@ -8,6 +8,7 @@ import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities, reso
 import logger from '../../../../utils/logger';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
 import { searchGames, getRecentUploads } from '../../../../lib/gameapi';
+import { syncRssDownloadLinksCache } from '../../../../lib/trackedGameDownloadLinks';
 
 import { calculateGameSimilarity } from '../../../../utils/titleMatching';
 
@@ -1195,6 +1196,8 @@ export async function POST(request: Request) {
             };
 
             if (autoApproveResult.canApprove) {
+              const hasEmbeddedLinks =
+                Array.isArray(result.downloadLinks) && result.downloadLinks.length > 0;
               logger.debug(`\n✅ Auto-approving update with reason: ${autoApproveResult.reason}`);
               
               // Auto-approve the update
@@ -1235,6 +1238,12 @@ export async function POST(request: Request) {
                   gameLink: result.link,
                   downloadLinks: result.downloadLinks || []
                 },
+                ...(hasEmbeddedLinks
+                  ? {
+                      rssCachedDownloadLinks: result.downloadLinks,
+                      rssDownloadLinksFetchedAt: new Date()
+                    }
+                  : {}),
                 // Set new update indicator for auto-approved updates
                 hasNewUpdate: true,
                 newUpdateSeen: false
@@ -1282,6 +1291,10 @@ export async function POST(request: Request) {
               if (!autoApproveResult2) {
                 logger.info(`⏩ Skipping duplicate auto-approval (atomic check): ${result.link}`);
                 continue;
+              }
+
+              if (!hasEmbeddedLinks) {
+                void syncRssDownloadLinksCache(String(game._id)).catch(() => {});
               }
               
             } else {

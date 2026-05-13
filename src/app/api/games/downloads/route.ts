@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
 import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
-import { getPostDetails } from '../../../../lib/gameapi';
+import {
+  collectStoredDownloadLinks,
+  fetchDownloadLinksViaGameapi,
+  type TrackedDownloadLink
+} from '../../../../lib/trackedGameDownloadLinks';
 
 // GET: Get download links for a specific game or update
 export async function GET(req: NextRequest) {
@@ -40,11 +44,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    let downloadLinks: Array<{
-      service: string;
-      url: string;
-      type: string;
-    }> = [];
+    let downloadLinks: TrackedDownloadLink[] = [];
 
     let context = {
       gameTitle: game.title,
@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
       const index = parseInt(updateIndex);
       if (index >= 0 && index < game.updateHistory.length) {
         const update = game.updateHistory[index];
-        if (update.downloadLinks) {
+        if (Array.isArray(update.downloadLinks) && update.downloadLinks.length > 0) {
           downloadLinks = update.downloadLinks;
           context = {
             gameTitle: game.title,
@@ -67,132 +67,37 @@ export async function GET(req: NextRequest) {
         }
       }
     } else {
-      // Get download links from the most recent update
-      if (game.updateHistory && game.updateHistory.length > 0) {
-        // Find the most recent update by date (array order may vary)
-        const latestUpdate = [...game.updateHistory].sort((a: { dateFound?: string | Date }, b: { dateFound?: string | Date }) => 
-          new Date(b.dateFound || 0).getTime() - new Date(a.dateFound || 0).getTime()
+      downloadLinks = collectStoredDownloadLinks(game);
+      if (downloadLinks.length > 0 && game.updateHistory?.length) {
+        const latestUpdate = [...game.updateHistory].sort(
+          (a: { dateFound?: string | Date }, b: { dateFound?: string | Date }) =>
+            new Date(b.dateFound || 0).getTime() - new Date(a.dateFound || 0).getTime()
         )[0];
-        if (latestUpdate.downloadLinks) {
-          downloadLinks = latestUpdate.downloadLinks;
-          context = {
-            gameTitle: game.title,
-            currentVersion: latestUpdate.version,
-            type: 'latest'
-          };
-        }
+        context = {
+          gameTitle: game.title,
+          currentVersion: latestUpdate.version,
+          type: 'latest'
+        };
       }
     }
 
-    // If no download links found in tracking data, try to fetch from gameapi
     if (downloadLinks.length === 0) {
-      try {
-        // Try to extract postId and siteType from the game's data
-        let postId: string | null = null;
-        let siteType: string | null = null;
-        let targetSource = 'unknown';
-        
-        // FIRST: Try to use the gameId field (site_postid format) - this is the most reliable
-        if (game.gameId) {
-          const gameIdMatch = game.gameId.match(/^([a-z]+)_(.+)$/);
-          if (gameIdMatch) {
-            [, siteType, postId] = gameIdMatch;
-            targetSource = 'gameId';
-          }
-        }
-        
-        // FALLBACK: If gameId didn't work, try to extract from URLs
-        if (!postId || !siteType) {
-          // Try latest update's gameLink first
-          let targetUrl: string | null = null;
-          if (game.updateHistory && game.updateHistory.length > 0) {
-            const latestUpdate = [...game.updateHistory].sort((a: { dateFound?: string | Date }, b: { dateFound?: string | Date }) => 
-              new Date(b.dateFound || 0).getTime() - new Date(a.dateFound || 0).getTime()
-            )[0];
-            if (latestUpdate.gameLink) {
-              targetUrl = latestUpdate.gameLink;
-              targetSource = 'latest-update-url';
+      downloadLinks = await fetchDownloadLinksViaGameapi(game);
+      if (downloadLinks.length > 0) {
+        context = {
+          gameTitle: game.title,
+          currentVersion: context.currentVersion || 'Latest from gameapi',
+          type: 'gameapi-fallback'
+        };
+        await TrackedGame.updateOne(
+          { _id: game._id, userId: user.id },
+          {
+            $set: {
+              rssCachedDownloadLinks: downloadLinks,
+              rssDownloadLinksFetchedAt: new Date()
             }
           }
-          
-          // Fallback to the game's current gameLink
-          if (!targetUrl && game.gameLink) {
-            targetUrl = game.gameLink;
-            targetSource = 'current-gameLink-url';
-          }
-          
-          // Try to extract postId from URL if we have one
-          if (targetUrl) {
-            // Try different URL patterns based on site
-            // Pattern 1: WordPress API-style URLs with ID in path (e.g., /wp-json/wp/v2/posts/12345)
-            const apiMatch = targetUrl.match(/\/wp-json\/wp\/v2\/posts\/(\d+)/);
-            if (apiMatch) {
-              postId = apiMatch[1];
-            }
-            
-            // Pattern 2: Query parameter (e.g., ?p=12345)
-            if (!postId) {
-              const queryMatch = targetUrl.match(/[?&]p=(\d+)/);
-              if (queryMatch) {
-                postId = queryMatch[1];
-              }
-            }
-            
-            // Pattern 3: ID at the end of path (e.g., /post/12345 or /12345/)
-            if (!postId) {
-              const pathMatch = targetUrl.match(/\/(\d+)\/?$/);
-              if (pathMatch) {
-                postId = pathMatch[1];
-              }
-            }
-            
-            // Extract siteType from domain
-            const domainMatch = targetUrl.match(/https?:\/\/([^\/]+)/);
-            if (domainMatch) {
-              const domain = domainMatch[1];
-              // Map domain to siteType (use GameAPI's expected site names)
-              if (domain.includes('gamedrive')) siteType = 'gamedrive';
-              else if (domain.includes('skidrowreloaded')) siteType = 'skidrow';
-              else if (domain.includes('freegogpcgames')) siteType = 'freegog';
-              else if (domain.includes('steamrip')) siteType = 'steamrip';
-              else if (domain.includes('reloadedsteam')) siteType = 'reloadedsteam';
-              else if (domain.includes('steamunderground')) siteType = 'steamunderground';
-            }
-          }
-        }
-        
-        if (postId && siteType) {
-          console.log(`Attempting to fetch download links from gameapi: postId=${postId}, siteType=${siteType}, source=${targetSource}, gameId=${game.gameId}`);
-          
-          const gameapiData = await getPostDetails(postId, siteType);
-            
-          if (gameapiData.success && gameapiData.post && gameapiData.post.downloadLinks) {
-            downloadLinks = gameapiData.post.downloadLinks.map((link: {
-              service: string;
-              url: string;
-              type: string;
-            }) => ({
-              service: link.service,
-              url: link.url,
-              type: link.type
-            }));
-            
-            context = {
-              gameTitle: game.title,
-              currentVersion: context.currentVersion || 'Latest from gameapi',
-              type: `gameapi-fallback-${targetSource}`
-            };
-            
-            console.log(`Successfully fetched ${downloadLinks.length} download links from gameapi (source: ${targetSource})`);
-          } else {
-            console.log(`gameapi response: success=${gameapiData.success}, has post=${!!gameapiData.post}, has downloadLinks=${!!gameapiData.post?.downloadLinks}`);
-          }
-        } else {
-          console.log(`Could not extract postId and siteType. gameId=${game.gameId}, gameLink=${game.gameLink}`);
-        }
-      } catch (gameapiError) {
-        console.error('Failed to fetch from gameapi as fallback:', gameapiError);
-        // Continue without gameapi data - not a critical error
+        );
       }
     }
 

@@ -18,6 +18,7 @@ class UpdateScheduler {
   private isCheckRunning = false;
   private checkInterval: NodeJS.Timeout | null = null;
   private cacheWarmInterval: NodeJS.Timeout | null = null;
+  private rssDownloadLinksCacheInterval: NodeJS.Timeout | null = null;
   private titleMigrationInterval: NodeJS.Timeout | null = null;
   private scheduledChecks = new Map<string, ScheduledCheck>();
   private readonly CHECK_FREQUENCY_HOURS = 1; // All games checked hourly
@@ -61,6 +62,17 @@ class UpdateScheduler {
       }
     }, 25 * 60 * 1000); // 25 minutes
 
+    // Warm RSS download-link cache (gameapi) for games missing rssCachedDownloadLinks
+    const rssWarmMs = parseInt(process.env.RSS_CACHE_WARM_INTERVAL_MS || '', 10);
+    const rssIntervalMs = Number.isFinite(rssWarmMs) && rssWarmMs >= 60_000 ? rssWarmMs : 45 * 60 * 1000;
+    this.rssDownloadLinksCacheInterval = setInterval(async () => {
+      try {
+        await this.warmRssDownloadLinksCacheRound();
+      } catch (error) {
+        logger.error('❌ Error in RSS download-link cache warming:', error);
+      }
+    }, rssIntervalMs);
+
     // Auto-migrate unclean titles every 6 hours
     this.titleMigrationInterval = setInterval(async () => {
       try {
@@ -76,6 +88,9 @@ class UpdateScheduler {
     // Initial cache warming (delayed by 30 seconds to let app start)
     setTimeout(() => this.warmCache(), 30000);
     
+    // Initial RSS download-link cache warm (delayed so DB / gameapi are ready)
+    setTimeout(() => void this.warmRssDownloadLinksCacheRound(), 90_000);
+
     // Initial title migration (delayed by 2 minutes to let app start and avoid startup congestion)
     setTimeout(() => this.autoMigrateTitles(), 120000);
     
@@ -96,6 +111,10 @@ class UpdateScheduler {
     if (this.cacheWarmInterval) {
       clearInterval(this.cacheWarmInterval);
       this.cacheWarmInterval = null;
+    }
+    if (this.rssDownloadLinksCacheInterval) {
+      clearInterval(this.rssDownloadLinksCacheInterval);
+      this.rssDownloadLinksCacheInterval = null;
     }
     if (this.titleMigrationInterval) {
       clearInterval(this.titleMigrationInterval);
@@ -376,6 +395,38 @@ class UpdateScheduler {
 
     } catch (error) {
       logger.error('❌ Cache warming error:', error);
+    }
+  }
+
+  /**
+   * Fill `rssCachedDownloadLinks` for a small batch of tracked games (all users).
+   * Controlled by env: RSS_CACHE_WARM_MAX_PER_RUN, RSS_CACHE_WARM_MAX_AGE_DAYS.
+   */
+  private async warmRssDownloadLinksCacheRound(): Promise<void> {
+    try {
+      await connectDB();
+      const { warmRssDownloadLinksCacheBatch } = await import('./trackedGameDownloadLinks');
+      const maxGames = Math.min(
+        Math.max(parseInt(process.env.RSS_CACHE_WARM_MAX_PER_RUN || '18', 10), 1),
+        80
+      );
+      const days = process.env.RSS_CACHE_WARM_MAX_AGE_DAYS;
+      const maxAgeMs =
+        days && !Number.isNaN(parseInt(days, 10)) && parseInt(days, 10) > 0
+          ? parseInt(days, 10) * 24 * 60 * 60 * 1000
+          : undefined;
+      const r = await warmRssDownloadLinksCacheBatch({
+        maxGames,
+        maxAgeMs,
+        delayMs: 500,
+      });
+      if (r.attempted > 0) {
+        logger.info(
+          `📎 RSS download-link cache warm: ${r.attempted} tried, ${r.succeeded} filled, ${r.failed} no links`
+        );
+      }
+    } catch (error) {
+      logger.error('❌ RSS download-link cache warming error:', error);
     }
   }
 
