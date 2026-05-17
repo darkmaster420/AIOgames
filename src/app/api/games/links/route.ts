@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPostDetails } from '../../../../lib/gameapi';
+import {
+  buildDodiFollowPostDownloadResponse,
+  isDodiSiteType,
+} from '../../../../lib/downloadSitePolicy';
 
 // In-memory cache for gameapi download link responses
 const linksCache = new Map<string, { data: unknown; timestamp: number }>();
@@ -13,12 +17,26 @@ export async function GET(req: NextRequest) {
     const postId = searchParams.get('postId');
     const siteType = searchParams.get('siteType');
     const gameTitle = searchParams.get('title');
+    const postUrlParam = searchParams.get('postUrl') || searchParams.get('link') || '';
 
     if (!postId || !siteType) {
       return NextResponse.json(
         { error: 'postId and siteType are required' },
         { status: 400 }
       );
+    }
+
+    if (isDodiSiteType(siteType)) {
+      return NextResponse.json({
+        postId,
+        siteType,
+        ...buildDodiFollowPostDownloadResponse({
+          title: gameTitle || 'Unknown Game',
+          gameLink:
+            postUrlParam ||
+            `https://dodi-repacks.site/?p=${encodeURIComponent(postId)}`,
+        }),
+      });
     }
 
     try {

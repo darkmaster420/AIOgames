@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import connectDB from './db';
 import { getPostDetails } from './gameapi';
 import { TrackedGame } from './models';
+import { isDodiTrackedGame, isDodiSiteType } from './downloadSitePolicy';
 
 export type TrackedDownloadLink = {
   service: string;
@@ -15,6 +16,9 @@ export type TrackedDownloadLink = {
  * (Empty [] must not block fallback.)
  */
 export function collectStoredDownloadLinks(game: {
+  gameId?: string;
+  source?: string;
+  gameLink?: string;
   latestApprovedUpdate?: { downloadLinks?: TrackedDownloadLink[] };
   updateHistory?: Array<{
     dateFound?: string | Date;
@@ -22,6 +26,10 @@ export function collectStoredDownloadLinks(game: {
   }>;
   rssCachedDownloadLinks?: TrackedDownloadLink[];
 }): TrackedDownloadLink[] {
+  if (isDodiTrackedGame(game)) {
+    return [];
+  }
+
   const approved = game.latestApprovedUpdate?.downloadLinks;
   if (Array.isArray(approved) && approved.length > 0) {
     return approved.map(l => ({ ...l }));
@@ -120,7 +128,17 @@ export function isRssDownloadCacheStale(game: DownloadLinkSourceGame): boolean {
  * Omits `rssCachedDownloadLinks` when it is older than the latest update that introduced
  * download metadata (so a new game version does not keep showing links from the previous post).
  */
-export function mergeDownloadLinksForRss(game: DownloadLinkSourceGame): TrackedDownloadLink[] {
+export function mergeDownloadLinksForRss(
+  game: DownloadLinkSourceGame & {
+    gameId?: string;
+    source?: string;
+    gameLink?: string;
+  }
+): TrackedDownloadLink[] {
+  if (isDodiTrackedGame(game)) {
+    return [];
+  }
+
   const seen = new Set<string>();
   const out: TrackedDownloadLink[] = [];
 
@@ -218,11 +236,16 @@ export async function fetchDownloadLinksViaGameapi(
         else if (domain.includes('steamrip')) siteType = 'steamrip';
         else if (domain.includes('reloadedsteam')) siteType = 'reloadedsteam';
         else if (domain.includes('steamunderground')) siteType = 'steamunderground';
+        else if (domain.includes('dodi-repacks')) siteType = 'dodi';
       }
     }
   }
 
   if (!postId || !siteType) return [];
+
+  if (isDodiSiteType(siteType)) {
+    return [];
+  }
 
   try {
     const gameapiData = await getPostDetails(postId, siteType);
@@ -251,6 +274,10 @@ export async function syncRssDownloadLinksCache(trackedGameId: string): Promise<
 
   const game = await TrackedGame.findById(id).lean();
   if (!game) return false;
+
+  if (isDodiTrackedGame(game as GameapiGameShape)) {
+    return false;
+  }
 
   const links = await fetchDownloadLinksViaGameapi(game as GameapiGameShape);
   if (!links.length) return false;

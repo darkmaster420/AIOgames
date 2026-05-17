@@ -60,6 +60,10 @@ async function fetchDownloadLinks(game: GameSearchResult): Promise<Array<{ servi
       logger.warn(`Invalid game ID format: ${game.id}`);
       return [];
     }
+
+    if (siteType === 'dodi') {
+      return [];
+    }
     
     logger.debug(`Fetching download links for: ${siteType}/${originalId}`);
     

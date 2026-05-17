@@ -10,6 +10,9 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { SITES } from '../lib/sites';
 import { cleanGameTitle } from '../utils/steamApi';
 import { getProxiedImageUrl } from '../utils/imageProxy';
+import { PageLayoutSettings } from '../components/PageLayoutSettings';
+import { usePersistedHomepagePreferences } from '../hooks/usePersistedPagePreferences';
+import { buildCustomGridStyle } from '../utils/pagePreferences';
 
 type TrackedGameInfo = {
   trackedId: string;
@@ -65,8 +68,29 @@ function DashboardInner() {
   const searchParams = useSearchParams();
   const [refineText, setRefineText] = useState('');
   const [showRefine, setShowRefine] = useState(false);
-  const [showRecentGames, setShowRecentGames] = useState(false);
-  const [showAllGames, setShowAllGames] = useState(false);
+  const homepagePrefs = usePersistedHomepagePreferences(status === 'authenticated');
+  const {
+    layoutMode,
+    setLayoutMode,
+    customCols,
+    setCustomCols,
+    customRows,
+    setCustomRows,
+    showLayoutDropdown,
+    setShowLayoutDropdown,
+    showRecentGames,
+    setRecentGamesVisible,
+    showAllGames,
+    setShowAllGames,
+  } = homepagePrefs;
+
+  const customGridStyle = buildCustomGridStyle(layoutMode, customCols, customRows);
+  const defaultGridClass =
+    layoutMode === 'grid' && customCols === 'auto'
+      ? 'grid grid-cols-2 md:grid-cols-5 gap-4 sm:gap-6'
+      : layoutMode === 'grid'
+        ? 'grid gap-4 sm:gap-6'
+        : 'flex flex-row gap-4 sm:gap-6 overflow-x-auto pb-4 snap-x snap-mandatory';
 
   // Single AbortController tied to this component's lifetime. We abort it on
   // unmount so pending fetches (e.g. the up-to-120s /api/games/recent scrape)
@@ -199,7 +223,7 @@ function DashboardInner() {
             if (signal.aborted) return;
             setGames(data);
             setShowRefine(true);
-            setRecentGamesCookie(true);
+            setRecentGamesVisible(true);
           } catch (err) {
             if ((err as { name?: string })?.name === 'AbortError') return;
             setError(err instanceof Error ? err.message : 'Failed to search games');
@@ -214,16 +238,6 @@ function DashboardInner() {
       return () => clearTimeout(timer);
     }
   }, [searchParams, getFetchSignal]);
-
-  // Function to set cookie with 1 hour expiration
-  const setRecentGamesCookie = (show: boolean) => {
-    const expires = new Date();
-    expires.setTime(expires.getTime() + (60 * 60 * 1000)); // 1 hour
-    document.cookie = `showRecentGames=${show}; expires=${expires.toUTCString()}; path=/`;
-    setShowRecentGames(show);
-  };
-
-
 
   // Load tracked games from localStorage or API
   const loadTrackedGames = useCallback(async () => {
@@ -303,7 +317,7 @@ function DashboardInner() {
   const searchGames = useCallback(async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!searchQuery.trim()) {
-      setRecentGamesCookie(false);
+      setRecentGamesVisible(false);
       updateURL(); // Clear URL parameters
       loadRecentGames();
       return;
@@ -331,7 +345,7 @@ function DashboardInner() {
       if (signal.aborted) return;
       setGames(data);
       setShowRefine(true);
-      setRecentGamesCookie(true);
+      setRecentGamesVisible(true);
     } catch (err) {
       if ((err as { name?: string })?.name === 'AbortError') return;
       setError(err instanceof Error ? err.message : 'Failed to search games');
@@ -339,30 +353,11 @@ function DashboardInner() {
     } finally {
       if (!signal.aborted) setLoading(false);
     }
-  }, [searchQuery, siteFilter, refineText, loadRecentGames, updateURL, getFetchSignal]);
+  }, [searchQuery, siteFilter, refineText, loadRecentGames, updateURL, getFetchSignal, setRecentGamesVisible]);
 
-  // Load recent games on mount and check cookie/user preference for visibility
   useEffect(() => {
-    const recentGamesVisible = document.cookie
-      .split('; ')
-      .find(row => row.startsWith('showRecentGames='))
-      ?.split('=')[1] === 'true';
-    
-    setShowRecentGames(recentGamesVisible);
-    loadRecentGames(); // Always load games, but visibility is controlled by state
-    
-    // Fetch user preference for always showing recent uploads
-    if (status === 'authenticated') {
-      fetch('/api/user/me')
-        .then(res => res.ok ? res.json() : null)
-        .then(data => {
-          if (data?.preferences?.homepage?.showRecentUploads) {
-            setShowRecentGames(true);
-          }
-        })
-        .catch(() => {}); // Silently ignore errors
-    }
-  }, [loadRecentGames, status]);
+    loadRecentGames();
+  }, [loadRecentGames]);
 
   // Load tracked games when authentication status changes
   useEffect(() => {
@@ -623,6 +618,17 @@ function DashboardInner() {
             </div>
           )}
         </form>
+        <PageLayoutSettings
+          variant="homepage"
+          layoutMode={layoutMode}
+          setLayoutMode={setLayoutMode}
+          customCols={customCols}
+          setCustomCols={setCustomCols}
+          customRows={customRows}
+          setCustomRows={setCustomRows}
+          showLayoutDropdown={showLayoutDropdown}
+          setShowLayoutDropdown={setShowLayoutDropdown}
+        />
         {/* Site Filter */}
         <div className="mb-4 sm:mb-6">
           <div className="flex items-center justify-between mb-2">
@@ -771,7 +777,7 @@ function DashboardInner() {
         {!showRecentGames && games.length > 0 && searchQuery === '' && (
           <div className="text-center mb-6">
             <button
-              onClick={() => setRecentGamesCookie(true)}
+              onClick={() => setRecentGamesVisible(true)}
               className="px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg hover:from-blue-600 hover:to-cyan-600 transition-all duration-200 font-medium shadow-lg hover:shadow-xl transform hover:scale-105"
             >
               Show Recent Uploads
@@ -780,6 +786,16 @@ function DashboardInner() {
         )}
 
         {/* Mobile-optimized Games Grid */}
+        {layoutMode === 'horizontal' && (showRecentGames || searchQuery !== '') && displayGames.length > 0 && (
+          <div className="mb-4 text-center">
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg text-sm text-blue-700 dark:text-blue-300">
+              <span>⬅️</span>
+              <span>Scroll horizontally to browse games</span>
+              <span>➡️</span>
+            </div>
+          </div>
+        )}
+
         {(showRecentGames || searchQuery !== '') && (() => {
           // Spinner is purely tied to the in-flight fetch. Enrichment (IGDB
           // images + Steam AppID resolution) runs in the background on the
@@ -789,7 +805,10 @@ function DashboardInner() {
           // navigates or clicks Refresh.
           const showSpinner = loading;
           return (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 sm:gap-6">
+          <div
+            className={defaultGridClass}
+            style={layoutMode === 'grid' ? customGridStyle : undefined}
+          >
             {showSpinner ? (
               <div className="col-span-full flex flex-col items-center justify-center py-12 space-y-4">
                 <div className="relative">
@@ -842,7 +861,7 @@ function DashboardInner() {
                       onTrack={status === 'authenticated' && !trackState.isExactTracked ? () => handleTrackGame(game) : undefined}
                       onUntrack={status === 'authenticated' && trackState.isExactTracked ? () => handleUntrackGame(game) : undefined}
                       trackButtonText={trackState.hasTrackedVariant ? '↻ Track This Version' : '➕ Track Game'}
-                      className=""
+                      className={layoutMode === 'horizontal' ? 'min-w-[160px] snap-start shrink-0' : ''}
                     />
                   );
                 })

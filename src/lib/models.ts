@@ -153,6 +153,38 @@ const userSchema = new mongoose.Schema({
       showRecentUploads: {
         type: Boolean,
         default: false
+      },
+      showAllGames: {
+        type: Boolean,
+        default: false
+      },
+      layoutMode: {
+        type: String,
+        enum: ['grid', 'horizontal'],
+        default: 'grid'
+      },
+      customCols: {
+        type: mongoose.Schema.Types.Mixed,
+        default: 'auto'
+      },
+      customRows: {
+        type: mongoose.Schema.Types.Mixed,
+        default: 'auto'
+      }
+    },
+    tracking: {
+      layoutMode: {
+        type: String,
+        enum: ['grid', 'horizontal'],
+        default: 'grid'
+      },
+      customCols: {
+        type: mongoose.Schema.Types.Mixed,
+        default: 'auto'
+      },
+      customRows: {
+        type: mongoose.Schema.Types.Mixed,
+        default: 'auto'
       }
     },
     releaseGroups: {

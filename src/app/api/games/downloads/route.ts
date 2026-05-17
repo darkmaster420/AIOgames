@@ -7,6 +7,10 @@ import {
   fetchDownloadLinksViaGameapi,
   type TrackedDownloadLink
 } from '../../../../lib/trackedGameDownloadLinks';
+import {
+  buildDodiFollowPostDownloadResponse,
+  isDodiTrackedGame,
+} from '../../../../lib/downloadSitePolicy';
 
 // GET: Get download links for a specific game or update
 export async function GET(req: NextRequest) {
@@ -42,6 +46,17 @@ export async function GET(req: NextRequest) {
         { error: 'Game not found or access denied' },
         { status: 404 }
       );
+    }
+
+    if (isDodiTrackedGame(game)) {
+      return NextResponse.json({
+        gameId: game._id,
+        ...buildDodiFollowPostDownloadResponse({
+          title: game.title,
+          gameLink: game.gameLink,
+          lastKnownVersion: game.lastKnownVersion,
+        }),
+      });
     }
 
     let downloadLinks: TrackedDownloadLink[] = [];

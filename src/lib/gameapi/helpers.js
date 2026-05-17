@@ -391,6 +391,8 @@ export async function getFreshSteamripCookie() {
       body: JSON.stringify({
         cmd: 'request.get',
         url: 'https://steamrip.com/wp-json/wp/v2/posts',
+        session: 'steamrip',
+        maxTimeout: timeoutMs,
         userAgent: 'GameSearch-API-v2/2.0'
       })
     }, attempts, timeoutMs);
@@ -469,7 +471,7 @@ export async function fetchSteamrip(url, isPageRequest = false) {
   try {
     const userAgent = isPageRequest ? 'GameSearch-API-v2-PageFetch/2.0' : 'GameSearch-API-v2/2.0';
 
-    // Try direct fetch first (like skidrow) â€” avoids FlareSolverr delay when CF is not active
+    // Try direct fetch first — avoids FlareSolverr delay when CF is not active
     let response = await siteFetch(url, {
       headers: {
         'User-Agent': userAgent,
@@ -478,15 +480,12 @@ export async function fetchSteamrip(url, isPageRequest = false) {
       }
     });
 
-    // Check for Cloudflare protection â€” even if status is 200
     let isCloudflare = hasCloudflareProtection(response);
-    console.log(`Initial fetch of ${url}: status=${response.status}, CF detected=${isCloudflare}`);
+    console.log(`Initial SteamRip fetch of ${url}: status=${response.status}, CF detected=${isCloudflare}`);
 
-    // If response looks OK but is HTML, check content for CF protection
     if (!isCloudflare && response.ok && response.headers.get('content-type')?.includes('text/html')) {
       const text = await response.text();
       isCloudflare = hasCloudflareProtection(response, text);
-
       if (!isCloudflare) {
         return new Response(text, {
           status: response.status,
@@ -498,54 +497,24 @@ export async function fetchSteamrip(url, isPageRequest = false) {
       return response;
     }
 
-    // Cloudflare protection detected â€” try with cached cookie
     if (isCloudflare) {
-      console.log('Cloudflare protection detected on SteamRip, using FlareSolverr cookie');
-      const cookie = await getValidSteamripCookie();
-
-      const cookieUserAgent = cookie.userAgent || userAgent;
-      const cookieString = cookie.cookies.join('; ');
-
-      response = await siteFetch(url, {
-        headers: {
-          'User-Agent': cookieUserAgent,
-          'Cookie': cookieString,
-          'Accept': 'application/json, text/plain, */*',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Referer': 'https://steamrip.com/',
-          'Origin': 'https://steamrip.com'
-        }
-      });
-
-      let stillBlocked = hasCloudflareProtection(response);
-      console.log(`After cookie fetch: status=${response.status}, stillBlocked=${stillBlocked}, cookies used=${cookie.cookies.length}`);
-
-      if (!stillBlocked && response.ok && response.headers.get('content-type')?.includes('text/html')) {
-        const text = await response.text();
-        stillBlocked = hasCloudflareProtection(response, text);
-
-        if (!stillBlocked) {
-          return new Response(text, {
-            status: response.status,
-            statusText: response.statusText,
-            headers: response.headers
-          });
-        }
-      } else if (!stillBlocked && response.ok) {
-        return response;
+      console.log('Cloudflare protection detected on SteamRip, trying FlareSolverr direct fetch');
+      const flareResponse = await fetchViaFlaresolverr(url, 'steamrip');
+      if (flareResponse && flareResponse.ok) {
+        return flareResponse;
       }
 
-      // Cached cookie didn't work â€” get a fresh one
-      if (stillBlocked || response.status === 403) {
-        console.log('Cookie did not bypass Cloudflare, getting fresh cookie for SteamRip');
-        const freshCookie = await getFreshSteamripCookie();
-        const freshUserAgent = freshCookie.userAgent || userAgent;
-        const freshCookieString = freshCookie.cookies.join('; ');
+      console.log('FlareSolverr direct fetch failed for SteamRip, falling back to cookie approach');
+      const cookie = await getValidSteamripCookie();
 
-        const retryResponse = await siteFetch(url, {
+      if (cookie.cf_clearance !== 'none' || cookie.cookies.length > 0) {
+        const cookieUserAgent = cookie.userAgent || userAgent;
+        const cookieString = cookie.cookies.join('; ');
+
+        response = await siteFetch(url, {
           headers: {
-            'User-Agent': freshUserAgent,
-            'Cookie': freshCookieString,
+            'User-Agent': cookieUserAgent,
+            'Cookie': cookieString,
             'Accept': 'application/json, text/plain, */*',
             'Accept-Language': 'en-US,en;q=0.9',
             'Referer': 'https://steamrip.com/',
@@ -553,36 +522,77 @@ export async function fetchSteamrip(url, isPageRequest = false) {
           }
         });
 
-        if (!retryResponse.ok) {
-          if (isPageRequest) {
-            console.warn(`Failed to fetch SteamRip page: ${retryResponse.status} ${retryResponse.statusText} (even with fresh cookie)`);
-            return null;
-          } else {
-            throw new Error(`SteamRip API returned ${retryResponse.status}: ${retryResponse.statusText} (even with fresh cookie)`);
+        let stillBlocked = hasCloudflareProtection(response);
+        if (!stillBlocked && response.ok && response.headers.get('content-type')?.includes('text/html')) {
+          const text = await response.text();
+          stillBlocked = hasCloudflareProtection(response, text);
+          if (!stillBlocked) {
+            return new Response(text, {
+              status: response.status,
+              statusText: response.statusText,
+              headers: response.headers
+            });
           }
+        } else if (!stillBlocked && response.ok) {
+          return response;
         }
 
-        return retryResponse;
+        if (stillBlocked || response.status === 403) {
+          console.log('SteamRip cookie stale, refreshing via FlareSolverr');
+          const freshCookie = await getFreshSteamripCookie();
+          const freshUserAgent = freshCookie.userAgent || userAgent;
+          const freshCookieString = freshCookie.cookies.join('; ');
+
+          const retryResponse = await siteFetch(url, {
+            headers: {
+              'User-Agent': freshUserAgent,
+              'Cookie': freshCookieString,
+              'Accept': 'application/json, text/plain, */*',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Referer': 'https://steamrip.com/',
+              'Origin': 'https://steamrip.com'
+            }
+          });
+
+          let retryBlocked = hasCloudflareProtection(retryResponse);
+          if (!retryBlocked && retryResponse.ok && retryResponse.headers.get('content-type')?.includes('text/html')) {
+            const text = await retryResponse.text();
+            retryBlocked = hasCloudflareProtection(retryResponse, text);
+            if (!retryBlocked) {
+              return new Response(text, {
+                status: retryResponse.status,
+                statusText: retryResponse.statusText,
+                headers: retryResponse.headers
+              });
+            }
+          } else if (!retryBlocked && retryResponse.ok) {
+            return retryResponse;
+          }
+        }
       }
+
+      if (isPageRequest) {
+        console.warn('Failed to fetch SteamRip page (all methods exhausted)');
+        return null;
+      }
+      throw new Error('SteamRip: all fetch methods failed (CF blocking)');
     }
 
     if (!response.ok) {
       if (isPageRequest) {
         console.warn(`Failed to fetch SteamRip page: ${response.status} ${response.statusText}`);
         return null;
-      } else {
-        throw new Error(`SteamRip API returned ${response.status}: ${response.statusText}`);
       }
+      throw new Error(`SteamRip API returned ${response.status}: ${response.statusText}`);
     }
 
     return response;
   } catch (error) {
-    console.error(`Error fetching SteamRip:`, error);
+    console.error('Error fetching SteamRip:', error);
     if (isPageRequest) {
       return null;
-    } else {
-      throw error;
     }
+    throw error;
   }
 }
 
@@ -831,26 +841,46 @@ export async function fetchViaFlaresolverr(url, session = 'default') {
       body = preMatch[1];
     }
 
+    const trimmed = body.trimStart();
+    const contentType =
+      preMatch || trimmed.startsWith('{') || trimmed.startsWith('[')
+        ? 'application/json'
+        : 'text/html';
+
     console.log(`FlareSolverr returned ${body.length} chars, status ${status} for ${url}`);
 
     // Update cookies from the solution while we're at it
-    if (data.solution.cookies?.length && (session === 'skidrowreloaded' || session === 'dodirepacks' || session === 'dodirepacks-fallback')) {
+    if (
+      data.solution.cookies?.length &&
+      (session === 'skidrowreloaded' ||
+        session === 'steamrip' ||
+        session === 'dodirepacks' ||
+        session === 'dodirepacks-fallback')
+    ) {
       const allCookies = data.solution.cookies.map(c => `${c.name}=${c.value}`);
       let cf = null;
       let exp = Date.now() + (4 * 60 * 60 * 1000);
       for (const c of data.solution.cookies) {
         if (c.name === 'cf_clearance') { cf = c.value; if (c.expires) exp = new Date(c.expires * 1000).getTime(); }
       }
+      const jar = {
+        cf_clearance: cf || 'none',
+        cookies: allCookies,
+        userAgent: data.solution.userAgent || null,
+        expires_at: exp,
+      };
       if (session === 'skidrowreloaded') {
-        skidrowCookie = { cf_clearance: cf || 'none', cookies: allCookies, userAgent: data.solution.userAgent || null, expires_at: exp };
+        skidrowCookie = jar;
+      } else if (session === 'steamrip') {
+        steamripCookie = jar;
       } else {
-        dodiCookie = { cf_clearance: cf || 'none', cookies: allCookies, userAgent: data.solution.userAgent || null, expires_at: exp };
+        dodiCookie = jar;
       }
     }
 
     return new Response(body, {
       status,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': contentType }
     });
   } catch (error) {
     console.error(`FlareSolverr direct fetch failed for ${url}:`, error.message);
@@ -1280,17 +1310,26 @@ export async function transformPostForV2(post, site, fetchLinks = false) {
 
 // Extract download links for v2
 export async function extractDownloadLinksForV2(postUrl, siteType = 'skidrow', wpContent = null) {
+  // DODI: magnets/hosters live on the post page only — never scrape here.
+  if (siteType === 'dodi') {
+    return [];
+  }
+
   try {
     let html;
     const downloadLinks = [];
 
     if (siteType === 'steamrip') {
       const response = await fetchSteamrip(postUrl, true);
-      if (!response) {
+      if (response && response.ok) {
+        html = await response.text();
+      } else if (wpContent) {
+        console.warn(`SteamRip page fetch failed for ${postUrl}, using WP API content`);
+        html = wpContent;
+      } else {
         console.warn(`Failed to fetch post content from ${postUrl}`);
         return [];
       }
-      html = await response.text();
 
       // Extract all href links from SteamRip
       const hrefRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>([^<]*)<\/a>/gi;
@@ -1467,6 +1506,7 @@ export async function extractDownloadLinksForV2(postUrl, siteType = 'skidrow', w
           }
 
           if (downloadLinks.some(l => l.url === url)) continue;
+          if (isExcludedReloadedSteamUtilityFile(url)) continue;
 
           if (isValidDownloadUrl(url)) {
             const service = extractServiceName(url);
@@ -1650,6 +1690,23 @@ function extractDescription(content) {
   return stripped.length > 300 ? stripped.substring(0, 300) + '...' : stripped;
 }
 
+/**
+ * ReloadedSteam posts often list VC++/DirectX redist archives as separate hoster
+ * buttons (e.g. datanodes.to/.../_CommonRedist.rar) — not the game itself.
+ */
+function isExcludedReloadedSteamUtilityFile(url) {
+  try {
+    const path = decodeURIComponent(new URL(url).pathname);
+    const filename = path.split('/').pop() || path;
+    const lower = filename.toLowerCase();
+    if (lower.includes('commonredist')) return true;
+    if (/^_redist(\.|$)/i.test(filename)) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 function isValidDownloadUrl(url) {
   const validDomains = [
     'mega.nz', 'mediafire.com', '1fichier.com', 'rapidgator.net',
@@ -1663,7 +1720,10 @@ function isValidDownloadUrl(url) {
     'buzzheavier.com', 'filecrypt.co', 'filecrypt.cc', 'up-4ever.net',
     'dayuploads.com', 'dlupload.com', 'file-upload.org', 'filespayouts.com',
     'swiftuploads.com', 'linkmix.co', 'pasteform.com', 'paste-form.com',
-    'file-me.top', 'loot-link.com', 'lootdest.org'
+    'file-me.top', 'loot-link.com', 'lootdest.org',
+    // Common on SteamRip / scene repacks
+    'workupload.com', 'send.cm', 'send.now', 'megadb.net', 'qiwi.gg',
+    'upload.ee', 'uploadnow.io', 'fuckingfast.net'
   ];
   
   try {

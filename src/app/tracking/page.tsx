@@ -11,6 +11,9 @@ import { useConfirm } from '../../contexts/ConfirmContext';
 import { cleanGameTitle } from '../../utils/steamApi';
 
 import { useNotification } from '../../contexts/NotificationContext';
+import { PageLayoutSettings } from '../../components/PageLayoutSettings';
+import { usePersistedLayoutPreferences } from '../../hooks/usePersistedPagePreferences';
+import { buildCustomGridStyle } from '../../utils/pagePreferences';
 
 
 
@@ -114,57 +117,18 @@ export default function TrackingDashboard() {
   // Advanced view for showing original titles
   const [showAdvanced, setShowAdvanced] = useState(false);
   
-  // Helper function to get cookie value
-  const getCookie = (name: string): string | null => {
-    if (typeof document === 'undefined') return null;
-    const value = document.cookie
-      .split('; ')
-      .find(row => row.startsWith(`${name}=`))
-      ?.split('=')[1];
-    return value || null;
-  };
-  
-  // Helper function to set cookie
-  const setCookie = (name: string, value: string, days: number = 365) => {
-    if (typeof document === 'undefined') return;
-    const expires = new Date();
-    expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000);
-    document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/`;
-  };
-  
-  // Layout mode: 'grid' (responsive), 'horizontal' (1 row)
-  const [layoutMode, setLayoutMode] = useState<'grid' | 'horizontal'>(() => {
-    const saved = getCookie('trackingLayoutMode');
-    if (saved === 'grid' || saved === 'horizontal') {
-      return saved;
-    }
-    return 'grid';
-  });
-  
-  // Layout customization state
-  const [customCols, setCustomCols] = useState<number | 'auto'>(() => {
-    const saved = getCookie('trackingCustomCols');
-    if (saved === 'auto') return 'auto';
-    if (saved && !isNaN(Number(saved))) return Number(saved);
-    return 'auto';
-  });
-  const [customRows, setCustomRows] = useState<number | 'auto'>(() => {
-    const saved = getCookie('trackingCustomRows');
-    if (saved === 'auto') return 'auto';
-    if (saved && !isNaN(Number(saved))) return Number(saved);
-    return 'auto';
-  });
+  const {
+    layoutMode,
+    setLayoutMode,
+    customCols,
+    setCustomCols,
+    customRows,
+    setCustomRows,
+    showLayoutDropdown,
+    setShowLayoutDropdown,
+  } = usePersistedLayoutPreferences('tracking', status === 'authenticated');
 
-  // Dropdown state for mobile layout settings
-  const [showLayoutDropdown, setShowLayoutDropdown] = useState(false);
-
-  // Compute grid style for custom layout
-  const customGridStyle = layoutMode === 'grid' ? {
-    display: 'grid',
-    gridTemplateColumns: customCols === 'auto' ? undefined : `repeat(${customCols}, minmax(0, 1fr))`,
-    gridTemplateRows: customRows === 'auto' ? undefined : `repeat(${customRows}, minmax(0, 1fr))`,
-    gap: '1rem',
-  } : undefined;
+  const customGridStyle = buildCustomGridStyle(layoutMode, customCols, customRows);
   
   // Title migration state
   const [migrationStatus, setMigrationStatus] = useState<{
@@ -669,16 +633,6 @@ export default function TrackingDashboard() {
     }
   }, [status, loadTrackedGames]);
 
-  // Save layout and custom grid preferences to cookies
-  useEffect(() => {
-    setCookie('trackingLayoutMode', layoutMode);
-  }, [layoutMode]);
-
-  useEffect(() => {
-    setCookie('trackingCustomCols', customCols === 'auto' ? 'auto' : String(customCols));
-    setCookie('trackingCustomRows', customRows === 'auto' ? 'auto' : String(customRows));
-  }, [customCols, customRows]);
-
   const handleUntrack = async (gameId: string) => {
     try {
       const response = await fetch(`/api/tracking?gameId=${gameId}`, {
@@ -881,34 +835,16 @@ export default function TrackingDashboard() {
                         <span className="text-lg font-bold text-gradient">{trackedGames.length} games</span>
                       </div>
 
-                      {/* Layout Controls */}
-                      <div className="flex items-center gap-2 card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 px-3 py-2 rounded-xl shadow-lg">
-                        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Layout:</span>
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => setLayoutMode('grid')}
-                            className={`p-2 rounded-lg transition-all duration-200 text-lg ${
-                              layoutMode === 'grid'
-                                ? 'bg-primary-500 text-white shadow-md transform scale-105'
-                                : 'hover:bg-white/50 dark:hover:bg-gray-700/50 text-slate-600 dark:text-slate-400'
-                            }`}
-                            title="Grid View"
-                          >
-                            🔲
-                          </button>
-                          <button
-                            onClick={() => setLayoutMode('horizontal')}
-                            className={`p-2 rounded-lg transition-all duration-200 text-lg ${
-                              layoutMode === 'horizontal'
-                                ? 'bg-primary-500 text-white shadow-md transform scale-105'
-                                : 'hover:bg-white/50 dark:hover:bg-gray-700/50 text-slate-600 dark:text-slate-400'
-                            }`}
-                            title="Horizontal Scroll"
-                          >
-                            ⬅️➡️
-                          </button>
-                        </div>
-                      </div>
+                      <PageLayoutSettings
+                        layoutMode={layoutMode}
+                        setLayoutMode={setLayoutMode}
+                        customCols={customCols}
+                        setCustomCols={setCustomCols}
+                        customRows={customRows}
+                        setCustomRows={setCustomRows}
+                        showLayoutDropdown={showLayoutDropdown}
+                        setShowLayoutDropdown={setShowLayoutDropdown}
+                      />
                     </div>
 
                     {/* Right: Advanced Toggle */}
@@ -1015,108 +951,6 @@ export default function TrackingDashboard() {
                   </div>
                 </div>
               </div>
-
-              {/* Mobile Layout Dropdown - Rendered outside container with backdrop */}
-              {showLayoutDropdown && (
-                <>
-                  {/* Backdrop */}
-                  <div 
-                    className="sm:hidden fixed inset-0 bg-black/50 z-[9998] backdrop-blur-sm"
-                    onClick={() => setShowLayoutDropdown(false)}
-                  />
-                  {/* Dropdown */}
-                  <div className="sm:hidden fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[9999] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl p-4 w-[90vw] max-w-sm max-h-[80vh] overflow-y-auto">
-                    <div className="flex flex-col gap-3">
-                      {/* Close button */}
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Layout Settings</h3>
-                        <button
-                          onClick={() => setShowLayoutDropdown(false)}
-                          className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-                        >
-                          <span className="text-lg">✕</span>
-                        </button>
-                      </div>
-                      {/* Layout Mode Buttons */}
-                      <div>
-                        <label className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2 block">Layout Mode:</label>
-                        <div className="flex gap-2">
-                              <button
-                                onClick={() => {
-                                  setLayoutMode('grid');
-                                  setShowLayoutDropdown(false);
-                                }}
-                                className={`flex-1 p-2 rounded-lg text-lg ${
-                                  layoutMode === 'grid'
-                                    ? 'bg-primary-500 text-white shadow-md'
-                                    : 'bg-gray-100 dark:bg-gray-800 text-slate-600 dark:text-slate-400'
-                                }`}
-                                title="Grid View"
-                              >
-                                🔲
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setLayoutMode('horizontal');
-                                  setShowLayoutDropdown(false);
-                                }}
-                                className={`flex-1 p-2 rounded-lg text-lg ${
-                                  layoutMode === 'horizontal'
-                                    ? 'bg-primary-500 text-white shadow-md'
-                                    : 'bg-gray-100 dark:bg-gray-800 text-slate-600 dark:text-slate-400'
-                                }`}
-                                title="Horizontal Scroll"
-                              >
-                                ⬅️➡️
-                              </button>
-                            </div>
-                          </div>
-                          {/* Grid Customization - Always show for mobile when grid mode is active */}
-                          {layoutMode === 'grid' && (
-                            <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
-                              <label className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2 block">🎛️ Grid Size:</label>
-                              <div className="flex flex-col gap-2">
-                                <div className="flex items-center gap-2">
-                                  <label className="text-xs text-slate-500 dark:text-slate-400 w-16">Columns:</label>
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    max={12}
-                                    value={customCols === 'auto' ? '' : customCols}
-                                    onChange={e => setCustomCols(e.target.value === '' ? 'auto' : Math.max(1, Math.min(12, Number(e.target.value))))}
-                                    className="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm bg-white dark:bg-gray-900 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                    placeholder="auto"
-                                  />
-                                  <button
-                                    type="button"
-                                    className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${customCols === 'auto' ? 'bg-primary-500 text-white shadow-md' : 'bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-700'}`}
-                                    onClick={() => setCustomCols('auto')}
-                                  >Auto</button>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <label className="text-xs text-slate-500 dark:text-slate-400 w-16">Rows:</label>
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    max={12}
-                                    value={customRows === 'auto' ? '' : customRows}
-                                    onChange={e => setCustomRows(e.target.value === '' ? 'auto' : Math.max(1, Math.min(12, Number(e.target.value))))}
-                                    className="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm bg-white dark:bg-gray-900 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                    placeholder="auto"
-                                  />
-                                  <button
-                                    type="button"
-                                    className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${customRows === 'auto' ? 'bg-primary-500 text-white shadow-md' : 'bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-700'}`}
-                                    onClick={() => setCustomRows('auto')}
-                                  >Auto</button>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                  </>
-                )}
 
               {/* Grid customization - Desktop only, show below when in advanced mode */}
               {showAdvanced && layoutMode === 'grid' && (
