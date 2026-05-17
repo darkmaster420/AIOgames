@@ -84,6 +84,13 @@ let dodiCookie = {
   expires_at: 0
 };
 
+let freegogCookie = {
+  cf_clearance: null,
+  cookies: [],
+  userAgent: null,
+  expires_at: 0
+};
+
 // Circuit breakers. Previously a single network hiccup would open the circuit
 // for a long cooldown. With `siteFetch` end-to-end timeouts at 60s by default,
 // we require two consecutive failures before opening and default the cooldown
@@ -695,6 +702,90 @@ export async function getValidSkidrowCookie() {
   return skidrowCookie;
 }
 
+// FlareSolverr cookie management for FreeGOGPCGames
+export async function getFreshFreegogCookie() {
+  console.log('Getting fresh cf_clearance cookie for FreeGOGPCGames');
+
+  try {
+    const flaresolverrUrl = process.env.FLARESOLVERR_URL;
+    if (!flaresolverrUrl) {
+      throw new Error('FLARESOLVERR_URL environment variable is required for FreeGOGPCGames. Please set it to your FlareSolverr instance URL (e.g., http://localhost:8191/v1)');
+    }
+
+    const attempts = Math.max(1, parseInt(process.env.FLARE_RETRIES || '1', 10) || 1);
+    const timeoutMs = DEFAULT_FLARE_TIMEOUT_MS;
+
+    const response = await retryableFetch(flaresolverrUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        cmd: 'request.get',
+        url: 'https://freegogpcgames.com/wp-json/wp/v2/posts',
+        session: 'freegog',
+        maxTimeout: timeoutMs
+      })
+    }, attempts, timeoutMs);
+
+    if (!response.ok) {
+      throw new Error(`FlareSolverr request failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (data.status !== 'ok') {
+      throw new Error(`FlareSolverr error: ${data.message}`);
+    }
+
+    console.log(`FlareSolverr response for FreeGOG: status=${data.status}, cookies=${data.solution?.cookies?.length || 0}`);
+
+    let cf_clearance = null;
+    let expires_at = Date.now() + (4 * 60 * 60 * 1000);
+    const allCookies = [];
+
+    if (data.solution.cookies && Array.isArray(data.solution.cookies)) {
+      data.solution.cookies.forEach(cookie => {
+        allCookies.push(`${cookie.name}=${cookie.value}`);
+        if (cookie.name === 'cf_clearance') {
+          cf_clearance = cookie.value;
+          if (cookie.expires) {
+            expires_at = new Date(cookie.expires * 1000).getTime();
+          }
+        }
+      });
+    }
+
+    if (!cf_clearance && allCookies.length === 0) {
+      console.log('No cookies returned from FlareSolverr - Cloudflare protection likely not active for FreeGOG');
+      cf_clearance = 'none';
+    } else if (!cf_clearance) {
+      console.log('No cf_clearance cookie found, but using other cookies from FlareSolverr');
+    }
+
+    const userAgent = data.solution.userAgent || 'GameSearch-API-v2/2.0';
+
+    freegogCookie = {
+      cf_clearance: cf_clearance,
+      cookies: allCookies,
+      userAgent: userAgent,
+      expires_at: expires_at
+    };
+
+    return freegogCookie;
+  } catch (error) {
+    console.error('Error getting fresh FreeGOGPCGames cookie:', error);
+    throw error;
+  }
+}
+
+export async function getValidFreegogCookie() {
+  if (!freegogCookie.cf_clearance || Date.now() >= freegogCookie.expires_at) {
+    return await getFreshFreegogCookie();
+  }
+  return freegogCookie;
+}
+
 // FlareSolverr cookie management for DODI Repacks
 export async function getFreshDodiCookie() {
   console.log('Getting fresh cf_clearance cookie for DODI Repacks');
@@ -855,7 +946,8 @@ export async function fetchViaFlaresolverr(url, session = 'default') {
       (session === 'skidrowreloaded' ||
         session === 'steamrip' ||
         session === 'dodirepacks' ||
-        session === 'dodirepacks-fallback')
+        session === 'dodirepacks-fallback' ||
+        session === 'freegog')
     ) {
       const allCookies = data.solution.cookies.map(c => `${c.name}=${c.value}`);
       let cf = null;
@@ -873,6 +965,8 @@ export async function fetchViaFlaresolverr(url, session = 'default') {
         skidrowCookie = jar;
       } else if (session === 'steamrip') {
         steamripCookie = jar;
+      } else if (session === 'freegog') {
+        freegogCookie = jar;
       } else {
         dodiCookie = jar;
       }
@@ -1060,6 +1154,116 @@ export async function fetchSkidrow(url, isPageRequest = false) {
 
 // DODI Repacks fetcher â€” CF-protected WordPress site, uses FlareSolverr
 // Primary: dodi-repacks.download, Fallback: dodi-repacks.site
+
+/**
+ * FreeGOGPCGames fetcher - site recently started using Cloudflare protection.
+ * Tries direct first (cheapest), then FlareSolverr direct, then cookie fallback.
+ */
+export async function fetchFreegog(url, isPageRequest = false) {
+  try {
+    const userAgent = isPageRequest ? 'GameSearch-API-v2-PageFetch/2.0' : 'GameSearch-API-v2/2.0';
+
+    let response = await siteFetch(url, {
+      headers: {
+        'User-Agent': userAgent,
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9'
+      }
+    });
+
+    let isCloudflare = hasCloudflareProtection(response);
+    console.log(`Initial fetch of ${url}: status=${response.status}, CF detected=${isCloudflare}`);
+
+    if (!isCloudflare && response.ok && response.headers.get('content-type')?.includes('text/html')) {
+      const text = await response.text();
+      isCloudflare = hasCloudflareProtection(response, text);
+      if (!isCloudflare) {
+        return new Response(text, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers
+        });
+      }
+    } else if (!isCloudflare && response.ok) {
+      return response;
+    }
+
+    if (isCloudflare) {
+      console.log('Cloudflare protection detected on FreeGOG');
+
+      // 1) Try a cached cookie first if we have a fresh one - far cheaper than
+      // re-solving via FlareSolverr (single direct round-trip vs full browser
+      // automation). Skip if no cached cookie exists; we'd just be calling
+      // FlareSolverr twice in that case.
+      const hasFreshCookie =
+        freegogCookie.expires_at > Date.now() &&
+        (freegogCookie.cf_clearance && freegogCookie.cf_clearance !== 'none' || freegogCookie.cookies.length > 0);
+
+      if (hasFreshCookie) {
+        console.log('Trying cached FreeGOG cookies before falling back to FlareSolverr');
+        const cookieUserAgent = freegogCookie.userAgent || userAgent;
+        const cookieString = freegogCookie.cookies.join('; ');
+
+        response = await siteFetch(url, {
+          headers: {
+            'User-Agent': cookieUserAgent,
+            'Cookie': cookieString,
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://freegogpcgames.com/',
+            'Origin': 'https://freegogpcgames.com'
+          }
+        });
+
+        let stillBlocked = hasCloudflareProtection(response);
+        if (!stillBlocked && response.ok && response.headers.get('content-type')?.includes('text/html')) {
+          const text = await response.text();
+          stillBlocked = hasCloudflareProtection(response, text);
+          if (!stillBlocked) {
+            return new Response(text, {
+              status: response.status,
+              statusText: response.statusText,
+              headers: response.headers
+            });
+          }
+        } else if (!stillBlocked && response.ok) {
+          return response;
+        }
+        console.log('Cached FreeGOG cookies rejected by Cloudflare, falling through to FlareSolverr');
+      }
+
+      // 2) FlareSolverr direct - solves the challenge and returns the response
+      // body in one round-trip. As a side-effect this also refreshes our
+      // cached cookie via fetchViaFlaresolverr.
+      const flareResponse = await fetchViaFlaresolverr(url, 'freegog');
+      if (flareResponse && flareResponse.ok) {
+        return flareResponse;
+      }
+
+      if (isPageRequest) {
+        console.warn('Failed to fetch FreeGOG page (all methods exhausted)');
+        return null;
+      }
+      throw new Error('FreeGOG: all fetch methods failed (CF blocking)');
+    }
+
+    if (isPageRequest) {
+      console.warn(`Failed to fetch FreeGOG page: ${response.status} ${response.statusText}`);
+      return null;
+    }
+    throw new Error(`FreeGOG API returned ${response.status}: ${response.statusText}`);
+  } catch (error) {
+    console.error('Error fetching FreeGOG:', error);
+    if (isPageRequest) {
+      return null;
+    }
+    return new Response('[]', {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
 export async function fetchDodi(url, isPageRequest = false) {
   if (isDodiCircuitOpen()) {
     const remainingMs = dodiCircuit.cooldownUntil - Date.now();
