@@ -13,7 +13,7 @@ export interface HomepagePreferences extends LayoutPreferences {
   showAllGames: boolean;
 }
 
-export interface TrackingPreferences extends LayoutPreferences {}
+export type TrackingPreferences = LayoutPreferences;
 
 const COOKIE_KEYS: Record<PageKey, Record<string, string>> = {
   homepage: {
