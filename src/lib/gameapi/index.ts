@@ -15,6 +15,7 @@ import {
   fetchSteamrip,
   fetchSkidrow,
   fetchDodi,
+  fetchFreegog,
   transformPostForV2,
   isValidImageUrl,
   fetchGogGamesRecent,
@@ -131,6 +132,8 @@ async function searchSite(siteConfig: SiteConfig, searchQuery: string): Promise<
       response = await fetchSkidrow(url);
     } else if (siteConfig.type === 'dodi') {
       response = await fetchDodi(url);
+    } else if (siteConfig.type === 'freegog') {
+      response = await fetchFreegog(url);
     } else {
       response = await siteFetch(url, {
         headers: { 'User-Agent': 'GameSearch-API-v2/2.0' }
@@ -186,6 +189,8 @@ async function fetchRecentFromSite(siteConfig: SiteConfig): Promise<TransformedP
       response = await fetchSkidrow(url);
     } else if (siteConfig.type === 'dodi') {
       response = await fetchDodi(url);
+    } else if (siteConfig.type === 'freegog') {
+      response = await fetchFreegog(url);
     } else {
       response = await siteFetch(url, {
         headers: { 'User-Agent': 'GameSearch-API-v2/2.0' }
@@ -401,6 +406,8 @@ export async function getPostDetails(postId: string, site: string): Promise<Post
         response = await fetchSkidrow(postUrl);
       } else if (siteConfig.type === 'dodi') {
         response = await fetchDodi(postUrl);
+      } else if (siteConfig.type === 'freegog') {
+        response = await fetchFreegog(postUrl);
       } else {
         response = await siteFetch(postUrl, {
           headers: { 'User-Agent': 'Game-Search-API-v2/2.0' }
