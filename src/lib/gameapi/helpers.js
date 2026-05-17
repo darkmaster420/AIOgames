@@ -1189,19 +1189,20 @@ export async function fetchFreegog(url, isPageRequest = false) {
     }
 
     if (isCloudflare) {
-      console.log('Cloudflare protection detected on FreeGOG, trying FlareSolverr direct fetch');
+      console.log('Cloudflare protection detected on FreeGOG');
 
-      const flareResponse = await fetchViaFlaresolverr(url, 'freegog');
-      if (flareResponse && flareResponse.ok) {
-        return flareResponse;
-      }
+      // 1) Try a cached cookie first if we have a fresh one - far cheaper than
+      // re-solving via FlareSolverr (single direct round-trip vs full browser
+      // automation). Skip if no cached cookie exists; we'd just be calling
+      // FlareSolverr twice in that case.
+      const hasFreshCookie =
+        freegogCookie.expires_at > Date.now() &&
+        (freegogCookie.cf_clearance && freegogCookie.cf_clearance !== 'none' || freegogCookie.cookies.length > 0);
 
-      console.log('FlareSolverr direct fetch failed for FreeGOG, falling back to cookie approach');
-      const cookie = await getValidFreegogCookie();
-
-      if (cookie.cf_clearance !== 'none' || cookie.cookies.length > 0) {
-        const cookieUserAgent = cookie.userAgent || userAgent;
-        const cookieString = cookie.cookies.join('; ');
+      if (hasFreshCookie) {
+        console.log('Trying cached FreeGOG cookies before falling back to FlareSolverr');
+        const cookieUserAgent = freegogCookie.userAgent || userAgent;
+        const cookieString = freegogCookie.cookies.join('; ');
 
         response = await siteFetch(url, {
           headers: {
@@ -1228,6 +1229,15 @@ export async function fetchFreegog(url, isPageRequest = false) {
         } else if (!stillBlocked && response.ok) {
           return response;
         }
+        console.log('Cached FreeGOG cookies rejected by Cloudflare, falling through to FlareSolverr');
+      }
+
+      // 2) FlareSolverr direct - solves the challenge and returns the response
+      // body in one round-trip. As a side-effect this also refreshes our
+      // cached cookie via fetchViaFlaresolverr.
+      const flareResponse = await fetchViaFlaresolverr(url, 'freegog');
+      if (flareResponse && flareResponse.ok) {
+        return flareResponse;
       }
 
       if (isPageRequest) {
