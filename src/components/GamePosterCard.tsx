@@ -138,6 +138,7 @@ export function GamePosterCard({
                 <GameDownloadLinks 
                   postId={postId}
                   siteType={siteType}
+                  postUrl={sourceLink || link}
                   embeddedDownloadLinks={embeddedDownloadLinks}
                   gameTitle={title}
                   className="w-full"

@@ -19,6 +19,13 @@ interface DownloadContext {
   source?: string;
 }
 
+type DownloadLinksApiResponse = {
+  downloadLinks?: DownloadLink[];
+  context?: DownloadContext;
+  notice?: string;
+  noticeType?: string;
+};
+
 interface GameDownloadLinksProps {
   // For tracked games
   gameId?: string;
@@ -26,6 +33,8 @@ interface GameDownloadLinksProps {
   // For any game from main dashboard
   postId?: string;
   siteType?: string;
+  /** Original post URL (required for DODI follow-post notice). */
+  postUrl?: string;
   // Embedded download links (e.g. from goggames where links are in the initial response)
   embeddedDownloadLinks?: Array<{ url: string; label?: string; service?: string }>;
   gameTitle?: string;
@@ -37,6 +46,7 @@ export function GameDownloadLinks({
   updateIndex, 
   postId, 
   siteType, 
+  postUrl,
   embeddedDownloadLinks,
   gameTitle,
   className = '' 
@@ -44,6 +54,8 @@ export function GameDownloadLinks({
   const [downloadLinks, setDownloadLinks] = useState<DownloadLink[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [noticeType, setNoticeType] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -69,6 +81,8 @@ export function GameDownloadLinks({
 
     setLoading(true);
     setError('');
+    setNotice('');
+    setNoticeType('');
 
     try {
       let url: string;
@@ -81,7 +95,8 @@ export function GameDownloadLinks({
         const params = new URLSearchParams({
           postId,
           siteType,
-          ...(gameTitle && { title: gameTitle })
+          ...(gameTitle && { title: gameTitle }),
+          ...(postUrl && { postUrl }),
         });
         url = `/api/games/links?${params}`;
       } else {
@@ -97,10 +112,17 @@ export function GameDownloadLinks({
         throw new Error('Failed to fetch download links');
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as DownloadLinksApiResponse;
       const links: DownloadLink[] = data.downloadLinks || [];
       const ctx: DownloadContext = data.context || { gameTitle: '', currentVersion: '', type: '' };
       setContext(ctx);
+      setNotice(data.notice || '');
+      setNoticeType(data.noticeType || '');
+
+      if (data.noticeType === 'follow_post') {
+        setDownloadLinks([]);
+        return;
+      }
 
       // If scraper returned nothing, auto-retry a couple of times — the first
       // attempt often fails when FlareSolverr / upstream is cold.
@@ -311,7 +333,25 @@ export function GameDownloadLinks({
               </div>
             )}
 
-            {!loading && !error && downloadLinks.length === 0 && (
+            {!loading && !error && noticeType === 'follow_post' && (
+              <div className="py-2 space-y-3">
+                <p className="text-sm text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-lg p-3">
+                  {notice}
+                </p>
+                {(context.postUrl || postUrl) && (
+                  <a
+                    href={context.postUrl || postUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full text-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors min-h-[40px]"
+                  >
+                    Open post on DODI-Repacks
+                  </a>
+                )}
+              </div>
+            )}
+
+            {!loading && !error && noticeType !== 'follow_post' && downloadLinks.length === 0 && (
               <div className="py-2">
                 <div className="text-gray-500 dark:text-gray-400 text-sm mb-2">
                   No download links available

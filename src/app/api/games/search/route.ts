@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cleanGameTitle } from '../../../../utils/steamApi';
+import { filterGamesBySearchQuery } from '../../../../utils/searchQueryFilter';
 import { searchGames } from '../../../../lib/gameapi';
 import { peekCachedSteamAppId, resolveSteamAppIdsBatch } from '../../../../utils/steamAppIdResolver';
 import { isCfProtectedUrl, prefetchImageBatch } from '../../../../utils/imageCache';
@@ -141,6 +142,14 @@ export async function GET(request: NextRequest) {
         if (!shouldUseSteamHeader) return game;
         return { ...game, image: steamHeaderImageUrl(appId) };
       });
+
+      const beforeTermFilter = results.length;
+      results = filterGamesBySearchQuery(results, search);
+      if (beforeTermFilter > results.length) {
+        console.log(
+          `[Search] Term filter removed ${beforeTermFilter - results.length} result(s) for "${search}"`
+        );
+      }
 
       searchCache.set(cacheKey, {
         data: results,

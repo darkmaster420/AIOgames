@@ -8,6 +8,7 @@
 // TCP connect timeout. Per-request timeouts remain controlled by siteFetch().
 import './net';
 
+import { filterGamesBySearchQuery } from '../../utils/searchQueryFilter';
 import {
   SITE_CONFIGS as _SITE_CONFIGS,
   MAX_POSTS_PER_SITE as _MAX_POSTS_PER_SITE,
@@ -88,6 +89,10 @@ interface PostResult {
 // â”€â”€â”€ Search Cache â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const searchCache = new Map<string, { results: TransformedPost[]; timestamp: number }>();
+
+function applySearchTermFilter(results: TransformedPost[], query: string): TransformedPost[] {
+  return filterGamesBySearchQuery(results, query);
+}
 const SEARCH_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
 // â”€â”€â”€ Internal Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -217,7 +222,7 @@ export async function searchGames(query: string, site?: string): Promise<SearchR
       return { success: false, results: [], count: 0 };
     }
 
-    const results = await searchSite(siteConfig, query);
+    const results = applySearchTermFilter(await searchSite(siteConfig, query), query);
     const cacheKey = `${site}:${query.toLowerCase()}`;
 
     if (results.length > 0) {
@@ -225,7 +230,7 @@ export async function searchGames(query: string, site?: string): Promise<SearchR
     } else {
       // Retry once, then fallback to cache
       console.warn(`Single-site search for ${site} returned empty, retrying`);
-      const retryResults = await searchSite(siteConfig, query);
+      const retryResults = applySearchTermFilter(await searchSite(siteConfig, query), query);
       if (retryResults.length > 0) {
         searchCache.set(cacheKey, { results: retryResults, timestamp: Date.now() });
         return { success: true, results: retryResults, count: retryResults.length, site };
@@ -233,7 +238,8 @@ export async function searchGames(query: string, site?: string): Promise<SearchR
       const cached = searchCache.get(cacheKey);
       if (cached && (Date.now() - cached.timestamp) < SEARCH_CACHE_TTL) {
         console.log(`Using cached results for ${site}`);
-        return { success: true, results: cached.results, count: cached.results.length, site, cached: true };
+        const cachedFiltered = applySearchTermFilter(cached.results, query);
+        return { success: true, results: cachedFiltered, count: cachedFiltered.length, site, cached: true };
       }
     }
 
@@ -286,7 +292,8 @@ export async function searchGames(query: string, site?: string): Promise<SearchR
     });
   }
 
-  return { success: true, results: combinedResults, count: combinedResults.length };
+  const filteredCombined = applySearchTermFilter(combinedResults, query);
+  return { success: true, results: filteredCombined, count: filteredCombined.length };
 }
 
 /**
