@@ -8,8 +8,9 @@ import {
   type TrackedDownloadLink
 } from '../../../../lib/trackedGameDownloadLinks';
 import {
-  buildDodiFollowPostDownloadResponse,
-  isDodiTrackedGame,
+  buildFollowPostDownloadResponse,
+  isFollowPostTrackedGame,
+  resolveTrackedGameSiteType,
 } from '../../../../lib/downloadSitePolicy';
 
 // GET: Get download links for a specific game or update
@@ -48,14 +49,17 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    if (isDodiTrackedGame(game)) {
+    if (isFollowPostTrackedGame(game)) {
       return NextResponse.json({
         gameId: game._id,
-        ...buildDodiFollowPostDownloadResponse({
-          title: game.title,
-          gameLink: game.gameLink,
-          lastKnownVersion: game.lastKnownVersion,
-        }),
+        ...buildFollowPostDownloadResponse(
+          {
+            title: game.title,
+            gameLink: game.gameLink,
+            lastKnownVersion: game.lastKnownVersion,
+          },
+          resolveTrackedGameSiteType(game),
+        ),
       });
     }
 

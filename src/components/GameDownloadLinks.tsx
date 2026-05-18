@@ -24,6 +24,7 @@ type DownloadLinksApiResponse = {
   context?: DownloadContext;
   notice?: string;
   noticeType?: string;
+  noticeButtonLabel?: string;
 };
 
 interface GameDownloadLinksProps {
@@ -56,6 +57,7 @@ export function GameDownloadLinks({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [noticeType, setNoticeType] = useState('');
+  const [noticeButtonLabel, setNoticeButtonLabel] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -118,6 +120,7 @@ export function GameDownloadLinks({
       setContext(ctx);
       setNotice(data.notice || '');
       setNoticeType(data.noticeType || '');
+      setNoticeButtonLabel(data.noticeButtonLabel || '');
 
       if (data.noticeType === 'follow_post') {
         setDownloadLinks([]);
@@ -345,7 +348,7 @@ export function GameDownloadLinks({
                     rel="noopener noreferrer"
                     className="block w-full text-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors min-h-[40px]"
                   >
-                    Open post on DODI-Repacks
+                    {noticeButtonLabel || 'Open original post'}
                   </a>
                 )}
               </div>
