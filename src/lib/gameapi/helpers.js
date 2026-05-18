@@ -2598,12 +2598,38 @@ function buildCsrinPost({ threadId, title, link }) {
 }
 
 function parseCsrinSearchResults(html) {
+  // First pass: scan every viewtopic href that carries `start=N` and record
+  // the largest start per thread. phpBB puts these inside the
+  // "Go to page: 1 ... 27, 28, 29" pagination span next to each result -
+  // the topictitle anchor itself never has `start=`, so we couldn't find
+  // the latest page from that link alone. Highest start = latest page,
+  // which is where users want to land for "what changed recently in this
+  // thread". Also remembers the `f=` (forum id) seen alongside.
+  const lastStartByThread = new Map();
+  const lastForumByThread = new Map();
+  const startHrefRe = /href="([^"]*viewtopic\.php\?[^"]*start=\d+[^"]*)"/gi;
+  for (const m of html.matchAll(startHrefRe)) {
+    const href = decodeEntities(m[1]);
+    const t = href.match(/[?&]t=(\d+)/)?.[1];
+    const sStr = href.match(/[?&]start=(\d+)/)?.[1];
+    const f = href.match(/[?&]f=(\d+)/)?.[1];
+    if (!t || sStr === undefined) continue;
+    const s = parseInt(sStr, 10);
+    if (!Number.isFinite(s)) continue;
+    const prev = lastStartByThread.get(t);
+    if (prev === undefined || s > prev) {
+      lastStartByThread.set(t, s);
+      if (f) lastForumByThread.set(t, f);
+    }
+  }
+
   const results = [];
   const seen = new Set();
 
-  // phpBB renders thread links as <a class="topictitle" href="..."> in the
-  // search results page. The class attribute may appear before or after href
-  // depending on template, so try both orders.
+  // Second pass: every <a class="topictitle"> anchor is a search hit. Title
+  // comes from the anchor text, the latest-page URL comes from the lookup
+  // tables above (falling back to the anchor's own href values when the
+  // thread fits on a single page - no pagination = no start= anchors).
   const patterns = [
     /<a\s+[^>]*class="topictitle"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi,
     /<a\s+[^>]*href="([^"]+)"[^>]*class="topictitle"[^>]*>([\s\S]*?)<\/a>/gi,
@@ -2611,22 +2637,17 @@ function parseCsrinSearchResults(html) {
 
   for (const re of patterns) {
     for (const m of html.matchAll(re)) {
-      // Decode HTML entities in href first - phpBB's search results emit
-      // `&amp;` between query-string params (since href values are part of
-      // an HTML attribute), so a regex like /[?&]t=(\d+)/ wouldn't match
-      // against the raw `?f=10&amp;t=155283` string.
       const href = decodeEntities(m[1]);
       const titleHtml = m[2];
-      const tMatch = href.match(/[?&]t=(\d+)/);
-      if (!tMatch) continue;
-      const threadId = tMatch[1];
+      const threadId = href.match(/[?&]t=(\d+)/)?.[1];
+      if (!threadId) continue;
       if (seen.has(threadId)) continue;
       seen.add(threadId);
 
-      // Strip elements that are visually hidden (display:none / visibility:hidden).
-      // phpBB themes on cs.rin.ru use these for screen-reader status labels
-      // like "SCS - offline" sitting next to a status-indicator image, and
-      // we don't want that text leaking into the visible title.
+      // Strip elements that are visually hidden (display:none /
+      // visibility:hidden). phpBB themes on cs.rin.ru use these for
+      // screen-reader status labels like "SCS - offline" sitting next to
+      // a status-indicator image - they'd leak into the visible title.
       const title = decodeEntities(
         titleHtml
           .replace(/<([a-z]+)[^>]*style="[^"]*(?:display\s*:\s*none|visibility\s*:\s*hidden)[^"]*"[^>]*>[\s\S]*?<\/\1>/gi, '')
@@ -2634,21 +2655,12 @@ function parseCsrinSearchResults(html) {
       ).replace(/\s+/g, ' ').trim();
       if (!title) continue;
 
-      // Preserve `f` (forum id) and `start` (post offset) straight from
-      // phpBB's search-result href - the search engine already calculated
-      // `start` to point at the page containing the most recent post. Drop
-      // `hilit` (search-highlight noise) and `sid` (other people's session
-      // ids leaking out). Falls back to view=newest if start isn't present.
-      const fMatch = href.match(/[?&]f=(\d+)/);
-      const startMatch = href.match(/[?&]start=(\d+)/);
       const linkParams = new URLSearchParams();
-      if (fMatch) linkParams.set('f', fMatch[1]);
+      const f = lastForumByThread.get(threadId) || href.match(/[?&]f=(\d+)/)?.[1];
+      if (f) linkParams.set('f', f);
       linkParams.set('t', threadId);
-      if (startMatch) {
-        linkParams.set('start', startMatch[1]);
-      } else {
-        linkParams.set('view', 'newest');
-      }
+      const lastStart = lastStartByThread.get(threadId);
+      if (lastStart !== undefined) linkParams.set('start', String(lastStart));
       const link = `${CSRIN_BASE}/viewtopic.php?${linkParams.toString()}`;
       results.push(buildCsrinPost({ threadId, title, link }));
     }
