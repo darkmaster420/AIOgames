@@ -201,6 +201,7 @@ export async function retryableFetch(resource, options = {}, attempts = DEFAULT_
 export const MAX_POSTS_PER_SITE = {
   'skidrow': 40,
   'steamrip': 40,
+  'fitgirl': 40,
   'freegog': 40,
   'reloadedsteam': 40,
   'steamunderground': 40,
@@ -252,6 +253,11 @@ export const SITE_CONFIGS = {
     fallbackBaseUrl: 'https://dodi-repacks.site/wp-json/wp/v2/posts',
     type: 'dodi',
     name: 'DODI-Repacks'
+  },
+  'fitgirl': {
+    baseUrl: 'https://fitgirl-repacks.site/wp-json/wp/v2/posts',
+    type: 'fitgirl',
+    name: 'FitGirl-Repacks'
   },
   'csrin': {
     baseUrl: 'https://cs.rin.ru/forum',
