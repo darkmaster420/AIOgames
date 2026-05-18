@@ -59,6 +59,15 @@ function DashboardInner() {
   // just csrin). Specific entries narrow the search to exactly those sites
   // (and let users opt-in to csrin by selecting it explicitly).
   const [selectedSites, setSelectedSites] = useState<string[]>([]);
+  // Sites whose server-side prerequisites aren't met (e.g. csrin without
+  // CSRIN_USERNAME / CSRIN_PASSWORD). Populated from /api/sites on mount;
+  // hidden from the chip list and stripped from selectedSites so users
+  // can't pick a source that would always return empty.
+  const [disabledSites, setDisabledSites] = useState<string[]>([]);
+  const visibleSites = useMemo(
+    () => SITES.filter(s => !disabledSites.includes(s.value)),
+    [disabledSites],
+  );
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -397,6 +406,26 @@ function DashboardInner() {
     loadTrackedGames();
   }, [loadTrackedGames]);
 
+  // Discover which sites are unusable on this server (missing env vars,
+  // etc) so we can hide them from the filter chips. Strips any disabled
+  // entries from selectedSites in case a stale URL or saved state still
+  // references them.
+  useEffect(() => {
+    fetch('/api/sites')
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        const list = Array.isArray(data?.disabledSites) ? data.disabledSites as string[] : [];
+        setDisabledSites(list);
+        if (list.length > 0) {
+          setSelectedSites(prev => {
+            const cleaned = prev.filter(s => !list.includes(s));
+            return cleaned.length === prev.length ? prev : cleaned;
+          });
+        }
+      })
+      .catch(() => {}); // Non-fatal - filter list just won't be trimmed
+  }, []);
+
     const getTrackState = useCallback((game: Game): TrackState => {
       const cleaned = cleanGameTitle(game.title);
       const exactTracked = trackedGamesById.get(game.id);
@@ -681,7 +710,7 @@ function DashboardInner() {
           <div className="flex items-center gap-2">
             <div className="flex-1 overflow-x-auto pb-1 scrollbar-thin">
               <div className="flex gap-1.5 min-w-max">
-                {[{ value: 'all', label: 'All Sites' }, ...SITES].map(site => {
+                {[{ value: 'all', label: 'All Sites' }, ...visibleSites].map(site => {
                   const isAll = site.value === 'all';
                   const isActive = isAll
                     ? selectedSites.length === 0
