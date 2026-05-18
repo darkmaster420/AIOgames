@@ -84,6 +84,11 @@ function DashboardInner() {
     setShowAllGames,
   } = homepagePrefs;
 
+  // When set, the user's selected site filter returned zero results and the
+  // server auto-widened to all sites. We surface a banner telling the user
+  // which site was empty so they know why they're seeing other sources.
+  const [fallbackFromSite, setFallbackFromSite] = useState<string | null>(null);
+
   const customGridStyle = buildCustomGridStyle(layoutMode, customCols, customRows);
   const defaultGridClass =
     layoutMode === 'grid' && customCols === 'auto'
@@ -317,6 +322,7 @@ function DashboardInner() {
   const searchGames = useCallback(async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!searchQuery.trim()) {
+      setFallbackFromSite(null);
       setRecentGamesVisible(false);
       updateURL(); // Clear URL parameters
       loadRecentGames();
@@ -329,6 +335,7 @@ function DashboardInner() {
     const signal = getFetchSignal();
     setLoading(true);
     setError(null);
+    setFallbackFromSite(null);
     try {
       const params = new URLSearchParams({ search: searchQuery });
       if (siteFilter !== 'all') {
@@ -343,7 +350,12 @@ function DashboardInner() {
       }
       const data = await response.json();
       if (signal.aborted) return;
-      setGames(data);
+      // API now returns { results, fallbackFromSite? } instead of a raw
+      // array. fallbackFromSite is set when the user-selected site filter
+      // returned zero results and we auto-widened to all sites.
+      const resultsArr: Game[] = Array.isArray(data) ? data : (data?.results ?? []);
+      setGames(resultsArr);
+      setFallbackFromSite(typeof data?.fallbackFromSite === 'string' ? data.fallbackFromSite : null);
       setShowRefine(true);
       setRecentGamesVisible(true);
     } catch (err) {
@@ -727,6 +739,20 @@ function DashboardInner() {
           </div>
         )}
         
+        {/* Fallback-from-site warning: shown when the user's site filter
+            returned 0 results and the server auto-widened to all sites. */}
+        {fallbackFromSite && games.length > 0 && (
+          <div className="mb-3 p-2 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200 rounded text-xs flex items-center gap-2">
+            <span>⚠️</span>
+            <span>
+              {(SITES.find(s => s.value === fallbackFromSite)?.label) || fallbackFromSite}
+              {' returned no results for '}
+              <strong>&ldquo;{searchQuery}&rdquo;</strong>
+              {'. Showing results from all sites instead.'}
+            </span>
+          </div>
+        )}
+
         {/* Cache Status Indicator + Result Count */}
         {games.length > 0 && (
           <div className="mb-3 p-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300 rounded text-xs flex items-center justify-between">

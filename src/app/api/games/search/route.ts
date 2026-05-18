@@ -39,9 +39,74 @@ function steamHeaderImageUrl(appId: string): string {
   return `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`;
 }
 
+interface SearchResponse {
+  results: ApiGame[];
+  // When a specific site filter was requested but returned no results and
+  // we fell back to searching all sites, this carries the original site
+  // value so the UI can surface a "fell back" notice. Omitted otherwise.
+  fallbackFromSite?: string;
+}
+
 interface CacheEntry {
-  data: ApiGame[];
+  data: SearchResponse;
   timestamp: number;
+}
+
+// Runs the full search-enrichment pipeline on a raw set of posts: clean
+// titles, peek the AppID cache, batch-resolve missing AppIDs against Steam,
+// swap CF-protected poster URLs for stable Steam headers, then apply the
+// term filter. Pulled out so the fallback-to-all-sites path can re-run it
+// without duplicating ~60 lines.
+async function enrichSearchResults(rawResults: ApiGame[], searchQuery: string): Promise<ApiGame[]> {
+  const seeded: ApiGame[] = rawResults.map((game: ApiGame) => {
+    const originalTitle = game.title;
+    const next: ApiGame = {
+      ...game,
+      originalTitle,
+      title: cleanGameTitle(game.title),
+    };
+    if (!hasNativeAppId(next)) {
+      const cached = peekCachedSteamAppId(originalTitle);
+      if (cached) next.appid = cached;
+    }
+    return next;
+  });
+
+  const needsResolution = seeded.filter(g => !hasNativeAppId(g));
+  let results: ApiGame[] = seeded;
+  if (needsResolution.length > 0) {
+    try {
+      const titles = needsResolution.map(g => (g.originalTitle || g.title || '') as string);
+      const resolvedMap = await resolveSteamAppIdsBatch(titles, 6);
+      results = seeded.map(game => {
+        if (hasNativeAppId(game)) return game;
+        const raw = (game.originalTitle || game.title || '') as string;
+        const appId = resolvedMap.get(raw);
+        return appId ? { ...game, appid: appId } : game;
+      });
+    } catch (err) {
+      console.warn('[Search] AppID resolution failed, returning unresolved results:', err);
+    }
+  }
+
+  results = results.map((game) => {
+    const appId = extractNativeAppId(game);
+    if (!appId) return game;
+    const currentImage = typeof game.image === 'string' ? game.image : '';
+    const shouldUseSteamHeader = !currentImage || isCfProtectedUrl(currentImage);
+    if (!shouldUseSteamHeader) return game;
+    return { ...game, image: steamHeaderImageUrl(appId) };
+  });
+
+  const beforeTermFilter = results.length;
+  results = filterGamesBySearchQuery(results, searchQuery);
+  if (beforeTermFilter > results.length) {
+    console.log(
+      `[Search] Term filter removed ${beforeTermFilter - results.length} result(s) for "${searchQuery}"`
+    );
+  }
+
+  return results;
 }
 
 // In-memory cache with 10-minute TTL
@@ -86,93 +151,52 @@ export async function GET(request: NextRequest) {
     }
 
     // Call gameapi directly (integrated module)
-    const data = await searchGames(search, site && site !== 'all' ? site : undefined);
-    
-    // Extract the results array from the API response structure
-    if (data.success && data.results && Array.isArray(data.results)) {
-      // Add original titles, clean existing titles, and seed any Steam
-      // AppIDs we already have cached from prior runs.
-      const seeded: ApiGame[] = data.results.map((game: ApiGame) => {
-        const originalTitle = game.title;
-        const next: ApiGame = {
-          ...game,
-          originalTitle,
-          title: cleanGameTitle(game.title),
-        };
-        if (!hasNativeAppId(next)) {
-          const cached = peekCachedSteamAppId(originalTitle);
-          if (cached) next.appid = cached;
-        }
-        return next;
-      });
+    const requestedSite = site && site !== 'all' ? site : undefined;
+    const data = await searchGames(search, requestedSite);
 
-      // Fill in AppIDs for any games that don't have one yet. Since search
-      // responses are much smaller than the recent feed (usually <=20 items),
-      // we resolve synchronously so the client gets a fully-verified result
-      // set in a single response.
-      const needsResolution = seeded.filter(g => !hasNativeAppId(g));
-      let results: ApiGame[] = seeded;
-      if (needsResolution.length > 0) {
-        try {
-          const titles = needsResolution.map(g => (g.originalTitle || g.title || '') as string);
-          const resolvedMap = await resolveSteamAppIdsBatch(titles, 6);
-          results = seeded.map(game => {
-            if (hasNativeAppId(game)) return game;
-            const raw = (game.originalTitle || game.title || '') as string;
-            const appId = resolvedMap.get(raw);
-            return appId ? { ...game, appid: appId } : game;
-          });
-        } catch (err) {
-          console.warn('[Search] AppID resolution failed, returning unresolved results:', err);
-        }
-      }
-
-      // Image reliability pass for search:
-      // - If a result has an AppID and no image, use Steam header directly.
-      // - If current image host is CF-protected/flaky, prefer Steam header.
-      // This avoids routing large portions of search posters through
-      // FlareSolverr-dependent hosts.
-      results = results.map((game) => {
-        const appId = extractNativeAppId(game);
-        if (!appId) return game;
-        const currentImage = typeof game.image === 'string' ? game.image : '';
-        const shouldUseSteamHeader =
-          !currentImage ||
-          isCfProtectedUrl(currentImage);
-        if (!shouldUseSteamHeader) return game;
-        return { ...game, image: steamHeaderImageUrl(appId) };
-      });
-
-      const beforeTermFilter = results.length;
-      results = filterGamesBySearchQuery(results, search);
-      if (beforeTermFilter > results.length) {
-        console.log(
-          `[Search] Term filter removed ${beforeTermFilter - results.length} result(s) for "${search}"`
-        );
-      }
-
-      searchCache.set(cacheKey, {
-        data: results,
-        timestamp: Date.now()
-      });
-
-      // Warm the server-side image byte cache in the background so the
-      // browser's follow-up /api/proxy-image requests are memory hits. Fire
-      // and forget — never blocks the response.
-      const imageUrls = results
-        .map(g => (typeof g.image === 'string' ? g.image : ''))
-        .filter(Boolean) as string[];
-      if (imageUrls.length > 0) {
-        prefetchImageBatch(imageUrls, 3).catch(err => {
-          console.warn('[Search] Image prefetch failed:', err);
-        });
-      }
-
-      return NextResponse.json(results);
-    } else {
+    if (!data.success || !data.results || !Array.isArray(data.results)) {
       console.error('Invalid search API response structure:', data);
       return NextResponse.json({ error: 'Invalid search response structure' }, { status: 500 });
     }
+
+    let results = await enrichSearchResults(data.results, search);
+    let fallbackFromSite: string | undefined;
+
+    // Fallback: when the user filtered to a specific site and that site
+    // returned nothing useful (often happens with Skidrow's weak WP search
+    // missing scene-format titles), automatically widen to all sites so
+    // they still see results. UI surfaces a notice via fallbackFromSite.
+    if (requestedSite && results.length === 0) {
+      console.log(`[Search] "${search}" returned 0 from site=${requestedSite}, falling back to all sites`);
+      const fallbackData = await searchGames(search);
+      if (fallbackData.success && Array.isArray(fallbackData.results)) {
+        const fallbackResults = await enrichSearchResults(fallbackData.results, search);
+        if (fallbackResults.length > 0) {
+          results = fallbackResults;
+          fallbackFromSite = requestedSite;
+        }
+      }
+    }
+
+    const response: SearchResponse = fallbackFromSite
+      ? { results, fallbackFromSite }
+      : { results };
+
+    searchCache.set(cacheKey, { data: response, timestamp: Date.now() });
+
+    // Warm the server-side image byte cache in the background so the
+    // browser's follow-up /api/proxy-image requests are memory hits. Fire
+    // and forget — never blocks the response.
+    const imageUrls = results
+      .map(g => (typeof g.image === 'string' ? g.image : ''))
+      .filter(Boolean) as string[];
+    if (imageUrls.length > 0) {
+      prefetchImageBatch(imageUrls, 3).catch(err => {
+        console.warn('[Search] Image prefetch failed:', err);
+      });
+    }
+
+    return NextResponse.json(response);
   } catch (error) {
     console.error('Search games error:', error);
     return NextResponse.json({ error: 'Failed to search games' }, { status: 500 });
