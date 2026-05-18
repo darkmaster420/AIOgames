@@ -258,6 +258,11 @@ export const SITE_CONFIGS = {
     fallbackBaseUrl: 'https://dodi-repacks.site/wp-json/wp/v2/posts',
     type: 'dodi',
     name: 'DODI-Repacks'
+  },
+  'csrin': {
+    baseUrl: 'https://cs.rin.ru/forum',
+    type: 'csrin',
+    name: 'CS.RIN.RU'
   }
 };
 
@@ -2325,5 +2330,272 @@ export function transformGogGamesPost(item) {
     siteType: 'goggames',
     image
   };
+}
+
+// ── cs.rin.ru forum integration ──────────────────────────────────────────────
+// cs.rin.ru is a phpBB forum that requires login to search/view threads.
+// We log in once per server lifetime with a dedicated bot account
+// (CSRIN_USERNAME / CSRIN_PASSWORD env vars), cache the session cookies in
+// memory, and re-login on expiry or session loss. We DO NOT scrape download
+// links from threads - search results return the thread URL and the user
+// clicks through to the forum themselves.
+
+const CSRIN_BASE = 'https://cs.rin.ru/forum';
+const CSRIN_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const CSRIN_SESSION_TTL = 60 * 60 * 1000; // 1 hour - phpBB sessions usually last longer but be conservative
+const CSRIN_LOGIN_FAIL_COOLDOWN = 5 * 60 * 1000; // 5 minutes - don't hammer on bad creds
+
+const csrinSession = {
+  cookies: '',          // serialised "name=value; name=value" Cookie header
+  loggedInAt: 0,        // ms timestamp of last successful login
+  loginFailedAt: 0,     // ms timestamp of last failed login attempt
+  loggingIn: null,      // in-flight login promise (de-dupes concurrent callers)
+};
+
+// Extract Set-Cookie values from a Response, returning ["name=value", ...].
+// Strips attributes (Path, Domain, HttpOnly, etc) - we just want the pair.
+function parseSetCookies(response) {
+  const getter = response.headers.getSetCookie?.bind(response.headers);
+  if (typeof getter === 'function') {
+    return getter().map(c => c.split(';')[0].trim()).filter(Boolean);
+  }
+  // Fallback for older runtimes - single combined header (lossy if multiple)
+  const single = response.headers.get('set-cookie');
+  if (!single) return [];
+  return single.split(/,(?=\s*\w+=)/).map(c => c.split(';')[0].trim()).filter(Boolean);
+}
+
+// Merge a "name=value; name=value" string with an array of new "name=value"
+// pairs - later writes win, matching browser cookie jar semantics.
+function mergeCookieString(existing, additions) {
+  const map = new Map();
+  if (existing) {
+    for (const pair of existing.split(';')) {
+      const trimmed = pair.trim();
+      const eq = trimmed.indexOf('=');
+      if (eq > 0) map.set(trimmed.slice(0, eq), trimmed.slice(eq + 1));
+    }
+  }
+  for (const pair of additions) {
+    const eq = pair.indexOf('=');
+    if (eq > 0) map.set(pair.slice(0, eq), pair.slice(eq + 1));
+  }
+  return Array.from(map.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+}
+
+// Decode the small set of HTML entities phpBB emits in thread titles.
+function decodeEntities(s) {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
+
+async function performCsrinLogin() {
+  const username = process.env.CSRIN_USERNAME;
+  const password = process.env.CSRIN_PASSWORD;
+  if (!username || !password) {
+    // Not configured - silently skip
+    return false;
+  }
+
+  try {
+    // 1) GET the login form to capture initial cookies + any hidden tokens
+    //    (phpBB optionally includes form_token + creation_time as CSRF defense).
+    const formResp = await siteFetch(`${CSRIN_BASE}/ucp.php?mode=login`, {
+      headers: { 'User-Agent': CSRIN_USER_AGENT }
+    });
+    if (!formResp || !formResp.ok) {
+      console.warn(`cs.rin.ru login form fetch failed: ${formResp?.status || 'no response'}`);
+      return false;
+    }
+    const formHtml = await formResp.text();
+    const initialCookies = parseSetCookies(formResp);
+
+    const params = new URLSearchParams();
+    params.set('username', username);
+    params.set('password', password);
+    params.set('redirect', 'index.php');
+    params.set('login', 'Login');
+    const sidMatch = formHtml.match(/name="sid"\s+value="([^"]+)"/);
+    if (sidMatch) params.set('sid', sidMatch[1]);
+    const formTokenMatch = formHtml.match(/name="form_token"\s+value="([^"]+)"/);
+    if (formTokenMatch) params.set('form_token', formTokenMatch[1]);
+    const creationTimeMatch = formHtml.match(/name="creation_time"\s+value="([^"]+)"/);
+    if (creationTimeMatch) params.set('creation_time', creationTimeMatch[1]);
+
+    // 2) POST credentials. Use redirect:'manual' so we can read the Set-Cookie
+    //    on the redirect response before the browser would follow it.
+    const loginResp = await siteFetch(`${CSRIN_BASE}/ucp.php?mode=login`, {
+      method: 'POST',
+      headers: {
+        'User-Agent': CSRIN_USER_AGENT,
+        'Cookie': initialCookies.join('; '),
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Referer': `${CSRIN_BASE}/ucp.php?mode=login`,
+      },
+      body: params.toString(),
+      redirect: 'manual',
+    });
+
+    const loginCookies = parseSetCookies(loginResp);
+    const merged = mergeCookieString(initialCookies.join('; '), loginCookies);
+
+    // phpBB sets a `phpbb3_*_u` cookie containing the user id. "1" is the
+    // anonymous guest. Anything else means we're logged in. A 3xx redirect
+    // back to index.php is also a strong success signal.
+    const userIdMatch = merged.match(/phpbb3_[^=]*_u=(\d+)/i);
+    const isAnonymous = !userIdMatch || userIdMatch[1] === '1';
+    const isRedirect = loginResp.status >= 300 && loginResp.status < 400;
+
+    if (isAnonymous && !isRedirect) {
+      console.warn(`cs.rin.ru login appears rejected (status ${loginResp.status}, user id ${userIdMatch?.[1] || 'none'})`);
+      return false;
+    }
+
+    csrinSession.cookies = merged;
+    csrinSession.loggedInAt = Date.now();
+    csrinSession.loginFailedAt = 0;
+    console.log('cs.rin.ru login successful');
+    return true;
+  } catch (err) {
+    console.warn('cs.rin.ru login error:', err?.message || err);
+    return false;
+  }
+}
+
+// Ensure we have a fresh session. Coalesces concurrent calls so we don't
+// hit /ucp.php?mode=login multiple times in parallel.
+async function ensureCsrinSession() {
+  const sessionFresh = csrinSession.cookies && (Date.now() - csrinSession.loggedInAt < CSRIN_SESSION_TTL);
+  if (sessionFresh) return true;
+
+  if (csrinSession.loginFailedAt && Date.now() - csrinSession.loginFailedAt < CSRIN_LOGIN_FAIL_COOLDOWN) {
+    return false;
+  }
+
+  if (csrinSession.loggingIn) {
+    return await csrinSession.loggingIn;
+  }
+  csrinSession.loggingIn = (async () => {
+    const ok = await performCsrinLogin();
+    if (!ok) csrinSession.loginFailedAt = Date.now();
+    csrinSession.loggingIn = null;
+    return ok;
+  })();
+  return await csrinSession.loggingIn;
+}
+
+// Detect the "you must log in" interstitial phpBB shows when the session is
+// gone. Cheap and tolerant - we just look for the login form action.
+function looksLikeLoginPage(html) {
+  if (!html) return false;
+  return /name="username"/i.test(html) && /name="password"/i.test(html) && /mode=login/i.test(html);
+}
+
+function buildCsrinPost({ threadId, title, link }) {
+  return {
+    id: `csrin-${threadId}`,
+    originalId: threadId,
+    title,
+    excerpt: '',
+    link,
+    date: new Date().toISOString(),
+    slug: '',
+    description: 'Forum thread on cs.rin.ru - click to view the latest post',
+    categories: [],
+    tags: [],
+    downloadLinks: [],
+    source: 'CS.RIN.RU',
+    siteType: 'csrin',
+    image: null,
+  };
+}
+
+function parseCsrinSearchResults(html) {
+  const results = [];
+  const seen = new Set();
+
+  // phpBB renders thread links as <a class="topictitle" href="..."> in the
+  // search results page. The class attribute may appear before or after href
+  // depending on template, so try both orders.
+  const patterns = [
+    /<a\s+[^>]*class="topictitle"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi,
+    /<a\s+[^>]*href="([^"]+)"[^>]*class="topictitle"[^>]*>([\s\S]*?)<\/a>/gi,
+  ];
+
+  for (const re of patterns) {
+    for (const m of html.matchAll(re)) {
+      const href = m[1];
+      const titleHtml = m[2];
+      const tMatch = href.match(/[?&]t=(\d+)/);
+      if (!tMatch) continue;
+      const threadId = tMatch[1];
+      if (seen.has(threadId)) continue;
+      seen.add(threadId);
+
+      const title = decodeEntities(titleHtml.replace(/<[^>]+>/g, '')).trim();
+      if (!title) continue;
+
+      // Clean URL - strip search-state params, then jump straight to the
+      // newest post in the thread (latest update is what the user wants).
+      const link = `${CSRIN_BASE}/viewtopic.php?t=${threadId}&view=newest`;
+      results.push(buildCsrinPost({ threadId, title, link }));
+    }
+  }
+
+  return results;
+}
+
+export async function fetchCsrinSearch(searchQuery) {
+  const ready = await ensureCsrinSession();
+  if (!ready) return [];
+
+  const params = new URLSearchParams({
+    keywords: searchQuery,
+    sf: 'titleonly', // titles only - much faster, less noise
+    sr: 'topics',    // return topics, not individual posts
+    sk: 't',         // sort by topic creation date
+    sd: 'd',         // descending
+  });
+
+  const doFetch = () => siteFetch(`${CSRIN_BASE}/search.php?${params}`, {
+    headers: {
+      'User-Agent': CSRIN_USER_AGENT,
+      'Cookie': csrinSession.cookies,
+      'Referer': `${CSRIN_BASE}/index.php`,
+    },
+  });
+
+  try {
+    let response = await doFetch();
+    if (!response || !response.ok) {
+      console.warn(`cs.rin.ru search returned ${response?.status || 'no response'}`);
+      return [];
+    }
+    let html = await response.text();
+
+    // If we got bounced to the login page, our session died - re-login once
+    // and retry. If it still fails, give up for this request.
+    if (looksLikeLoginPage(html)) {
+      console.log('cs.rin.ru session expired mid-search, re-logging in');
+      csrinSession.cookies = '';
+      csrinSession.loggedInAt = 0;
+      const reAuth = await ensureCsrinSession();
+      if (!reAuth) return [];
+      response = await doFetch();
+      if (!response || !response.ok) return [];
+      html = await response.text();
+      if (looksLikeLoginPage(html)) return [];
+    }
+
+    return parseCsrinSearchResults(html);
+  } catch (err) {
+    console.error('cs.rin.ru search error:', err?.message || err);
+    return [];
+  }
 }
 

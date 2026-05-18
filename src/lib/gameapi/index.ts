@@ -22,6 +22,7 @@ import {
   transformGogGamesPost,
   fetchOnlineFixRecent,
   fetchOnlineFixSearch,
+  fetchCsrinSearch,
   siteFetch,
 } from './helpers.js';
 
@@ -126,6 +127,10 @@ async function searchSite(siteConfig: SiteConfig, searchQuery: string): Promise<
       return await fetchOnlineFixSearch(searchQuery);
     }
 
+    if (siteConfig.type === 'csrin') {
+      return await fetchCsrinSearch(searchQuery);
+    }
+
     const baseParams = new URLSearchParams({
       search: searchQuery,
       orderby: 'date',
@@ -202,6 +207,12 @@ async function fetchRecentFromSite(siteConfig: SiteConfig): Promise<TransformedP
 
     if (siteConfig.type === 'onlinefix') {
       return await fetchOnlineFixRecent();
+    }
+
+    // cs.rin.ru is search-only for now - skip recent uploads to avoid hitting
+    // the forum on every home-page refresh.
+    if (siteConfig.type === 'csrin') {
+      return [];
     }
 
     const params = new URLSearchParams({
