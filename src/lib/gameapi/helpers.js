@@ -2725,3 +2725,68 @@ export async function fetchCsrinSearch(searchQuery) {
   }
 }
 
+// Latest topics from the Game/Application Releases subforum (f=10), shown
+// when the user explicitly clicks the cs.rin.ru chip on the home page.
+// Cached in-memory with a 15-minute TTL so repeated chip clicks don't
+// hammer the forum.
+const CSRIN_RECENT_FORUM_ID = '10';
+const CSRIN_RECENT_TTL_MS = 15 * 60 * 1000;
+const csrinRecentCache = { results: [], timestamp: 0 };
+
+export async function fetchCsrinRecent() {
+  if (
+    csrinRecentCache.timestamp > 0 &&
+    Date.now() - csrinRecentCache.timestamp < CSRIN_RECENT_TTL_MS
+  ) {
+    return csrinRecentCache.results;
+  }
+
+  const ready = await ensureCsrinSession();
+  if (!ready) return csrinRecentCache.results;
+
+  const viewforumUrl = `${CSRIN_BASE}/viewforum.php?f=${CSRIN_RECENT_FORUM_ID}`;
+  const doFetch = () => csrinFetch(viewforumUrl, {
+    headers: { 'Referer': `${CSRIN_BASE}/index.php` },
+  });
+
+  try {
+    let response = await doFetch();
+    if (!response || !response.ok) {
+      console.warn(`cs.rin.ru viewforum returned ${response?.status || 'no response'}`);
+      return csrinRecentCache.results;
+    }
+    let html = await response.text();
+
+    // Same session-expired retry as search: if we land on the login page,
+    // re-login once and retry the request.
+    if (looksLikeLoginPage(html)) {
+      console.log('cs.rin.ru session expired mid-recent, re-logging in');
+      csrinSession.cookies = '';
+      csrinSession.loggedInAt = 0;
+      const reAuth = await ensureCsrinSession();
+      if (!reAuth) return csrinRecentCache.results;
+      response = await doFetch();
+      if (!response || !response.ok) return csrinRecentCache.results;
+      html = await response.text();
+      if (looksLikeLoginPage(html)) return csrinRecentCache.results;
+    }
+
+    // The viewforum.php HTML uses the same topictitle anchor + pagination
+    // span markup as search results, BUT it groups announcements + stickies
+    // (forum rules, privacy policy, etc.) above the actual topic list under
+    // a "Topics" section header. Slice from that header so we don't return
+    // pinned meta-threads as if they were game releases.
+    const topicsHeaderIdx = html.indexOf('>Topics</b>');
+    const sliceFrom = topicsHeaderIdx >= 0 ? topicsHeaderIdx : 0;
+    const results = parseCsrinSearchResults(html.slice(sliceFrom));
+    if (results.length > 0) {
+      csrinRecentCache.results = results;
+      csrinRecentCache.timestamp = Date.now();
+    }
+    return results;
+  } catch (err) {
+    console.error('cs.rin.ru recent error:', err?.message || err);
+    return csrinRecentCache.results;
+  }
+}
+

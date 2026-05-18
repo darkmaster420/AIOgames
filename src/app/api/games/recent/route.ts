@@ -12,6 +12,7 @@ import {
   runAutoRecovery,
   triggerReverify,
 } from '../../../../lib/recentUploadsState';
+import { fetchCsrinRecent } from '../../../../lib/gameapi/helpers.js';
 
 // Allow up to 2 minutes for initial data fetch (scraping multiple sites via FlareSolverr)
 export const maxDuration = 120;
@@ -92,6 +93,23 @@ export async function GET(request: NextRequest) {
     if (siteList.length > 0) {
       const wanted = new Set(siteList);
       finalResults = results.filter((game: Game) => wanted.has(game.siteType));
+    }
+
+    // cs.rin.ru is never in the all-sites cache (fetchRecentFromSite skips
+    // it to keep periodic refreshes from constantly hitting the forum's
+    // bot login). When the user explicitly clicks the csrin chip though,
+    // fetch the latest threads from the Game Releases subforum on-demand
+    // and prepend them. fetchCsrinRecent has its own 15-min cache so
+    // repeat clicks don't re-hit the forum.
+    if (siteList.includes('csrin')) {
+      try {
+        const csrinResults = (await fetchCsrinRecent()) as Game[];
+        if (csrinResults.length > 0) {
+          finalResults = [...csrinResults, ...finalResults];
+        }
+      } catch (err) {
+        console.warn('[recent] cs.rin.ru recent fetch failed:', err);
+      }
     }
 
     const cachedAfter = getCachedRecent();
