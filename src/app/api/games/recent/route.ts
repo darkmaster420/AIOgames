@@ -30,7 +30,16 @@ function buildStatsHeader(stats: Record<string, SiteStat>): string {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const site = searchParams.get('site') || 'all';
+    // Site filter is a comma-separated list (?site=skidrow,steamrip).
+    // Empty / missing / "all" returns every cached site. csrin is never
+    // present in the recent cache (fetchRecentFromSite returns [] for it),
+    // so the "default = exclude csrin" rule from search doesn't apply here.
+    const rawSite = (searchParams.get('site') || '').trim();
+    const siteList: string[] = rawSite && rawSite.toLowerCase() !== 'all'
+      ? Array.from(new Set(
+          rawSite.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+        ))
+      : [];
     const forceRefresh = searchParams.get('refresh') === 'true';
     // Client can ask for a full re-verification pass without re-scraping the
     // source sites. Clears the per-title failure cooldowns so every
@@ -80,8 +89,9 @@ export async function GET(request: NextRequest) {
 
     // Apply local site filtering
     let finalResults = results;
-    if (site && site !== 'all') {
-      finalResults = results.filter((game: Game) => game.siteType === site);
+    if (siteList.length > 0) {
+      const wanted = new Set(siteList);
+      finalResults = results.filter((game: Game) => wanted.has(game.siteType));
     }
 
     const cachedAfter = getCachedRecent();

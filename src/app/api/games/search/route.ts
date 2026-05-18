@@ -41,10 +41,11 @@ function steamHeaderImageUrl(appId: string): string {
 
 interface SearchResponse {
   results: ApiGame[];
-  // When a specific site filter was requested but returned no results and
-  // we fell back to searching all sites, this carries the original site
-  // value so the UI can surface a "fell back" notice. Omitted otherwise.
-  fallbackFromSite?: string;
+  // When a specific set of site filters was requested but returned no
+  // results and we fell back to the default (all-minus-excluded) search,
+  // this carries the originally-requested sites so the UI can surface a
+  // "fell back" notice. Omitted otherwise.
+  fallbackFromSites?: string[];
 }
 
 interface CacheEntry {
@@ -127,32 +128,45 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search');
-    const site = searchParams.get('site') || 'all';
+    // Site filter is a comma-separated list (?site=skidrow,steamrip). Empty
+    // / missing / "all" means "use the default set" (gameapi picks every
+    // site except those in its DEFAULT_EXCLUDED_FROM_ALL list, which keeps
+    // csrin off the wire unless the user explicitly opts in).
+    const rawSite = (searchParams.get('site') || '').trim();
+    const requestedSites: string[] = rawSite && rawSite.toLowerCase() !== 'all'
+      ? Array.from(new Set(
+          rawSite.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+        ))
+      : [];
     const noCache = ['1', 'true', 'yes'].includes((searchParams.get('nocache') || '').toLowerCase());
 
     if (!search) {
       return NextResponse.json({ error: 'Search query required' }, { status: 400 });
     }
 
-    // Create cache key from search params
-    const cacheKey = `${search.toLowerCase().trim()}:${site}`;
+    // Cache key is normalised + sorted so {skidrow,steamrip} and
+    // {steamrip,skidrow} share an entry.
+    const siteCacheKey = requestedSites.length
+      ? [...requestedSites].sort().join(',')
+      : 'all';
+    const cacheKey = `${search.toLowerCase().trim()}:${siteCacheKey}`;
     
     // Check cache first
     const cached = noCache ? undefined : searchCache.get(cacheKey);
     if (!noCache && cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
-      console.log(`[Search] Cache HIT for "${search}" (site: ${site})`);
+      console.log(`[Search] Cache HIT for "${search}" (sites: ${siteCacheKey})`);
       return NextResponse.json(cached.data);
     }
 
     if (noCache) {
-      console.log(`[Search] Cache BYPASS for "${search}" (site: ${site}) - fetching fresh from API`);
+      console.log(`[Search] Cache BYPASS for "${search}" (sites: ${siteCacheKey}) - fetching fresh from API`);
     } else {
-      console.log(`[Search] Cache MISS for "${search}" (site: ${site}) - fetching from API`);
+      console.log(`[Search] Cache MISS for "${search}" (sites: ${siteCacheKey}) - fetching from API`);
     }
 
-    // Call gameapi directly (integrated module)
-    const requestedSite = site && site !== 'all' ? site : undefined;
-    const data = await searchGames(search, requestedSite);
+    // Call gameapi directly (integrated module). Empty list = default
+    // (gameapi will pick all sites minus DEFAULT_EXCLUDED_FROM_ALL).
+    const data = await searchGames(search, requestedSites.length ? requestedSites : undefined);
 
     if (!data.success || !data.results || !Array.isArray(data.results)) {
       console.error('Invalid search API response structure:', data);
@@ -160,26 +174,27 @@ export async function GET(request: NextRequest) {
     }
 
     let results = await enrichSearchResults(data.results, search);
-    let fallbackFromSite: string | undefined;
+    let fallbackFromSites: string[] | undefined;
 
-    // Fallback: when the user filtered to a specific site and that site
-    // returned nothing useful (often happens with Skidrow's weak WP search
-    // missing scene-format titles), automatically widen to all sites so
-    // they still see results. UI surfaces a notice via fallbackFromSite.
-    if (requestedSite && results.length === 0) {
-      console.log(`[Search] "${search}" returned 0 from site=${requestedSite}, falling back to all sites`);
+    // Fallback: when the user filtered to specific sites and that combined
+    // set returned nothing useful (often happens with Skidrow's weak WP
+    // search missing scene-format titles), automatically widen to the
+    // default set so they still see results. UI surfaces a notice via
+    // fallbackFromSites listing the empty selection.
+    if (requestedSites.length > 0 && results.length === 0) {
+      console.log(`[Search] "${search}" returned 0 from sites=${requestedSites.join(',')}, falling back to default`);
       const fallbackData = await searchGames(search);
       if (fallbackData.success && Array.isArray(fallbackData.results)) {
         const fallbackResults = await enrichSearchResults(fallbackData.results, search);
         if (fallbackResults.length > 0) {
           results = fallbackResults;
-          fallbackFromSite = requestedSite;
+          fallbackFromSites = requestedSites;
         }
       }
     }
 
-    const response: SearchResponse = fallbackFromSite
-      ? { results, fallbackFromSite }
+    const response: SearchResponse = fallbackFromSites
+      ? { results, fallbackFromSites }
       : { results };
 
     searchCache.set(cacheKey, { data: response, timestamp: Date.now() });

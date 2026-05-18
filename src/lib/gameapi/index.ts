@@ -254,28 +254,65 @@ async function fetchRecentFromSite(siteConfig: SiteConfig): Promise<TransformedP
 
 // â”€â”€â”€ Public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+// Sites that we don't want to hit on a default "all sites" search. cs.rin.ru
+// is the only one currently - every search there logs in / submits a search
+// to the forum, which would get our shared bot account rate-limited or
+// banned if we ran it on every casual home-page search. Users must opt in
+// by explicitly selecting csrin in the site filter.
+const DEFAULT_EXCLUDED_FROM_ALL = new Set(['csrin']);
+
 /**
- * Search games across all sites or a specific site.
+ * Search games across one, several, or all sites.
+ *
+ * @param sites
+ *   - omitted / undefined / empty: search every site EXCEPT
+ *     DEFAULT_EXCLUDED_FROM_ALL (current default = all minus csrin).
+ *   - single site key string: backward-compatible single-site behavior.
+ *   - string[] or comma-separated string: search exactly those sites
+ *     (csrin only included if it's explicitly listed).
+ * Unknown site keys are filtered out silently.
  */
-export async function searchGames(query: string, site?: string): Promise<SearchResult> {
+export async function searchGames(
+  query: string,
+  sites?: string | string[],
+): Promise<SearchResult> {
   if (!query) {
     return { success: false, results: [], count: 0 };
   }
 
-  // Single-site search
-  if (site) {
-    const siteConfig = SITE_CONFIGS[site] as SiteConfig | undefined;
-    if (!siteConfig) {
-      return { success: false, results: [], count: 0 };
-    }
+  // Normalise the `sites` arg into a list of valid SITE_CONFIGS keys, or
+  // null when the caller wants the default (all-minus-excluded) behavior.
+  const requested: string[] | null = (() => {
+    if (sites === undefined || sites === null) return null;
+    const raw = Array.isArray(sites)
+      ? sites
+      : String(sites).split(',');
+    const valid = raw
+      .map(s => s.trim().toLowerCase())
+      .filter(s => s && s !== 'all' && (SITE_CONFIGS as Record<string, unknown>)[s]);
+    if (!valid.length) return null;
+    return Array.from(new Set(valid));
+  })();
 
+  // Build the actual target site list.
+  const targets: SiteConfig[] = requested
+    ? requested.map(k => SITE_CONFIGS[k] as SiteConfig)
+    : (Object.entries(SITE_CONFIGS) as [string, SiteConfig][])
+        .filter(([k]) => !DEFAULT_EXCLUDED_FROM_ALL.has(k))
+        .map(([, v]) => v);
+
+  // Single-site search keeps the dedicated retry+cache path (it has slightly
+  // different semantics than the parallel path - it serves from cache on
+  // total failure rather than just for the affected site).
+  if (targets.length === 1) {
+    const siteConfig = targets[0];
+    const site = siteConfig.type;
     const results = applySearchTermFilter(await searchSite(siteConfig, query), query);
     const cacheKey = `${site}:${query.toLowerCase()}`;
 
     if (results.length > 0) {
       searchCache.set(cacheKey, { results, timestamp: Date.now() });
     } else {
-      // Retry once, then fallback to cache
       console.warn(`Single-site search for ${site} returned empty, retrying`);
       const retryResults = applySearchTermFilter(await searchSite(siteConfig, query), query);
       if (retryResults.length > 0) {
@@ -293,8 +330,8 @@ export async function searchGames(query: string, site?: string): Promise<SearchR
     return { success: true, results, count: results.length, site };
   }
 
-  // All-sites search
-  const allSites = Object.values(SITE_CONFIGS) as SiteConfig[];
+  // Multi-site / all-sites search - parallel fan-out across targets.
+  const allSites = targets;
   const searchPromises = allSites.map(s => searchSite(s, query));
   const settledResults = await Promise.allSettled(searchPromises);
 
