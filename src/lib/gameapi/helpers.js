@@ -1734,18 +1734,24 @@ export async function extractDownloadLinksForV2(postUrl, siteType = 'skidrow', w
 
         // FitGirl also posts a rutor.* tracker link as an alternative
         // torrent source (popular Russian tracker among FitGirl's audience).
-        // Surface it with torrent affordances. Permissive on TLD because
-        // rutor mirrors across .info / .org / .name etc.
+        // Two flavors appear in the wild:
+        //   - direct: ...rutor.info/.../whatever.torrent  → one-click .torrent
+        //   - post:   rutor.info/torrent/<id>/<slug>      → page the user
+        //             has to visit to grab the magnet/file from
+        // Label them differently so the user knows what they're clicking,
+        // but both keep isTorrent=true so any torrent UI affordances apply.
+        // Permissive on TLD because rutor mirrors across .info / .org / etc.
         const rutorRegex = /<a\s+[^>]*href=["'](https?:\/\/(?:[\w-]+\.)?rutor\.[a-z]{2,}\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
         while ((match = rutorRegex.exec(html)) !== null) {
           const url = match[1];
-          const text = stripHtml(decodeBasicHtmlEntities(match[2])).trim() || 'RuTor';
           if (downloadLinks.some(l => l.url === url)) continue;
+          const isDirectTorrent = /\.torrent(?:$|\?)/i.test(url);
+          const label = isDirectTorrent ? 'Torrent' : 'RuTor (post)';
           downloadLinks.push({
             type: 'torrent-file',
-            service: text,
+            service: label,
             url,
-            text,
+            text: label,
             isTorrent: true,
           });
         }
