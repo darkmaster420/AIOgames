@@ -2778,7 +2778,10 @@ export async function fetchCsrinRecent() {
     // pinned meta-threads as if they were game releases.
     const topicsHeaderIdx = html.indexOf('>Topics</b>');
     const sliceFrom = topicsHeaderIdx >= 0 ? topicsHeaderIdx : 0;
-    const results = parseCsrinSearchResults(html.slice(sliceFrom));
+    // Cap at 20 - first page of viewforum.php returns ~50-100 threads but
+    // users only need a glance at what's new. Keeps the payload tiny and
+    // matches the "recent uploads" framing.
+    const results = parseCsrinSearchResults(html.slice(sliceFrom)).slice(0, 20);
     if (results.length > 0) {
       csrinRecentCache.results = results;
       csrinRecentCache.timestamp = Date.now();
