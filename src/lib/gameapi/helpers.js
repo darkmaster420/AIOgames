@@ -1719,11 +1719,16 @@ export async function extractDownloadLinksForV2(postUrl, siteType = 'skidrow', w
           const url = match[1];
           const text = stripHtml(decodeBasicHtmlEntities(match[2])).trim() || 'FitGirl Paste';
           if (downloadLinks.some(l => l.url === url)) continue;
+          // Anchor text like ".torrent file only" identifies the torrent
+          // pastebin (vs the per-filehoster ones). Tag it so the UI can
+          // surface it as a torrent rather than a generic hosting link.
+          const isTorrentPaste = /torrent/i.test(text);
           downloadLinks.push({
-            type: 'hosting',
+            type: isTorrentPaste ? 'torrent-file' : 'hosting',
             service: text,
             url,
             text,
+            ...(isTorrentPaste ? { isTorrent: true } : {}),
           });
         }
       } else if (siteType === 'reloadedsteam') {
