@@ -2403,17 +2403,16 @@ async function performCsrinLogin() {
   }
 
   try {
-    // 1) GET the login form to capture initial cookies + any hidden tokens
-    //    (phpBB optionally includes form_token + creation_time as CSRF defense).
-    const formResp = await siteFetch(`${CSRIN_BASE}/ucp.php?mode=login`, {
-      headers: { 'User-Agent': CSRIN_USER_AGENT }
-    });
+    // 1) GET the login form. csrinFetch transparently solves the security-
+    //    check challenge if cs.rin.ru fires it (it always does on a cold
+    //    session). It also accumulates session cookies into csrinSession.cookies
+    //    as a side effect, so we don't need to track initialCookies separately.
+    const formResp = await csrinFetch(`${CSRIN_BASE}/ucp.php?mode=login`);
     if (!formResp || !formResp.ok) {
       console.warn(`cs.rin.ru login form fetch failed: ${formResp?.status || 'no response'}`);
       return false;
     }
     const formHtml = await formResp.text();
-    const initialCookies = parseSetCookies(formResp);
 
     const params = new URLSearchParams();
     params.set('username', username);
@@ -2429,11 +2428,11 @@ async function performCsrinLogin() {
 
     // 2) POST credentials. Use redirect:'manual' so we can read the Set-Cookie
     //    on the redirect response before the browser would follow it.
-    const loginResp = await siteFetch(`${CSRIN_BASE}/ucp.php?mode=login`, {
+    //    csrinFetch carries the security-check + initial session cookies for
+    //    us via csrinSession.cookies.
+    const loginResp = await csrinFetch(`${CSRIN_BASE}/ucp.php?mode=login`, {
       method: 'POST',
       headers: {
-        'User-Agent': CSRIN_USER_AGENT,
-        'Cookie': initialCookies.join('; '),
         'Content-Type': 'application/x-www-form-urlencoded',
         'Referer': `${CSRIN_BASE}/ucp.php?mode=login`,
       },
@@ -2442,12 +2441,17 @@ async function performCsrinLogin() {
     });
 
     const loginCookies = parseSetCookies(loginResp);
-    const merged = mergeCookieString(initialCookies.join('; '), loginCookies);
+    csrinSession.cookies = mergeCookieString(csrinSession.cookies, loginCookies);
+    const merged = csrinSession.cookies;
 
-    // phpBB sets a `phpbb3_*_u` cookie containing the user id. "1" is the
-    // anonymous guest. Anything else means we're logged in. A 3xx redirect
-    // back to index.php is also a strong success signal.
-    const userIdMatch = merged.match(/phpbb3_[^=]*_u=(\d+)/i);
+    // phpBB sets a `<prefix>phpbb3_u` cookie containing the user id. "1" is
+    // the anonymous guest. Anything else means we're logged in. The middle
+    // segment between phpbb3_ and _u is the board id and is sometimes empty
+    // (cs.rin.ru uses `csrinru_phpbb3_u`), so allow zero-or-more chars there.
+    // A 3xx redirect back to index.php is also a strong success signal but
+    // some installs return 200 with a "logged in successfully" interstitial
+    // instead, so we treat the cookie as authoritative.
+    const userIdMatch = merged.match(/phpbb3\w*_u=(\d+)/i);
     const isAnonymous = !userIdMatch || userIdMatch[1] === '1';
     const isRedirect = loginResp.status >= 300 && loginResp.status < 400;
 
@@ -2456,7 +2460,6 @@ async function performCsrinLogin() {
       return false;
     }
 
-    csrinSession.cookies = merged;
     csrinSession.loggedInAt = Date.now();
     csrinSession.loginFailedAt = 0;
     console.log('cs.rin.ru login successful');
@@ -2496,6 +2499,92 @@ function looksLikeLoginPage(html) {
   return /name="username"/i.test(html) && /name="password"/i.test(html) && /mode=login/i.test(html);
 }
 
+// cs.rin.ru gates every request behind a JS-driven anti-bot challenge: the
+// server returns 401 with HTML that sets two cookies (securitytoken +
+// securitytoken_expiration) via JS, then redirects the browser to
+// /securitycheck<path> which validates the cookies and issues a session
+// cookie. We replicate this in plain HTTP - no JS engine needed since the
+// tokens are right in the response body.
+function looksLikeCsrinSecurityCheck(html) {
+  if (!html) return false;
+  return html.includes('CS RIN - Security check') || /securitytoken=[\w-]+/.test(html);
+}
+
+async function solveCsrinSecurityCheck(originalUrl, html) {
+  const tokenMatch = html.match(/securitytoken=([\w-]+)/);
+  const expirationMatch = html.match(/securitytoken_expiration=(\d+)/);
+  if (!tokenMatch || !expirationMatch) {
+    console.warn('cs.rin.ru: 401 received but security tokens not parseable');
+    return false;
+  }
+
+  // Plant the tokens in our cookie jar before hitting the validator.
+  csrinSession.cookies = mergeCookieString(csrinSession.cookies, [
+    `securitytoken=${tokenMatch[1]}`,
+    `securitytoken_expiration=${expirationMatch[1]}`,
+  ]);
+
+  // The JS does: newURL = url.replace(pathname, "/securitycheck" + pathname).
+  // Translation in plain JS:
+  const urlObj = new URL(originalUrl);
+  const checkUrl = `${urlObj.origin}/securitycheck${urlObj.pathname}${urlObj.search}`;
+
+  const checkResp = await siteFetch(checkUrl, {
+    headers: {
+      'User-Agent': CSRIN_USER_AGENT,
+      'Cookie': csrinSession.cookies,
+      'Referer': originalUrl,
+    },
+    redirect: 'manual',
+  });
+  const newCookies = parseSetCookies(checkResp);
+  if (newCookies.length) {
+    csrinSession.cookies = mergeCookieString(csrinSession.cookies, newCookies);
+  }
+  return true;
+}
+
+// Wrapper around siteFetch that:
+//   - sticks our cs.rin.ru cookie jar onto every request
+//   - transparently solves the security-check challenge and retries once
+//     when the server fires it
+async function csrinFetch(url, options = {}) {
+  const buildHeaders = () => ({
+    'User-Agent': CSRIN_USER_AGENT,
+    ...(options.headers || {}),
+    Cookie: csrinSession.cookies,
+  });
+
+  let response = await siteFetch(url, { ...options, headers: buildHeaders() });
+
+  if (response.status === 401) {
+    // Consume the body so we can inspect it without leaving the stream half-read.
+    const body = await response.text();
+    if (looksLikeCsrinSecurityCheck(body)) {
+      console.log('cs.rin.ru: solving security check');
+      const solved = await solveCsrinSecurityCheck(url, body);
+      if (solved) {
+        response = await siteFetch(url, { ...options, headers: buildHeaders() });
+      } else {
+        // Reconstruct so the caller sees the original failure body.
+        response = new Response(body, {
+          status: 401,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
+      }
+    } else {
+      response = new Response(body, {
+        status: 401,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
+    }
+  }
+
+  return response;
+}
+
 function buildCsrinPost({ threadId, title, link }) {
   return {
     id: `csrin-${threadId}`,
@@ -2529,7 +2618,11 @@ function parseCsrinSearchResults(html) {
 
   for (const re of patterns) {
     for (const m of html.matchAll(re)) {
-      const href = m[1];
+      // Decode HTML entities in href first - phpBB's search results emit
+      // `&amp;` between query-string params (since href values are part of
+      // an HTML attribute), so a regex like /[?&]t=(\d+)/ wouldn't match
+      // against the raw `?f=10&amp;t=155283` string.
+      const href = decodeEntities(m[1]);
       const titleHtml = m[2];
       const tMatch = href.match(/[?&]t=(\d+)/);
       if (!tMatch) continue;
@@ -2537,7 +2630,15 @@ function parseCsrinSearchResults(html) {
       if (seen.has(threadId)) continue;
       seen.add(threadId);
 
-      const title = decodeEntities(titleHtml.replace(/<[^>]+>/g, '')).trim();
+      // Strip elements that are visually hidden (display:none / visibility:hidden).
+      // phpBB themes on cs.rin.ru use these for screen-reader status labels
+      // like "SCS - offline" sitting next to a status-indicator image, and
+      // we don't want that text leaking into the visible title.
+      const title = decodeEntities(
+        titleHtml
+          .replace(/<([a-z]+)[^>]*style="[^"]*(?:display\s*:\s*none|visibility\s*:\s*hidden)[^"]*"[^>]*>[\s\S]*?<\/\1>/gi, '')
+          .replace(/<[^>]+>/g, '')
+      ).replace(/\s+/g, ' ').trim();
       if (!title) continue;
 
       // Preserve `f` (forum id) and `start` (post offset) straight from
@@ -2586,12 +2687,8 @@ export async function fetchCsrinSearch(searchQuery) {
     submit: 'Search',
   });
 
-  const doFetch = () => siteFetch(`${CSRIN_BASE}/search.php?${params}`, {
-    headers: {
-      'User-Agent': CSRIN_USER_AGENT,
-      'Cookie': csrinSession.cookies,
-      'Referer': `${CSRIN_BASE}/index.php`,
-    },
+  const doFetch = () => csrinFetch(`${CSRIN_BASE}/search.php?${params}`, {
+    headers: { 'Referer': `${CSRIN_BASE}/index.php` },
   });
 
   try {
