@@ -7,13 +7,22 @@ import path from 'node:path';
 function loadEnv(p) { if (!fs.existsSync(p)) return; for (const line of fs.readFileSync(p, 'utf8').split(/\r?\n/)) { const l = line.trim(); if (!l || l.startsWith('#')) continue; const eq = l.indexOf('='); if (eq < 0) continue; const k = l.slice(0, eq).trim(); let v = l.slice(eq + 1).trim(); if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1); if (!process.env[k]) process.env[k] = v; }}
 loadEnv(path.resolve('.env'));
 
-// Pick a recent post that actually has download links (skip "Upcoming
-// Repacks" / news-style posts which don't have any).
-const listResp = await fetch('https://fitgirl-repacks.site/wp-json/wp/v2/posts?per_page=10', {
-  headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0' },
-});
-const posts = await listResp.json();
-const post = posts.find(p => /paste\.fitgirl-repacks\.site/.test(p.content?.rendered || '')) || posts[0];
+// Allow CLI arg to target a specific slug, otherwise scan recent posts.
+const slug = process.argv[2];
+let post;
+if (slug) {
+  const r = await fetch(`https://fitgirl-repacks.site/wp-json/wp/v2/posts?slug=${encodeURIComponent(slug)}`);
+  [post] = await r.json();
+  if (!post) { console.error(`No post for slug "${slug}"`); process.exit(1); }
+} else {
+  // Pick a recent post that actually has download links (skip "Upcoming
+  // Repacks" / news-style posts which don't have any).
+  const listResp = await fetch('https://fitgirl-repacks.site/wp-json/wp/v2/posts?per_page=10', {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0' },
+  });
+  const posts = await listResp.json();
+  post = posts.find(p => /paste\.fitgirl-repacks\.site/.test(p.content?.rendered || '')) || posts[0];
+}
 console.log('Sample post:', post.title.rendered);
 console.log('Link:', post.link);
 console.log('Content length:', post.content.rendered.length, 'chars\n');

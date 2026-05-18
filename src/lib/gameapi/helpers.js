@@ -1731,6 +1731,24 @@ export async function extractDownloadLinksForV2(postUrl, siteType = 'skidrow', w
             ...(isTorrentPaste ? { isTorrent: true } : {}),
           });
         }
+
+        // FitGirl also posts a rutor.* tracker link as an alternative
+        // torrent source (popular Russian tracker among FitGirl's audience).
+        // Surface it with torrent affordances. Permissive on TLD because
+        // rutor mirrors across .info / .org / .name etc.
+        const rutorRegex = /<a\s+[^>]*href=["'](https?:\/\/(?:[\w-]+\.)?rutor\.[a-z]{2,}\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+        while ((match = rutorRegex.exec(html)) !== null) {
+          const url = match[1];
+          const text = stripHtml(decodeBasicHtmlEntities(match[2])).trim() || 'RuTor';
+          if (downloadLinks.some(l => l.url === url)) continue;
+          downloadLinks.push({
+            type: 'torrent-file',
+            service: text,
+            url,
+            text,
+            isTorrent: true,
+          });
+        }
       } else if (siteType === 'reloadedsteam') {
         // ReloadedSteam uses styled buttons linking to datanodes.to / datavaults.co / vikingfile.com / gofile.io
         const hrefRegex = /<a[^>]+href=["']([^"']+)["']/gi;
