@@ -201,6 +201,7 @@ export async function retryableFetch(resource, options = {}, attempts = DEFAULT_
 export const MAX_POSTS_PER_SITE = {
   'skidrow': 40,
   'steamrip': 40,
+  'fitgirl': 40,
   'freegog': 40,
   'reloadedsteam': 40,
   'steamunderground': 40,
@@ -252,6 +253,11 @@ export const SITE_CONFIGS = {
     fallbackBaseUrl: 'https://dodi-repacks.site/wp-json/wp/v2/posts',
     type: 'dodi',
     name: 'DODI-Repacks'
+  },
+  'fitgirl': {
+    baseUrl: 'https://fitgirl-repacks.site/wp-json/wp/v2/posts',
+    type: 'fitgirl',
+    name: 'FitGirl-Repacks'
   },
   'csrin': {
     baseUrl: 'https://cs.rin.ru/forum',
@@ -1695,6 +1701,59 @@ export async function extractDownloadLinksForV2(postUrl, siteType = 'skidrow', w
               downloadLinks.push(torrentData);
             }
           }
+        }
+      } else if (siteType === 'fitgirl') {
+        // FitGirl posts contain hundreds of .partNN.rar links per filehoster
+        // (e.g. ...part01.rar, ...part02.rar, ...). Enumerating each part
+        // is hostile - the user would have to click 50+ buttons. Instead
+        // FitGirl groups them: every section has a single paste.fitgirl-
+        // repacks.site pastebin that holds the full ordered list for one
+        // filehoster, and the anchor text is the filehoster name (e.g.
+        // "Filehoster: DataNodes"). Surface only the pastebins; the part
+        // files are silently dropped because they don't match the URL
+        // pattern. Magnet links the post may include are emitted by the
+        // torrent regex further down (shared with the gamedrive branch).
+        const pasteRegex = /<a\s+[^>]*href=["'](https?:\/\/paste\.fitgirl-repacks\.site\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+        let match;
+        while ((match = pasteRegex.exec(html)) !== null) {
+          const url = match[1];
+          const text = stripHtml(decodeBasicHtmlEntities(match[2])).trim() || 'FitGirl Paste';
+          if (downloadLinks.some(l => l.url === url)) continue;
+          // Anchor text like ".torrent file only" identifies the torrent
+          // pastebin (vs the per-filehoster ones). Tag it so the UI can
+          // surface it as a torrent rather than a generic hosting link.
+          const isTorrentPaste = /torrent/i.test(text);
+          downloadLinks.push({
+            type: isTorrentPaste ? 'torrent-file' : 'hosting',
+            service: text,
+            url,
+            text,
+            ...(isTorrentPaste ? { isTorrent: true } : {}),
+          });
+        }
+
+        // FitGirl also posts a rutor.* tracker link as an alternative
+        // torrent source (popular Russian tracker among FitGirl's audience).
+        // Two flavors appear in the wild:
+        //   - direct: ...rutor.info/.../whatever.torrent  → one-click .torrent
+        //   - post:   rutor.info/torrent/<id>/<slug>      → page the user
+        //             has to visit to grab the magnet/file from
+        // Label them differently so the user knows what they're clicking,
+        // but both keep isTorrent=true so any torrent UI affordances apply.
+        // Permissive on TLD because rutor mirrors across .info / .org / etc.
+        const rutorRegex = /<a\s+[^>]*href=["'](https?:\/\/(?:[\w-]+\.)?rutor\.[a-z]{2,}\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+        while ((match = rutorRegex.exec(html)) !== null) {
+          const url = match[1];
+          if (downloadLinks.some(l => l.url === url)) continue;
+          const isDirectTorrent = /\.torrent(?:$|\?)/i.test(url);
+          const label = isDirectTorrent ? 'Torrent' : 'RuTor (post)';
+          downloadLinks.push({
+            type: 'torrent-file',
+            service: label,
+            url,
+            text: label,
+            isTorrent: true,
+          });
         }
       } else if (siteType === 'reloadedsteam') {
         // ReloadedSteam uses styled buttons linking to datanodes.to / datavaults.co / vikingfile.com / gofile.io
