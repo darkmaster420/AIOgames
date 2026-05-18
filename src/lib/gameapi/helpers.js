@@ -1702,6 +1702,30 @@ export async function extractDownloadLinksForV2(postUrl, siteType = 'skidrow', w
             }
           }
         }
+      } else if (siteType === 'fitgirl') {
+        // FitGirl posts contain hundreds of .partNN.rar links per filehoster
+        // (e.g. ...part01.rar, ...part02.rar, ...). Enumerating each part
+        // is hostile - the user would have to click 50+ buttons. Instead
+        // FitGirl groups them: every section has a single paste.fitgirl-
+        // repacks.site pastebin that holds the full ordered list for one
+        // filehoster, and the anchor text is the filehoster name (e.g.
+        // "Filehoster: DataNodes"). Surface only the pastebins; the part
+        // files are silently dropped because they don't match the URL
+        // pattern. Magnet links the post may include are emitted by the
+        // torrent regex further down (shared with the gamedrive branch).
+        const pasteRegex = /<a\s+[^>]*href=["'](https?:\/\/paste\.fitgirl-repacks\.site\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+        let match;
+        while ((match = pasteRegex.exec(html)) !== null) {
+          const url = match[1];
+          const text = stripHtml(decodeBasicHtmlEntities(match[2])).trim() || 'FitGirl Paste';
+          if (downloadLinks.some(l => l.url === url)) continue;
+          downloadLinks.push({
+            type: 'hosting',
+            service: text,
+            url,
+            text,
+          });
+        }
       } else if (siteType === 'reloadedsteam') {
         // ReloadedSteam uses styled buttons linking to datanodes.to / datavaults.co / vikingfile.com / gofile.io
         const hrefRegex = /<a[^>]+href=["']([^"']+)["']/gi;
