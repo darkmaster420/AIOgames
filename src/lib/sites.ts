@@ -1,5 +1,4 @@
 export const SITES = [
-  { value: 'gamedrive', label: 'GameDrive' },
   { value: 'steamrip', label: 'SteamRip' },
   { value: 'skidrow', label: 'SkidRow' },
   { value: 'freegog', label: 'FreeGog' },

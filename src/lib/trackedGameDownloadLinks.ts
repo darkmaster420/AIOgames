@@ -230,8 +230,7 @@ export async function fetchDownloadLinksViaGameapi(
       const domainMatch = targetUrl.match(/https?:\/\/([^/]+)/);
       if (domainMatch) {
         const domain = domainMatch[1];
-        if (domain.includes('gamedrive')) siteType = 'gamedrive';
-        else if (domain.includes('skidrowreloaded')) siteType = 'skidrow';
+        if (domain.includes('skidrowreloaded')) siteType = 'skidrow';
         else if (domain.includes('freegogpcgames')) siteType = 'freegog';
         else if (domain.includes('steamrip')) siteType = 'steamrip';
         else if (domain.includes('reloadedsteam')) siteType = 'reloadedsteam';

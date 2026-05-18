@@ -200,7 +200,6 @@ export async function retryableFetch(resource, options = {}, attempts = DEFAULT_
 // Maximum posts to fetch per site
 export const MAX_POSTS_PER_SITE = {
   'skidrow': 40,
-  'gamedrive': 40,
   'steamrip': 40,
   'freegog': 40,
   'reloadedsteam': 40,
@@ -222,11 +221,6 @@ export const SITE_CONFIGS = {
     baseUrl: 'https://freegogpcgames.com/wp-json/wp/v2/posts',
     type: 'freegog',
     name: 'FreeGOGPCGames'
-  },
-  'gamedrive': {
-    baseUrl: 'https://gamedrive.org/wp-json/wp/v2/posts',
-    type: 'gamedrive',
-    name: 'GameDrive'
   },
   'steamrip': {
     baseUrl: 'https://steamrip.com/wp-json/wp/v2/posts',
@@ -293,7 +287,6 @@ export function extractServiceName(url) {
     const parsed = new URL(testUrl);
     const host = parsed.hostname.toLowerCase();
     
-    if (host.includes('gamedrive.org')) return 'GameDrive';
     if (host.includes('torrent.cybar.xyz')) return 'CybarTorrent';
     if (host.includes('freegogpcgames.com') || host.includes('gdl.freegogpcgames.xyz')) {
       return 'FreeGOG';

@@ -137,10 +137,6 @@ async function searchSite(siteConfig: SiteConfig, searchQuery: string): Promise<
       order: 'desc'
     });
 
-    if (siteConfig.type === 'gamedrive') {
-      baseParams.set('categories', '3');
-    }
-
     // FreeGOG goes through FlareSolverr (slow + browser automation). Pagination
     // there means N FlareSolverr round-trips per search - stay single-page.
     // Everywhere else: max page size, then paginate until X-WP-TotalPages says
@@ -219,10 +215,6 @@ async function fetchRecentFromSite(siteConfig: SiteConfig): Promise<TransformedP
       orderby: 'date',
       order: 'desc'
     });
-
-    if (siteConfig.type === 'gamedrive') {
-      params.set('categories', '3');
-    }
 
     if (siteConfig.type !== 'freegog') {
       const maxPosts = MAX_POSTS_PER_SITE[siteConfig.type] || MAX_POSTS_PER_SITE.default;

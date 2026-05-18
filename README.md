@@ -18,7 +18,7 @@ A self-hosted Next.js app that monitors game updates across 8+ sites, verifies v
 ## ✨ Features (v2.0)
 
 ### Core
-- **Multi-Site Monitoring** — GameDrive, SteamRip, SteamUnderground, SkidRow, FreeGOG, ReloadedSteam, Online-Fix, GOG-Games
+- **Multi-Site Monitoring** — SteamRip, SteamUnderground, SkidRow, FreeGOG, ReloadedSteam, Online-Fix, GOG-Games, DODI-Repacks, CS.RIN.RU
 - **Smart Version Detection** — Semantic versions, build numbers, date-based versions, scene group tags, and 50+ release format patterns
 - **Automatic Update Scheduling** — Built-in background scheduler, per-game frequency, no cron jobs
 - **Download Links** — One-click download link extraction with 30+ file host support (Mega, Mediafire, Pixeldrain, etc.)
@@ -111,7 +111,6 @@ VAPID_PRIVATE_KEY=your-vapid-private-key
 
 | Site | Type | Notes |
 |------|------|-------|
-| GameDrive | WordPress API | — |
 | SteamRip | WordPress API | FlareSolverr recommended |
 | SteamUnderground | WordPress API | — |
 | SkidRow Reloaded | WordPress API | Circuit-breaker protected |
