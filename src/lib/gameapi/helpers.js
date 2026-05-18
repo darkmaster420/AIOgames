@@ -2540,9 +2540,22 @@ function parseCsrinSearchResults(html) {
       const title = decodeEntities(titleHtml.replace(/<[^>]+>/g, '')).trim();
       if (!title) continue;
 
-      // Clean URL - strip search-state params, then jump straight to the
-      // newest post in the thread (latest update is what the user wants).
-      const link = `${CSRIN_BASE}/viewtopic.php?t=${threadId}&view=newest`;
+      // Preserve `f` (forum id) and `start` (post offset) straight from
+      // phpBB's search-result href - the search engine already calculated
+      // `start` to point at the page containing the most recent post. Drop
+      // `hilit` (search-highlight noise) and `sid` (other people's session
+      // ids leaking out). Falls back to view=newest if start isn't present.
+      const fMatch = href.match(/[?&]f=(\d+)/);
+      const startMatch = href.match(/[?&]start=(\d+)/);
+      const linkParams = new URLSearchParams();
+      if (fMatch) linkParams.set('f', fMatch[1]);
+      linkParams.set('t', threadId);
+      if (startMatch) {
+        linkParams.set('start', startMatch[1]);
+      } else {
+        linkParams.set('view', 'newest');
+      }
+      const link = `${CSRIN_BASE}/viewtopic.php?${linkParams.toString()}`;
       results.push(buildCsrinPost({ threadId, title, link }));
     }
   }
@@ -2554,12 +2567,23 @@ export async function fetchCsrinSearch(searchQuery) {
   const ready = await ensureCsrinSession();
   if (!ready) return [];
 
+  // Param set mirrors what the browser sends when you submit the search form.
+  // Several of these (sc, st, ch, t, submit) are no-ops on most phpBB installs
+  // but matching the browser request exactly avoids surprises if cs.rin.ru
+  // ever validates them.
   const params = new URLSearchParams({
     keywords: searchQuery,
-    sf: 'titleonly', // titles only - much faster, less noise
-    sr: 'topics',    // return topics, not individual posts
-    sk: 't',         // sort by topic creation date
-    sd: 'd',         // descending
+    terms: 'all',     // all keywords must match
+    author: '',       // any author
+    sc: '1',          // search children of subforums too
+    sf: 'titleonly',  // titles only - faster, less noise
+    sk: 't',          // sort by topic creation date
+    sd: 'd',          // descending
+    sr: 'topics',     // return topics, not individual posts
+    st: '0',          // any time (no date cutoff)
+    ch: '300',        // excerpt character count
+    t: '0',
+    submit: 'Search',
   });
 
   const doFetch = () => siteFetch(`${CSRIN_BASE}/search.php?${params}`, {
