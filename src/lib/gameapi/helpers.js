@@ -200,7 +200,6 @@ export async function retryableFetch(resource, options = {}, attempts = DEFAULT_
 // Maximum posts to fetch per site
 export const MAX_POSTS_PER_SITE = {
   'skidrow': 40,
-  'gamedrive': 40,
   'steamrip': 40,
   'freegog': 40,
   'reloadedsteam': 40,
@@ -222,11 +221,6 @@ export const SITE_CONFIGS = {
     baseUrl: 'https://freegogpcgames.com/wp-json/wp/v2/posts',
     type: 'freegog',
     name: 'FreeGOGPCGames'
-  },
-  'gamedrive': {
-    baseUrl: 'https://gamedrive.org/wp-json/wp/v2/posts',
-    type: 'gamedrive',
-    name: 'GameDrive'
   },
   'steamrip': {
     baseUrl: 'https://steamrip.com/wp-json/wp/v2/posts',
@@ -258,6 +252,11 @@ export const SITE_CONFIGS = {
     fallbackBaseUrl: 'https://dodi-repacks.site/wp-json/wp/v2/posts',
     type: 'dodi',
     name: 'DODI-Repacks'
+  },
+  'csrin': {
+    baseUrl: 'https://cs.rin.ru/forum',
+    type: 'csrin',
+    name: 'CS.RIN.RU'
   }
 };
 
@@ -288,7 +287,6 @@ export function extractServiceName(url) {
     const parsed = new URL(testUrl);
     const host = parsed.hostname.toLowerCase();
     
-    if (host.includes('gamedrive.org')) return 'GameDrive';
     if (host.includes('torrent.cybar.xyz')) return 'CybarTorrent';
     if (host.includes('freegogpcgames.com') || host.includes('gdl.freegogpcgames.xyz')) {
       return 'FreeGOG';
@@ -2325,5 +2323,473 @@ export function transformGogGamesPost(item) {
     siteType: 'goggames',
     image
   };
+}
+
+// ── cs.rin.ru forum integration ──────────────────────────────────────────────
+// cs.rin.ru is a phpBB forum that requires login to search/view threads.
+// We log in once per server lifetime with a dedicated bot account
+// (CSRIN_USERNAME / CSRIN_PASSWORD env vars), cache the session cookies in
+// memory, and re-login on expiry or session loss. We DO NOT scrape download
+// links from threads - search results return the thread URL and the user
+// clicks through to the forum themselves.
+
+const CSRIN_BASE = 'https://cs.rin.ru/forum';
+const CSRIN_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const CSRIN_SESSION_TTL = 60 * 60 * 1000; // 1 hour - phpBB sessions usually last longer but be conservative
+const CSRIN_LOGIN_FAIL_COOLDOWN = 5 * 60 * 1000; // 5 minutes - don't hammer on bad creds
+
+const csrinSession = {
+  cookies: '',          // serialised "name=value; name=value" Cookie header
+  loggedInAt: 0,        // ms timestamp of last successful login
+  loginFailedAt: 0,     // ms timestamp of last failed login attempt
+  loggingIn: null,      // in-flight login promise (de-dupes concurrent callers)
+};
+
+// Extract Set-Cookie values from a Response, returning ["name=value", ...].
+// Strips attributes (Path, Domain, HttpOnly, etc) - we just want the pair.
+function parseSetCookies(response) {
+  const getter = response.headers.getSetCookie?.bind(response.headers);
+  if (typeof getter === 'function') {
+    return getter().map(c => c.split(';')[0].trim()).filter(Boolean);
+  }
+  // Fallback for older runtimes - single combined header (lossy if multiple)
+  const single = response.headers.get('set-cookie');
+  if (!single) return [];
+  return single.split(/,(?=\s*\w+=)/).map(c => c.split(';')[0].trim()).filter(Boolean);
+}
+
+// Merge a "name=value; name=value" string with an array of new "name=value"
+// pairs - later writes win, matching browser cookie jar semantics.
+function mergeCookieString(existing, additions) {
+  const map = new Map();
+  if (existing) {
+    for (const pair of existing.split(';')) {
+      const trimmed = pair.trim();
+      const eq = trimmed.indexOf('=');
+      if (eq > 0) map.set(trimmed.slice(0, eq), trimmed.slice(eq + 1));
+    }
+  }
+  for (const pair of additions) {
+    const eq = pair.indexOf('=');
+    if (eq > 0) map.set(pair.slice(0, eq), pair.slice(eq + 1));
+  }
+  return Array.from(map.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+}
+
+// Decode the small set of HTML entities phpBB emits in thread titles.
+function decodeEntities(s) {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
+
+async function performCsrinLogin() {
+  const username = process.env.CSRIN_USERNAME;
+  const password = process.env.CSRIN_PASSWORD;
+  if (!username || !password) {
+    // Not configured - silently skip
+    return false;
+  }
+
+  try {
+    // 1) GET the login form. csrinFetch transparently solves the security-
+    //    check challenge if cs.rin.ru fires it (it always does on a cold
+    //    session). It also accumulates session cookies into csrinSession.cookies
+    //    as a side effect, so we don't need to track initialCookies separately.
+    const formResp = await csrinFetch(`${CSRIN_BASE}/ucp.php?mode=login`);
+    if (!formResp || !formResp.ok) {
+      console.warn(`cs.rin.ru login form fetch failed: ${formResp?.status || 'no response'}`);
+      return false;
+    }
+    const formHtml = await formResp.text();
+
+    const params = new URLSearchParams();
+    params.set('username', username);
+    params.set('password', password);
+    params.set('redirect', 'index.php');
+    params.set('login', 'Login');
+    const sidMatch = formHtml.match(/name="sid"\s+value="([^"]+)"/);
+    if (sidMatch) params.set('sid', sidMatch[1]);
+    const formTokenMatch = formHtml.match(/name="form_token"\s+value="([^"]+)"/);
+    if (formTokenMatch) params.set('form_token', formTokenMatch[1]);
+    const creationTimeMatch = formHtml.match(/name="creation_time"\s+value="([^"]+)"/);
+    if (creationTimeMatch) params.set('creation_time', creationTimeMatch[1]);
+
+    // 2) POST credentials. Use redirect:'manual' so we can read the Set-Cookie
+    //    on the redirect response before the browser would follow it.
+    //    csrinFetch carries the security-check + initial session cookies for
+    //    us via csrinSession.cookies.
+    const loginResp = await csrinFetch(`${CSRIN_BASE}/ucp.php?mode=login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Referer': `${CSRIN_BASE}/ucp.php?mode=login`,
+      },
+      body: params.toString(),
+      redirect: 'manual',
+    });
+
+    const loginCookies = parseSetCookies(loginResp);
+    csrinSession.cookies = mergeCookieString(csrinSession.cookies, loginCookies);
+    const merged = csrinSession.cookies;
+
+    // phpBB sets a `<prefix>phpbb3_u` cookie containing the user id. "1" is
+    // the anonymous guest. Anything else means we're logged in. The middle
+    // segment between phpbb3_ and _u is the board id and is sometimes empty
+    // (cs.rin.ru uses `csrinru_phpbb3_u`), so allow zero-or-more chars there.
+    // A 3xx redirect back to index.php is also a strong success signal but
+    // some installs return 200 with a "logged in successfully" interstitial
+    // instead, so we treat the cookie as authoritative.
+    const userIdMatch = merged.match(/phpbb3\w*_u=(\d+)/i);
+    const isAnonymous = !userIdMatch || userIdMatch[1] === '1';
+    const isRedirect = loginResp.status >= 300 && loginResp.status < 400;
+
+    if (isAnonymous && !isRedirect) {
+      console.warn(`cs.rin.ru login appears rejected (status ${loginResp.status}, user id ${userIdMatch?.[1] || 'none'})`);
+      return false;
+    }
+
+    csrinSession.loggedInAt = Date.now();
+    csrinSession.loginFailedAt = 0;
+    console.log('cs.rin.ru login successful');
+    return true;
+  } catch (err) {
+    console.warn('cs.rin.ru login error:', err?.message || err);
+    return false;
+  }
+}
+
+// Ensure we have a fresh session. Coalesces concurrent calls so we don't
+// hit /ucp.php?mode=login multiple times in parallel.
+async function ensureCsrinSession() {
+  const sessionFresh = csrinSession.cookies && (Date.now() - csrinSession.loggedInAt < CSRIN_SESSION_TTL);
+  if (sessionFresh) return true;
+
+  if (csrinSession.loginFailedAt && Date.now() - csrinSession.loginFailedAt < CSRIN_LOGIN_FAIL_COOLDOWN) {
+    return false;
+  }
+
+  if (csrinSession.loggingIn) {
+    return await csrinSession.loggingIn;
+  }
+  csrinSession.loggingIn = (async () => {
+    const ok = await performCsrinLogin();
+    if (!ok) csrinSession.loginFailedAt = Date.now();
+    csrinSession.loggingIn = null;
+    return ok;
+  })();
+  return await csrinSession.loggingIn;
+}
+
+// Detect the "you must log in" interstitial phpBB shows when the session is
+// gone. Cheap and tolerant - we just look for the login form action.
+function looksLikeLoginPage(html) {
+  if (!html) return false;
+  return /name="username"/i.test(html) && /name="password"/i.test(html) && /mode=login/i.test(html);
+}
+
+// cs.rin.ru gates every request behind a JS-driven anti-bot challenge: the
+// server returns 401 with HTML that sets two cookies (securitytoken +
+// securitytoken_expiration) via JS, then redirects the browser to
+// /securitycheck<path> which validates the cookies and issues a session
+// cookie. We replicate this in plain HTTP - no JS engine needed since the
+// tokens are right in the response body.
+function looksLikeCsrinSecurityCheck(html) {
+  if (!html) return false;
+  return html.includes('CS RIN - Security check') || /securitytoken=[\w-]+/.test(html);
+}
+
+async function solveCsrinSecurityCheck(originalUrl, html) {
+  const tokenMatch = html.match(/securitytoken=([\w-]+)/);
+  const expirationMatch = html.match(/securitytoken_expiration=(\d+)/);
+  if (!tokenMatch || !expirationMatch) {
+    console.warn('cs.rin.ru: 401 received but security tokens not parseable');
+    return false;
+  }
+
+  // Plant the tokens in our cookie jar before hitting the validator.
+  csrinSession.cookies = mergeCookieString(csrinSession.cookies, [
+    `securitytoken=${tokenMatch[1]}`,
+    `securitytoken_expiration=${expirationMatch[1]}`,
+  ]);
+
+  // The JS does: newURL = url.replace(pathname, "/securitycheck" + pathname).
+  // Translation in plain JS:
+  const urlObj = new URL(originalUrl);
+  const checkUrl = `${urlObj.origin}/securitycheck${urlObj.pathname}${urlObj.search}`;
+
+  const checkResp = await siteFetch(checkUrl, {
+    headers: {
+      'User-Agent': CSRIN_USER_AGENT,
+      'Cookie': csrinSession.cookies,
+      'Referer': originalUrl,
+    },
+    redirect: 'manual',
+  });
+  const newCookies = parseSetCookies(checkResp);
+  if (newCookies.length) {
+    csrinSession.cookies = mergeCookieString(csrinSession.cookies, newCookies);
+  }
+  return true;
+}
+
+// Wrapper around siteFetch that:
+//   - sticks our cs.rin.ru cookie jar onto every request
+//   - transparently solves the security-check challenge and retries once
+//     when the server fires it
+async function csrinFetch(url, options = {}) {
+  const buildHeaders = () => ({
+    'User-Agent': CSRIN_USER_AGENT,
+    ...(options.headers || {}),
+    Cookie: csrinSession.cookies,
+  });
+
+  let response = await siteFetch(url, { ...options, headers: buildHeaders() });
+
+  if (response.status === 401) {
+    // Consume the body so we can inspect it without leaving the stream half-read.
+    const body = await response.text();
+    if (looksLikeCsrinSecurityCheck(body)) {
+      console.log('cs.rin.ru: solving security check');
+      const solved = await solveCsrinSecurityCheck(url, body);
+      if (solved) {
+        response = await siteFetch(url, { ...options, headers: buildHeaders() });
+      } else {
+        // Reconstruct so the caller sees the original failure body.
+        response = new Response(body, {
+          status: 401,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
+      }
+    } else {
+      response = new Response(body, {
+        status: 401,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
+    }
+  }
+
+  return response;
+}
+
+function buildCsrinPost({ threadId, title, link }) {
+  return {
+    id: `csrin-${threadId}`,
+    originalId: threadId,
+    title,
+    excerpt: '',
+    link,
+    date: new Date().toISOString(),
+    slug: '',
+    description: 'Forum thread on cs.rin.ru - click to view the latest post',
+    categories: [],
+    tags: [],
+    downloadLinks: [],
+    source: 'CS.RIN.RU',
+    siteType: 'csrin',
+    image: null,
+  };
+}
+
+function parseCsrinSearchResults(html) {
+  // First pass: scan every viewtopic href that carries `start=N` and record
+  // the largest start per thread. phpBB puts these inside the
+  // "Go to page: 1 ... 27, 28, 29" pagination span next to each result -
+  // the topictitle anchor itself never has `start=`, so we couldn't find
+  // the latest page from that link alone. Highest start = latest page,
+  // which is where users want to land for "what changed recently in this
+  // thread". Also remembers the `f=` (forum id) seen alongside.
+  const lastStartByThread = new Map();
+  const lastForumByThread = new Map();
+  const startHrefRe = /href="([^"]*viewtopic\.php\?[^"]*start=\d+[^"]*)"/gi;
+  for (const m of html.matchAll(startHrefRe)) {
+    const href = decodeEntities(m[1]);
+    const t = href.match(/[?&]t=(\d+)/)?.[1];
+    const sStr = href.match(/[?&]start=(\d+)/)?.[1];
+    const f = href.match(/[?&]f=(\d+)/)?.[1];
+    if (!t || sStr === undefined) continue;
+    const s = parseInt(sStr, 10);
+    if (!Number.isFinite(s)) continue;
+    const prev = lastStartByThread.get(t);
+    if (prev === undefined || s > prev) {
+      lastStartByThread.set(t, s);
+      if (f) lastForumByThread.set(t, f);
+    }
+  }
+
+  const results = [];
+  const seen = new Set();
+
+  // Second pass: every <a class="topictitle"> anchor is a search hit. Title
+  // comes from the anchor text, the latest-page URL comes from the lookup
+  // tables above (falling back to the anchor's own href values when the
+  // thread fits on a single page - no pagination = no start= anchors).
+  const patterns = [
+    /<a\s+[^>]*class="topictitle"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi,
+    /<a\s+[^>]*href="([^"]+)"[^>]*class="topictitle"[^>]*>([\s\S]*?)<\/a>/gi,
+  ];
+
+  for (const re of patterns) {
+    for (const m of html.matchAll(re)) {
+      const href = decodeEntities(m[1]);
+      const titleHtml = m[2];
+      const threadId = href.match(/[?&]t=(\d+)/)?.[1];
+      if (!threadId) continue;
+      if (seen.has(threadId)) continue;
+      seen.add(threadId);
+
+      // Strip elements that are visually hidden (display:none /
+      // visibility:hidden). phpBB themes on cs.rin.ru use these for
+      // screen-reader status labels like "SCS - offline" sitting next to
+      // a status-indicator image - they'd leak into the visible title.
+      const title = decodeEntities(
+        titleHtml
+          .replace(/<([a-z]+)[^>]*style="[^"]*(?:display\s*:\s*none|visibility\s*:\s*hidden)[^"]*"[^>]*>[\s\S]*?<\/\1>/gi, '')
+          .replace(/<[^>]+>/g, '')
+      ).replace(/\s+/g, ' ').trim();
+      if (!title) continue;
+
+      const linkParams = new URLSearchParams();
+      const f = lastForumByThread.get(threadId) || href.match(/[?&]f=(\d+)/)?.[1];
+      if (f) linkParams.set('f', f);
+      linkParams.set('t', threadId);
+      const lastStart = lastStartByThread.get(threadId);
+      if (lastStart !== undefined) linkParams.set('start', String(lastStart));
+      const link = `${CSRIN_BASE}/viewtopic.php?${linkParams.toString()}`;
+      results.push(buildCsrinPost({ threadId, title, link }));
+    }
+  }
+
+  return results;
+}
+
+export async function fetchCsrinSearch(searchQuery) {
+  const ready = await ensureCsrinSession();
+  if (!ready) return [];
+
+  // Param set mirrors what the browser sends when you submit the search form.
+  // Several of these (sc, st, ch, t, submit) are no-ops on most phpBB installs
+  // but matching the browser request exactly avoids surprises if cs.rin.ru
+  // ever validates them.
+  const params = new URLSearchParams({
+    keywords: searchQuery,
+    terms: 'all',     // all keywords must match
+    author: '',       // any author
+    sc: '1',          // search children of subforums too
+    sf: 'titleonly',  // titles only - faster, less noise
+    sk: 't',          // sort by topic creation date
+    sd: 'd',          // descending
+    sr: 'topics',     // return topics, not individual posts
+    st: '0',          // any time (no date cutoff)
+    ch: '300',        // excerpt character count
+    t: '0',
+    submit: 'Search',
+  });
+
+  const doFetch = () => csrinFetch(`${CSRIN_BASE}/search.php?${params}`, {
+    headers: { 'Referer': `${CSRIN_BASE}/index.php` },
+  });
+
+  try {
+    let response = await doFetch();
+    if (!response || !response.ok) {
+      console.warn(`cs.rin.ru search returned ${response?.status || 'no response'}`);
+      return [];
+    }
+    let html = await response.text();
+
+    // If we got bounced to the login page, our session died - re-login once
+    // and retry. If it still fails, give up for this request.
+    if (looksLikeLoginPage(html)) {
+      console.log('cs.rin.ru session expired mid-search, re-logging in');
+      csrinSession.cookies = '';
+      csrinSession.loggedInAt = 0;
+      const reAuth = await ensureCsrinSession();
+      if (!reAuth) return [];
+      response = await doFetch();
+      if (!response || !response.ok) return [];
+      html = await response.text();
+      if (looksLikeLoginPage(html)) return [];
+    }
+
+    return parseCsrinSearchResults(html);
+  } catch (err) {
+    console.error('cs.rin.ru search error:', err?.message || err);
+    return [];
+  }
+}
+
+// Latest topics from the Game/Application Releases subforum (f=10), shown
+// when the user explicitly clicks the cs.rin.ru chip on the home page.
+// Cached in-memory with a 15-minute TTL so repeated chip clicks don't
+// hammer the forum.
+const CSRIN_RECENT_FORUM_ID = '10';
+const CSRIN_RECENT_TTL_MS = 15 * 60 * 1000;
+const csrinRecentCache = { results: [], timestamp: 0 };
+
+export async function fetchCsrinRecent() {
+  if (
+    csrinRecentCache.timestamp > 0 &&
+    Date.now() - csrinRecentCache.timestamp < CSRIN_RECENT_TTL_MS
+  ) {
+    return csrinRecentCache.results;
+  }
+
+  const ready = await ensureCsrinSession();
+  if (!ready) return csrinRecentCache.results;
+
+  const viewforumUrl = `${CSRIN_BASE}/viewforum.php?f=${CSRIN_RECENT_FORUM_ID}`;
+  const doFetch = () => csrinFetch(viewforumUrl, {
+    headers: { 'Referer': `${CSRIN_BASE}/index.php` },
+  });
+
+  try {
+    let response = await doFetch();
+    if (!response || !response.ok) {
+      console.warn(`cs.rin.ru viewforum returned ${response?.status || 'no response'}`);
+      return csrinRecentCache.results;
+    }
+    let html = await response.text();
+
+    // Same session-expired retry as search: if we land on the login page,
+    // re-login once and retry the request.
+    if (looksLikeLoginPage(html)) {
+      console.log('cs.rin.ru session expired mid-recent, re-logging in');
+      csrinSession.cookies = '';
+      csrinSession.loggedInAt = 0;
+      const reAuth = await ensureCsrinSession();
+      if (!reAuth) return csrinRecentCache.results;
+      response = await doFetch();
+      if (!response || !response.ok) return csrinRecentCache.results;
+      html = await response.text();
+      if (looksLikeLoginPage(html)) return csrinRecentCache.results;
+    }
+
+    // The viewforum.php HTML uses the same topictitle anchor + pagination
+    // span markup as search results, BUT it groups announcements + stickies
+    // (forum rules, privacy policy, etc.) above the actual topic list under
+    // a "Topics" section header. Slice from that header so we don't return
+    // pinned meta-threads as if they were game releases.
+    const topicsHeaderIdx = html.indexOf('>Topics</b>');
+    const sliceFrom = topicsHeaderIdx >= 0 ? topicsHeaderIdx : 0;
+    // Cap at 20 - first page of viewforum.php returns ~50-100 threads but
+    // users only need a glance at what's new. Keeps the payload tiny and
+    // matches the "recent uploads" framing.
+    const results = parseCsrinSearchResults(html.slice(sliceFrom)).slice(0, 20);
+    if (results.length > 0) {
+      csrinRecentCache.results = results;
+      csrinRecentCache.timestamp = Date.now();
+    }
+    return results;
+  } catch (err) {
+    console.error('cs.rin.ru recent error:', err?.message || err);
+    return csrinRecentCache.results;
+  }
 }
 

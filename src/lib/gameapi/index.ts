@@ -22,6 +22,7 @@ import {
   transformGogGamesPost,
   fetchOnlineFixRecent,
   fetchOnlineFixSearch,
+  fetchCsrinSearch,
   siteFetch,
 } from './helpers.js';
 
@@ -98,6 +99,24 @@ const SEARCH_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
 // â”€â”€â”€ Internal Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+// WordPress REST API caps per_page at 100. To fetch every matching post for a
+// search query we request 100 per page and paginate using X-WP-TotalPages.
+const SEARCH_PER_PAGE = 100;
+// Safety cap on pages per site - 10 pages * 100 = 1000 results, more than any
+// real search ever needs, but protects against runaway requests if a site
+// reports a bogus total-pages header.
+const SEARCH_MAX_PAGES = 10;
+
+// Routes a WP REST URL through the right site-specific fetcher (which handles
+// CloudFlare, retries, circuit breakers, etc).
+function dispatchWpFetch(siteConfig: SiteConfig, url: string) {
+  if (siteConfig.type === 'steamrip') return fetchSteamrip(url);
+  if (siteConfig.type === 'skidrow') return fetchSkidrow(url);
+  if (siteConfig.type === 'dodi') return fetchDodi(url);
+  if (siteConfig.type === 'freegog') return fetchFreegog(url);
+  return siteFetch(url, { headers: { 'User-Agent': 'GameSearch-API-v2/2.0' } });
+}
+
 async function searchSite(siteConfig: SiteConfig, searchQuery: string): Promise<TransformedPost[]> {
   try {
     if (siteConfig.type === 'goggames') {
@@ -108,45 +127,66 @@ async function searchSite(siteConfig: SiteConfig, searchQuery: string): Promise<
       return await fetchOnlineFixSearch(searchQuery);
     }
 
-    const params = new URLSearchParams({
+    if (siteConfig.type === 'csrin') {
+      return await fetchCsrinSearch(searchQuery);
+    }
+
+    const baseParams = new URLSearchParams({
       search: searchQuery,
       orderby: 'date',
       order: 'desc'
     });
 
-    if (siteConfig.type === 'gamedrive') {
-      params.set('categories', '3');
+    // FreeGOG goes through FlareSolverr (slow + browser automation). Pagination
+    // there means N FlareSolverr round-trips per search - stay single-page.
+    // Everywhere else: max page size, then paginate until X-WP-TotalPages says
+    // we're done (capped at SEARCH_MAX_PAGES for safety).
+    const paginate = siteConfig.type !== 'freegog';
+    if (paginate) {
+      baseParams.set('per_page', String(SEARCH_PER_PAGE));
     }
 
-    if (siteConfig.type !== 'freegog') {
-      const maxPosts = MAX_POSTS_PER_SITE[siteConfig.type] || MAX_POSTS_PER_SITE.default;
-      params.set('per_page', maxPosts.toString());
+    const fetchPage = async (page: number) => {
+      const params = new URLSearchParams(baseParams);
+      if (paginate) params.set('page', String(page));
+      const response = await dispatchWpFetch(siteConfig, `${siteConfig.baseUrl}?${params}`);
+      if (!response || !response.ok) {
+        // WP returns 400 for out-of-range page numbers - treat as "no more
+        // results" rather than an error.
+        if (response && response.status === 400 && page > 1) {
+          return { posts: [] as unknown[], totalPages: page - 1 };
+        }
+        throw new Error(`${siteConfig.name} returned ${response?.status || 'no response'}`);
+      }
+      const totalPagesHeader = response.headers.get('x-wp-totalpages');
+      const totalPages = totalPagesHeader ? Math.max(1, parseInt(totalPagesHeader, 10) || 1) : 1;
+      const posts = await response.json();
+      return { posts: Array.isArray(posts) ? posts : [], totalPages };
+    };
+
+    const first = await fetchPage(1);
+    let allPosts: unknown[] = first.posts;
+
+    if (paginate && first.totalPages > 1) {
+      const lastPage = Math.min(first.totalPages, SEARCH_MAX_PAGES);
+      const pageNumbers: number[] = [];
+      for (let p = 2; p <= lastPage; p++) pageNumbers.push(p);
+      // Fetch remaining pages in parallel - the dispatchers already throttle
+      // per-site via circuit breakers / FlareSolverr queuing.
+      const rest = await Promise.all(
+        pageNumbers.map(async p => {
+          try {
+            return (await fetchPage(p)).posts;
+          } catch (err) {
+            console.warn(`${siteConfig.name} page ${p} failed:`, err);
+            return [];
+          }
+        })
+      );
+      for (const pagePosts of rest) allPosts = allPosts.concat(pagePosts);
     }
 
-    const url = `${siteConfig.baseUrl}?${params}`;
-
-    let response;
-    if (siteConfig.type === 'steamrip') {
-      response = await fetchSteamrip(url);
-    } else if (siteConfig.type === 'skidrow') {
-      response = await fetchSkidrow(url);
-    } else if (siteConfig.type === 'dodi') {
-      response = await fetchDodi(url);
-    } else if (siteConfig.type === 'freegog') {
-      response = await fetchFreegog(url);
-    } else {
-      response = await siteFetch(url, {
-        headers: { 'User-Agent': 'GameSearch-API-v2/2.0' }
-      });
-    }
-
-    if (!response || !response.ok) {
-      console.error(`${siteConfig.name} returned ${response?.status || 'no response'}`);
-      return [];
-    }
-
-    const posts = await response.json();
-    const transformPromises = posts.map((post: unknown) => transformPostForV2(post, siteConfig, false));
+    const transformPromises = allPosts.map((post: unknown) => transformPostForV2(post, siteConfig, false));
     return await Promise.all(transformPromises);
   } catch (error) {
     console.error(`Error searching ${siteConfig.name}:`, error);
@@ -165,14 +205,16 @@ async function fetchRecentFromSite(siteConfig: SiteConfig): Promise<TransformedP
       return await fetchOnlineFixRecent();
     }
 
+    // cs.rin.ru is search-only for now - skip recent uploads to avoid hitting
+    // the forum on every home-page refresh.
+    if (siteConfig.type === 'csrin') {
+      return [];
+    }
+
     const params = new URLSearchParams({
       orderby: 'date',
       order: 'desc'
     });
-
-    if (siteConfig.type === 'gamedrive') {
-      params.set('categories', '3');
-    }
 
     if (siteConfig.type !== 'freegog') {
       const maxPosts = MAX_POSTS_PER_SITE[siteConfig.type] || MAX_POSTS_PER_SITE.default;
@@ -212,28 +254,65 @@ async function fetchRecentFromSite(siteConfig: SiteConfig): Promise<TransformedP
 
 // â”€â”€â”€ Public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+// Sites that we don't want to hit on a default "all sites" search. cs.rin.ru
+// is the only one currently - every search there logs in / submits a search
+// to the forum, which would get our shared bot account rate-limited or
+// banned if we ran it on every casual home-page search. Users must opt in
+// by explicitly selecting csrin in the site filter.
+const DEFAULT_EXCLUDED_FROM_ALL = new Set(['csrin']);
+
 /**
- * Search games across all sites or a specific site.
+ * Search games across one, several, or all sites.
+ *
+ * @param sites
+ *   - omitted / undefined / empty: search every site EXCEPT
+ *     DEFAULT_EXCLUDED_FROM_ALL (current default = all minus csrin).
+ *   - single site key string: backward-compatible single-site behavior.
+ *   - string[] or comma-separated string: search exactly those sites
+ *     (csrin only included if it's explicitly listed).
+ * Unknown site keys are filtered out silently.
  */
-export async function searchGames(query: string, site?: string): Promise<SearchResult> {
+export async function searchGames(
+  query: string,
+  sites?: string | string[],
+): Promise<SearchResult> {
   if (!query) {
     return { success: false, results: [], count: 0 };
   }
 
-  // Single-site search
-  if (site) {
-    const siteConfig = SITE_CONFIGS[site] as SiteConfig | undefined;
-    if (!siteConfig) {
-      return { success: false, results: [], count: 0 };
-    }
+  // Normalise the `sites` arg into a list of valid SITE_CONFIGS keys, or
+  // null when the caller wants the default (all-minus-excluded) behavior.
+  const requested: string[] | null = (() => {
+    if (sites === undefined || sites === null) return null;
+    const raw = Array.isArray(sites)
+      ? sites
+      : String(sites).split(',');
+    const valid = raw
+      .map(s => s.trim().toLowerCase())
+      .filter(s => s && s !== 'all' && (SITE_CONFIGS as Record<string, unknown>)[s]);
+    if (!valid.length) return null;
+    return Array.from(new Set(valid));
+  })();
 
+  // Build the actual target site list.
+  const targets: SiteConfig[] = requested
+    ? requested.map(k => SITE_CONFIGS[k] as SiteConfig)
+    : (Object.entries(SITE_CONFIGS) as [string, SiteConfig][])
+        .filter(([k]) => !DEFAULT_EXCLUDED_FROM_ALL.has(k))
+        .map(([, v]) => v);
+
+  // Single-site search keeps the dedicated retry+cache path (it has slightly
+  // different semantics than the parallel path - it serves from cache on
+  // total failure rather than just for the affected site).
+  if (targets.length === 1) {
+    const siteConfig = targets[0];
+    const site = siteConfig.type;
     const results = applySearchTermFilter(await searchSite(siteConfig, query), query);
     const cacheKey = `${site}:${query.toLowerCase()}`;
 
     if (results.length > 0) {
       searchCache.set(cacheKey, { results, timestamp: Date.now() });
     } else {
-      // Retry once, then fallback to cache
       console.warn(`Single-site search for ${site} returned empty, retrying`);
       const retryResults = applySearchTermFilter(await searchSite(siteConfig, query), query);
       if (retryResults.length > 0) {
@@ -251,8 +330,8 @@ export async function searchGames(query: string, site?: string): Promise<SearchR
     return { success: true, results, count: results.length, site };
   }
 
-  // All-sites search
-  const allSites = Object.values(SITE_CONFIGS) as SiteConfig[];
+  // Multi-site / all-sites search - parallel fan-out across targets.
+  const allSites = targets;
   const searchPromises = allSites.map(s => searchSite(s, query));
   const settledResults = await Promise.allSettled(searchPromises);
 

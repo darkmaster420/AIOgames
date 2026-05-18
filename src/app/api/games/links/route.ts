@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPostDetails } from '../../../../lib/gameapi';
 import {
-  buildDodiFollowPostDownloadResponse,
-  isDodiSiteType,
+  buildFollowPostDownloadResponse,
+  isFollowPostSiteType,
 } from '../../../../lib/downloadSitePolicy';
 
 // In-memory cache for gameapi download link responses
@@ -26,16 +26,24 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    if (isDodiSiteType(siteType)) {
+    if (isFollowPostSiteType(siteType)) {
+      // For follow-post sites we can't synthesize a meaningful post URL
+      // from postId alone (DODI is /?p=<id>, csrin is /forum/viewtopic.php
+      // with f= and start=), so prefer whatever the caller already has.
+      const fallbackPostUrl =
+        siteType === 'csrin'
+          ? `https://cs.rin.ru/forum/viewtopic.php?t=${encodeURIComponent(postId)}`
+          : `https://dodi-repacks.site/?p=${encodeURIComponent(postId)}`;
       return NextResponse.json({
         postId,
         siteType,
-        ...buildDodiFollowPostDownloadResponse({
-          title: gameTitle || 'Unknown Game',
-          gameLink:
-            postUrlParam ||
-            `https://dodi-repacks.site/?p=${encodeURIComponent(postId)}`,
-        }),
+        ...buildFollowPostDownloadResponse(
+          {
+            title: gameTitle || 'Unknown Game',
+            gameLink: postUrlParam || fallbackPostUrl,
+          },
+          siteType,
+        ),
       });
     }
 

@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import connectDB from './db';
 import { getPostDetails } from './gameapi';
 import { TrackedGame } from './models';
-import { isDodiTrackedGame, isDodiSiteType } from './downloadSitePolicy';
+import { isFollowPostTrackedGame, isFollowPostSiteType } from './downloadSitePolicy';
 
 export type TrackedDownloadLink = {
   service: string;
@@ -26,7 +26,7 @@ export function collectStoredDownloadLinks(game: {
   }>;
   rssCachedDownloadLinks?: TrackedDownloadLink[];
 }): TrackedDownloadLink[] {
-  if (isDodiTrackedGame(game)) {
+  if (isFollowPostTrackedGame(game)) {
     return [];
   }
 
@@ -135,7 +135,7 @@ export function mergeDownloadLinksForRss(
     gameLink?: string;
   }
 ): TrackedDownloadLink[] {
-  if (isDodiTrackedGame(game)) {
+  if (isFollowPostTrackedGame(game)) {
     return [];
   }
 
@@ -230,8 +230,7 @@ export async function fetchDownloadLinksViaGameapi(
       const domainMatch = targetUrl.match(/https?:\/\/([^/]+)/);
       if (domainMatch) {
         const domain = domainMatch[1];
-        if (domain.includes('gamedrive')) siteType = 'gamedrive';
-        else if (domain.includes('skidrowreloaded')) siteType = 'skidrow';
+        if (domain.includes('skidrowreloaded')) siteType = 'skidrow';
         else if (domain.includes('freegogpcgames')) siteType = 'freegog';
         else if (domain.includes('steamrip')) siteType = 'steamrip';
         else if (domain.includes('reloadedsteam')) siteType = 'reloadedsteam';
@@ -243,7 +242,7 @@ export async function fetchDownloadLinksViaGameapi(
 
   if (!postId || !siteType) return [];
 
-  if (isDodiSiteType(siteType)) {
+  if (isFollowPostSiteType(siteType)) {
     return [];
   }
 
@@ -275,7 +274,7 @@ export async function syncRssDownloadLinksCache(trackedGameId: string): Promise<
   const game = await TrackedGame.findById(id).lean();
   if (!game) return false;
 
-  if (isDodiTrackedGame(game as GameapiGameShape)) {
+  if (isFollowPostTrackedGame(game as GameapiGameShape)) {
     return false;
   }
 

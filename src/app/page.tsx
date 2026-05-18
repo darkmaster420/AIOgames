@@ -54,7 +54,20 @@ type DisplayGame = Game & {
 
 function DashboardInner() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [siteFilter, setSiteFilter] = useState('all');
+  // Multi-select site filter. Empty array = "All Sites" (default behavior:
+  // server includes every site except DEFAULT_EXCLUDED_FROM_ALL, currently
+  // just csrin). Specific entries narrow the search to exactly those sites
+  // (and let users opt-in to csrin by selecting it explicitly).
+  const [selectedSites, setSelectedSites] = useState<string[]>([]);
+  // Sites whose server-side prerequisites aren't met (e.g. csrin without
+  // CSRIN_USERNAME / CSRIN_PASSWORD). Populated from /api/sites on mount;
+  // hidden from the chip list and stripped from selectedSites so users
+  // can't pick a source that would always return empty.
+  const [disabledSites, setDisabledSites] = useState<string[]>([]);
+  const visibleSites = useMemo(
+    () => SITES.filter(s => !disabledSites.includes(s.value)),
+    [disabledSites],
+  );
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +96,12 @@ function DashboardInner() {
     showAllGames,
     setShowAllGames,
   } = homepagePrefs;
+
+  // When set, the user's selected site filters all returned zero results
+  // and the server auto-widened to the default set. We surface a banner
+  // listing the sites that came up empty so the user understands why
+  // they're seeing other sources.
+  const [fallbackFromSites, setFallbackFromSites] = useState<string[] | null>(null);
 
   const customGridStyle = buildCustomGridStyle(layoutMode, customCols, customRows);
   const defaultGridClass =
@@ -169,22 +188,23 @@ function DashboardInner() {
     return () => { cancelled = true; };
   }, [games]);
 
-  // Function to update URL parameters
-  const updateURL = useCallback((search?: string, site?: string, refine?: string) => {
+  // Function to update URL parameters. `sites` is an array; empty = no
+  // filter (equivalent to "All Sites" default behavior).
+  const updateURL = useCallback((search?: string, sites?: string[], refine?: string) => {
     const params = new URLSearchParams();
-    
+
     if (search && search.trim()) {
       params.set('search', search.trim());
     }
-    
-    if (site && site !== 'all') {
-      params.set('site', site);
+
+    if (sites && sites.length > 0) {
+      params.set('site', sites.join(','));
     }
-    
+
     if (refine && refine.trim()) {
       params.set('refine', refine.trim());
     }
-    
+
     const newURL = params.toString() ? `/?${params.toString()}` : '/';
     router.replace(newURL, { scroll: false });
   }, [router]);
@@ -192,11 +212,16 @@ function DashboardInner() {
   // Load initial values from URL
   useEffect(() => {
     const urlSearch = searchParams.get('search') || '';
-    const urlSite = searchParams.get('site') || 'all';
+    const urlSiteRaw = (searchParams.get('site') || '').trim();
+    const urlSites = urlSiteRaw && urlSiteRaw.toLowerCase() !== 'all'
+      ? Array.from(new Set(
+          urlSiteRaw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+        ))
+      : [];
     const urlRefine = searchParams.get('refine') || '';
-    
+
     setSearchQuery(urlSearch);
-    setSiteFilter(urlSite);
+    setSelectedSites(urlSites);
     setRefineText(urlRefine);
     
     // If there's a search query in the URL, perform the search after state is set
@@ -209,8 +234,8 @@ function DashboardInner() {
           setError(null);
           try {
             const params = new URLSearchParams({ search: urlSearch });
-            if (urlSite !== 'all') {
-              params.set('site', urlSite);
+            if (urlSites.length > 0) {
+              params.set('site', urlSites.join(','));
             }
             if (urlRefine.trim()) {
               params.set('refine', urlRefine);
@@ -221,7 +246,13 @@ function DashboardInner() {
             }
             const data = await response.json();
             if (signal.aborted) return;
-            setGames(data);
+            const resultsArr: Game[] = Array.isArray(data) ? data : (data?.results ?? []);
+            setGames(resultsArr);
+            setFallbackFromSites(
+              Array.isArray(data?.fallbackFromSites) && data.fallbackFromSites.length > 0
+                ? data.fallbackFromSites
+                : null,
+            );
             setShowRefine(true);
             setRecentGamesVisible(true);
           } catch (err) {
@@ -317,6 +348,7 @@ function DashboardInner() {
   const searchGames = useCallback(async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!searchQuery.trim()) {
+      setFallbackFromSites(null);
       setRecentGamesVisible(false);
       updateURL(); // Clear URL parameters
       loadRecentGames();
@@ -324,15 +356,16 @@ function DashboardInner() {
     }
 
     // Update URL with current search parameters
-    updateURL(searchQuery, siteFilter, refineText);
+    updateURL(searchQuery, selectedSites, refineText);
 
     const signal = getFetchSignal();
     setLoading(true);
     setError(null);
+    setFallbackFromSites(null);
     try {
       const params = new URLSearchParams({ search: searchQuery });
-      if (siteFilter !== 'all') {
-        params.set('site', siteFilter);
+      if (selectedSites.length > 0) {
+        params.set('site', selectedSites.join(','));
       }
       if (refineText.trim()) {
         params.set('refine', refineText);
@@ -343,7 +376,16 @@ function DashboardInner() {
       }
       const data = await response.json();
       if (signal.aborted) return;
-      setGames(data);
+      // API now returns { results, fallbackFromSites? } instead of a raw
+      // array. fallbackFromSites lists the sites the user picked when none
+      // of them returned anything and we auto-widened to the default set.
+      const resultsArr: Game[] = Array.isArray(data) ? data : (data?.results ?? []);
+      setGames(resultsArr);
+      setFallbackFromSites(
+        Array.isArray(data?.fallbackFromSites) && data.fallbackFromSites.length > 0
+          ? data.fallbackFromSites
+          : null,
+      );
       setShowRefine(true);
       setRecentGamesVisible(true);
     } catch (err) {
@@ -353,7 +395,7 @@ function DashboardInner() {
     } finally {
       if (!signal.aborted) setLoading(false);
     }
-  }, [searchQuery, siteFilter, refineText, loadRecentGames, updateURL, getFetchSignal, setRecentGamesVisible]);
+  }, [searchQuery, selectedSites, refineText, loadRecentGames, updateURL, getFetchSignal, setRecentGamesVisible]);
 
   useEffect(() => {
     loadRecentGames();
@@ -363,6 +405,26 @@ function DashboardInner() {
   useEffect(() => {
     loadTrackedGames();
   }, [loadTrackedGames]);
+
+  // Discover which sites are unusable on this server (missing env vars,
+  // etc) so we can hide them from the filter chips. Strips any disabled
+  // entries from selectedSites in case a stale URL or saved state still
+  // references them.
+  useEffect(() => {
+    fetch('/api/sites')
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        const list = Array.isArray(data?.disabledSites) ? data.disabledSites as string[] : [];
+        setDisabledSites(list);
+        if (list.length > 0) {
+          setSelectedSites(prev => {
+            const cleaned = prev.filter(s => !list.includes(s));
+            return cleaned.length === prev.length ? prev : cleaned;
+          });
+        }
+      })
+      .catch(() => {}); // Non-fatal - filter list just won't be trimmed
+  }, []);
 
     const getTrackState = useCallback((game: Game): TrackState => {
       const cleaned = cleanGameTitle(game.title);
@@ -585,7 +647,7 @@ function DashboardInner() {
                   onClick={() => {
                     setSearchQuery('');
                     setRefineText('');
-                    setSiteFilter('all');
+                    setSelectedSites([]);
                     setShowRefine(false);
                     loadRecentGames();
                     router.replace('/');
@@ -629,11 +691,13 @@ function DashboardInner() {
           showLayoutDropdown={showLayoutDropdown}
           setShowLayoutDropdown={setShowLayoutDropdown}
         />
-        {/* Site Filter */}
+        {/* Site Filter - multi-select chips. "All Sites" = empty selection
+            (server falls back to its default-excluded list). Other chips
+            toggle individually; pick any combination. */}
         <div className="mb-4 sm:mb-6">
           <div className="flex items-center justify-between mb-2">
             <label className="block text-sm text-gray-700 dark:text-gray-300">Filter by Site</label>
-            {(searchQuery || siteFilter !== 'all') && (
+            {(searchQuery || selectedSites.length > 0) && (
               <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                 {searchQuery && (
                   <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-full">
@@ -646,67 +710,88 @@ function DashboardInner() {
           <div className="flex items-center gap-2">
             <div className="flex-1 overflow-x-auto pb-1 scrollbar-thin">
               <div className="flex gap-1.5 min-w-max">
-                {[{ value: 'all', label: 'All Sites' }, ...SITES].map(site => (
-                  <button
-                    key={site.value}
-                    onClick={() => {
-                      setSiteFilter(site.value);
-                      // Auto-apply: trigger filter immediately
-                      // Use site.value directly (not stale siteFilter from closure)
-                      if (searchQuery.trim()) {
-                        const params = new URLSearchParams({ search: searchQuery });
-                        if (site.value !== 'all') params.set('site', site.value);
-                        if (refineText.trim()) params.set('refine', refineText);
-                        updateURL(searchQuery, site.value, refineText);
-                        setLoading(true);
-                        setError(null);
-                        const signal = getFetchSignal();
-                        fetch(`/api/games/search?${params}`, { cache: 'no-store', signal })
-                          .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed')))
-                          .then(data => {
-                            if (signal.aborted) return;
-                            setGames(data);
-                            setShowRefine(true);
-                          })
-                          .catch(err => {
-                            if (err?.name === 'AbortError') return;
-                            setError(err.message); setGames([]);
-                          })
-                          .finally(() => { if (!signal.aborted) setLoading(false); });
-                      } else {
-                        updateURL('', site.value);
-                        const signal = getFetchSignal();
-                        setLoading(true);
-                        setError(null);
-                        const params = new URLSearchParams();
-                        if (site.value !== 'all') params.set('site', site.value);
-                        fetch(`/api/games/recent?${params}`, { cache: 'no-store', signal })
-                          .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed')))
-                          .then(data => { if (!signal.aborted) setGames(data); })
-                          .catch(err => {
-                            if (err?.name === 'AbortError') return;
-                            setError(err.message); setGames([]);
-                          })
-                          .finally(() => { if (!signal.aborted) setLoading(false); });
-                      }
-                    }}
-                    className={`px-3 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-all duration-150 border ${
-                      siteFilter === site.value
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                        : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500'
-                    }`}
-                  >
-                    {site.label}
-                  </button>
-                ))}
+                {[{ value: 'all', label: 'All Sites' }, ...visibleSites].map(site => {
+                  const isAll = site.value === 'all';
+                  const isActive = isAll
+                    ? selectedSites.length === 0
+                    : selectedSites.includes(site.value);
+                  return (
+                    <button
+                      key={site.value}
+                      onClick={() => {
+                        // Compute the new selection. "All Sites" is the
+                        // clear-all action; individual chips toggle.
+                        const next = isAll
+                          ? []
+                          : selectedSites.includes(site.value)
+                            ? selectedSites.filter(s => s !== site.value)
+                            : [...selectedSites, site.value];
+                        setSelectedSites(next);
+                        updateURL(searchQuery, next, refineText);
+
+                        // Auto-apply against the just-computed `next` array
+                        // (state update is async; we can't read selectedSites
+                        // here yet).
+                        if (searchQuery.trim()) {
+                          const params = new URLSearchParams({ search: searchQuery });
+                          if (next.length > 0) params.set('site', next.join(','));
+                          if (refineText.trim()) params.set('refine', refineText);
+                          setLoading(true);
+                          setError(null);
+                          setFallbackFromSites(null);
+                          const signal = getFetchSignal();
+                          fetch(`/api/games/search?${params}`, { cache: 'no-store', signal })
+                            .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed')))
+                            .then(data => {
+                              if (signal.aborted) return;
+                              const resultsArr: Game[] = Array.isArray(data) ? data : (data?.results ?? []);
+                              setGames(resultsArr);
+                              setFallbackFromSites(
+                                Array.isArray(data?.fallbackFromSites) && data.fallbackFromSites.length > 0
+                                  ? data.fallbackFromSites
+                                  : null,
+                              );
+                              setShowRefine(true);
+                            })
+                            .catch(err => {
+                              if (err?.name === 'AbortError') return;
+                              setError(err.message); setGames([]);
+                            })
+                            .finally(() => { if (!signal.aborted) setLoading(false); });
+                        } else {
+                          const signal = getFetchSignal();
+                          setLoading(true);
+                          setError(null);
+                          const params = new URLSearchParams();
+                          if (next.length > 0) params.set('site', next.join(','));
+                          fetch(`/api/games/recent?${params}`, { cache: 'no-store', signal })
+                            .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed')))
+                            .then(data => { if (!signal.aborted) setGames(data); })
+                            .catch(err => {
+                              if (err?.name === 'AbortError') return;
+                              setError(err.message); setGames([]);
+                            })
+                            .finally(() => { if (!signal.aborted) setLoading(false); });
+                        }
+                      }}
+                      className={`px-3 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-all duration-150 border ${
+                        isActive
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                          : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500'
+                      }`}
+                    >
+                      {site.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
-            {(searchQuery || siteFilter !== 'all' || refineText) && (
+            {(searchQuery || selectedSites.length > 0 || refineText) && (
               <button
                 onClick={(e) => {
                   e.preventDefault();
                   setSearchQuery('');
-                  setSiteFilter('all');
+                  setSelectedSites([]);
                   setRefineText('');
                   setShowRefine(false);
                   loadRecentGames();
@@ -727,6 +812,26 @@ function DashboardInner() {
           </div>
         )}
         
+        {/* Fallback-from-sites warning: shown when the user's selected site
+            filters all returned 0 results and the server auto-widened to
+            the default set. Lists each site that came up empty. */}
+        {fallbackFromSites && fallbackFromSites.length > 0 && games.length > 0 && (
+          <div className="mb-3 p-2 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200 rounded text-xs flex items-center gap-2">
+            <span>⚠️</span>
+            <span>
+              <strong>
+                {fallbackFromSites
+                  .map(s => SITES.find(x => x.value === s)?.label || s)
+                  .join(', ')}
+              </strong>
+              {fallbackFromSites.length === 1 ? ' returned ' : ' all returned '}
+              {'no results for '}
+              <strong>&ldquo;{searchQuery}&rdquo;</strong>
+              {'. Showing results from all sites instead.'}
+            </span>
+          </div>
+        )}
+
         {/* Cache Status Indicator + Result Count */}
         {games.length > 0 && (
           <div className="mb-3 p-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300 rounded text-xs flex items-center justify-between">

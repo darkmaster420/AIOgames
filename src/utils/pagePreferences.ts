@@ -15,12 +15,15 @@ export interface HomepagePreferences extends LayoutPreferences {
 
 export type TrackingPreferences = LayoutPreferences;
 
+// Cookie keys for the device-local subset of preferences. showRecentUploads
+// is intentionally NOT in this map - it's persisted per-account in the DB
+// only (see /api/user/preferences). showAllGames is still cookie-backed
+// for device-local persistence since unauthenticated users still use it.
 const COOKIE_KEYS: Record<PageKey, Record<string, string>> = {
   homepage: {
     layoutMode: 'homepageLayoutMode',
     customCols: 'homepageCustomCols',
     customRows: 'homepageCustomRows',
-    showRecentUploads: 'showRecentGames',
     showAllGames: 'homepageShowAllGames',
   },
   tracking: {
@@ -82,7 +85,10 @@ export function readHomepageFromCookies(): HomepagePreferences {
   const keys = COOKIE_KEYS.homepage;
   return {
     ...layout,
-    showRecentUploads: getCookie(keys.showRecentUploads) === 'true',
+    // showRecentUploads lives in the DB only; cookie reads always yield
+    // false here so unauthenticated users start collapsed (they can click
+    // the "Show Recent Uploads" button to expand for the session).
+    showRecentUploads: false,
     showAllGames: getCookie(keys.showAllGames) === 'true',
   };
 }
@@ -96,10 +102,7 @@ export function writeHomepageToCookies(prefs: Partial<HomepagePreferences>): voi
     });
   }
   const keys = COOKIE_KEYS.homepage;
-  if (typeof prefs.showRecentUploads === 'boolean') {
-    // Short TTL for recent visibility (matches prior behavior)
-    setCookie(keys.showRecentUploads, prefs.showRecentUploads ? 'true' : 'false', 1 / 24);
-  }
+  // showRecentUploads is account-scoped (DB-only), no cookie write.
   if (typeof prefs.showAllGames === 'boolean') {
     setCookie(keys.showAllGames, prefs.showAllGames ? 'true' : 'false');
   }

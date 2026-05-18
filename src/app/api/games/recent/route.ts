@@ -12,6 +12,7 @@ import {
   runAutoRecovery,
   triggerReverify,
 } from '../../../../lib/recentUploadsState';
+import { fetchCsrinRecent } from '../../../../lib/gameapi/helpers.js';
 
 // Allow up to 2 minutes for initial data fetch (scraping multiple sites via FlareSolverr)
 export const maxDuration = 120;
@@ -30,7 +31,16 @@ function buildStatsHeader(stats: Record<string, SiteStat>): string {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const site = searchParams.get('site') || 'all';
+    // Site filter is a comma-separated list (?site=skidrow,steamrip).
+    // Empty / missing / "all" returns every cached site. csrin is never
+    // present in the recent cache (fetchRecentFromSite returns [] for it),
+    // so the "default = exclude csrin" rule from search doesn't apply here.
+    const rawSite = (searchParams.get('site') || '').trim();
+    const siteList: string[] = rawSite && rawSite.toLowerCase() !== 'all'
+      ? Array.from(new Set(
+          rawSite.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+        ))
+      : [];
     const forceRefresh = searchParams.get('refresh') === 'true';
     // Client can ask for a full re-verification pass without re-scraping the
     // source sites. Clears the per-title failure cooldowns so every
@@ -80,8 +90,26 @@ export async function GET(request: NextRequest) {
 
     // Apply local site filtering
     let finalResults = results;
-    if (site && site !== 'all') {
-      finalResults = results.filter((game: Game) => game.siteType === site);
+    if (siteList.length > 0) {
+      const wanted = new Set(siteList);
+      finalResults = results.filter((game: Game) => wanted.has(game.siteType));
+    }
+
+    // cs.rin.ru is never in the all-sites cache (fetchRecentFromSite skips
+    // it to keep periodic refreshes from constantly hitting the forum's
+    // bot login). When the user explicitly clicks the csrin chip though,
+    // fetch the latest threads from the Game Releases subforum on-demand
+    // and prepend them. fetchCsrinRecent has its own 15-min cache so
+    // repeat clicks don't re-hit the forum.
+    if (siteList.includes('csrin')) {
+      try {
+        const csrinResults = (await fetchCsrinRecent()) as Game[];
+        if (csrinResults.length > 0) {
+          finalResults = [...csrinResults, ...finalResults];
+        }
+      } catch (err) {
+        console.warn('[recent] cs.rin.ru recent fetch failed:', err);
+      }
     }
 
     const cachedAfter = getCachedRecent();
