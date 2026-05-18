@@ -5,9 +5,7 @@
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run dev:next\" \"npm run dev:poller\"",
-    "dev:next": "next dev --turbopack",
-    "dev:poller": "node scripts/telegram-polling.js",
+    "dev": "next dev --turbopack",
     "prebuild": "node scripts/ensure-vapid.js",
     "build": "next build --turbopack",
     "start": "node .next/standalone/server.js",
