@@ -98,6 +98,24 @@ const SEARCH_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
 // â”€â”€â”€ Internal Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+// WordPress REST API caps per_page at 100. To fetch every matching post for a
+// search query we request 100 per page and paginate using X-WP-TotalPages.
+const SEARCH_PER_PAGE = 100;
+// Safety cap on pages per site - 10 pages * 100 = 1000 results, more than any
+// real search ever needs, but protects against runaway requests if a site
+// reports a bogus total-pages header.
+const SEARCH_MAX_PAGES = 10;
+
+// Routes a WP REST URL through the right site-specific fetcher (which handles
+// CloudFlare, retries, circuit breakers, etc).
+function dispatchWpFetch(siteConfig: SiteConfig, url: string) {
+  if (siteConfig.type === 'steamrip') return fetchSteamrip(url);
+  if (siteConfig.type === 'skidrow') return fetchSkidrow(url);
+  if (siteConfig.type === 'dodi') return fetchDodi(url);
+  if (siteConfig.type === 'freegog') return fetchFreegog(url);
+  return siteFetch(url, { headers: { 'User-Agent': 'GameSearch-API-v2/2.0' } });
+}
+
 async function searchSite(siteConfig: SiteConfig, searchQuery: string): Promise<TransformedPost[]> {
   try {
     if (siteConfig.type === 'goggames') {
@@ -108,45 +126,66 @@ async function searchSite(siteConfig: SiteConfig, searchQuery: string): Promise<
       return await fetchOnlineFixSearch(searchQuery);
     }
 
-    const params = new URLSearchParams({
+    const baseParams = new URLSearchParams({
       search: searchQuery,
       orderby: 'date',
       order: 'desc'
     });
 
     if (siteConfig.type === 'gamedrive') {
-      params.set('categories', '3');
+      baseParams.set('categories', '3');
     }
 
-    if (siteConfig.type !== 'freegog') {
-      const maxPosts = MAX_POSTS_PER_SITE[siteConfig.type] || MAX_POSTS_PER_SITE.default;
-      params.set('per_page', maxPosts.toString());
+    // FreeGOG goes through FlareSolverr (slow + browser automation). Pagination
+    // there means N FlareSolverr round-trips per search - stay single-page.
+    // Everywhere else: max page size, then paginate until X-WP-TotalPages says
+    // we're done (capped at SEARCH_MAX_PAGES for safety).
+    const paginate = siteConfig.type !== 'freegog';
+    if (paginate) {
+      baseParams.set('per_page', String(SEARCH_PER_PAGE));
     }
 
-    const url = `${siteConfig.baseUrl}?${params}`;
+    const fetchPage = async (page: number) => {
+      const params = new URLSearchParams(baseParams);
+      if (paginate) params.set('page', String(page));
+      const response = await dispatchWpFetch(siteConfig, `${siteConfig.baseUrl}?${params}`);
+      if (!response || !response.ok) {
+        // WP returns 400 for out-of-range page numbers - treat as "no more
+        // results" rather than an error.
+        if (response && response.status === 400 && page > 1) {
+          return { posts: [] as unknown[], totalPages: page - 1 };
+        }
+        throw new Error(`${siteConfig.name} returned ${response?.status || 'no response'}`);
+      }
+      const totalPagesHeader = response.headers.get('x-wp-totalpages');
+      const totalPages = totalPagesHeader ? Math.max(1, parseInt(totalPagesHeader, 10) || 1) : 1;
+      const posts = await response.json();
+      return { posts: Array.isArray(posts) ? posts : [], totalPages };
+    };
 
-    let response;
-    if (siteConfig.type === 'steamrip') {
-      response = await fetchSteamrip(url);
-    } else if (siteConfig.type === 'skidrow') {
-      response = await fetchSkidrow(url);
-    } else if (siteConfig.type === 'dodi') {
-      response = await fetchDodi(url);
-    } else if (siteConfig.type === 'freegog') {
-      response = await fetchFreegog(url);
-    } else {
-      response = await siteFetch(url, {
-        headers: { 'User-Agent': 'GameSearch-API-v2/2.0' }
-      });
+    const first = await fetchPage(1);
+    let allPosts: unknown[] = first.posts;
+
+    if (paginate && first.totalPages > 1) {
+      const lastPage = Math.min(first.totalPages, SEARCH_MAX_PAGES);
+      const pageNumbers: number[] = [];
+      for (let p = 2; p <= lastPage; p++) pageNumbers.push(p);
+      // Fetch remaining pages in parallel - the dispatchers already throttle
+      // per-site via circuit breakers / FlareSolverr queuing.
+      const rest = await Promise.all(
+        pageNumbers.map(async p => {
+          try {
+            return (await fetchPage(p)).posts;
+          } catch (err) {
+            console.warn(`${siteConfig.name} page ${p} failed:`, err);
+            return [];
+          }
+        })
+      );
+      for (const pagePosts of rest) allPosts = allPosts.concat(pagePosts);
     }
 
-    if (!response || !response.ok) {
-      console.error(`${siteConfig.name} returned ${response?.status || 'no response'}`);
-      return [];
-    }
-
-    const posts = await response.json();
-    const transformPromises = posts.map((post: unknown) => transformPostForV2(post, siteConfig, false));
+    const transformPromises = allPosts.map((post: unknown) => transformPostForV2(post, siteConfig, false));
     return await Promise.all(transformPromises);
   } catch (error) {
     console.error(`Error searching ${siteConfig.name}:`, error);
