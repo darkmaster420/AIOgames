@@ -434,3 +434,95 @@ async function handleListCommand(chatId: number, user: any, botClient: TelegramB
     );
   }
 }
+
+// ── Update dispatcher ──────────────────────────────────────────────────────
+// Single entry point that takes a raw Telegram Update object and dispatches
+// it to the right handler. Invoked by the polling loop in
+// src/lib/telegramPoller.ts for every update returned by getUpdates.
+
+interface CallbackQueryLite {
+  id: string;
+  data?: string;
+}
+
+export async function processTelegramUpdate(
+  update: TelegramUpdate & { callback_query?: CallbackQueryLite },
+  botToken: string,
+): Promise<void> {
+  // Callback queries (inline button clicks). The approval workflow that
+  // used these is currently disabled; just acknowledge so Telegram stops
+  // re-delivering them.
+  if (update.callback_query) {
+    try {
+      await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          callback_query_id: update.callback_query.id,
+          text: '',
+        }),
+      });
+    } catch (err) {
+      console.error('[telegram] answerCallbackQuery failed:', err);
+    }
+    return;
+  }
+
+  if (!update.message?.text || !update.message.chat) return;
+
+  const { message } = update;
+  const chatId = message.chat.id;
+  // Narrow text to string - we just guarded against falsy above, but TS
+  // can lose the narrowing across the await/branch below.
+  const text: string = message.text as string;
+  const botClient = new TelegramBotClient(botToken);
+
+  const user = await findUserByTelegramChat(chatId);
+
+  if (!user) {
+    // Unlinked chat - reply with the chat id so the user can paste it
+    // into their account settings to link this Telegram account.
+    const usernameInfo = message.from?.username
+      ? `\n👤 Your username: @${message.from.username}`
+      : '';
+    await botClient.sendMessage(
+      chatId,
+      `👋 Welcome to AIOgames Bot!\n\n🔑 Your Chat ID: <code>${chatId}</code>${usernameInfo}\n\n📋 To receive notifications:\n1. Go to your AIOgames account settings\n2. Select Telegram as your notification provider\n3. Enter your Chat ID${message.from?.username ? ' or username' : ''} above\n4. Save your settings\n\nOnce linked, send /start again to see available commands!`,
+      { parse_mode: 'HTML' },
+    );
+    return;
+  }
+
+  if (text.startsWith('/')) {
+    const command = parseCommand(text);
+    if (!command) return;
+
+    command.chatId = chatId;
+    command.userId = message.from.id;
+    command.messageId = message.message_id;
+
+    // /start, /help, /id, /settings, /update are always available; other
+    // commands require bot management to be enabled in user preferences.
+    const alwaysAvailable = new Set(['start', 'help', 'id', 'settings', 'update']);
+    const botManagementEnabled =
+      user.preferences?.notifications?.telegramBotManagementEnabled;
+
+    if (alwaysAvailable.has(command.command) || botManagementEnabled) {
+      await handleTelegramCommand(command, user, botClient);
+    } else {
+      await botClient.sendMessage(
+        chatId,
+        `🤖 Bot management is currently disabled.\n\nTo enable bot commands, go to your AIOgames user settings and enable "Telegram Bot Management".\n\nYou can still receive notifications!`,
+      );
+    }
+    return;
+  }
+
+  // Non-command text - send a short pointer.
+  const botManagementEnabled =
+    user.preferences?.notifications?.telegramBotManagementEnabled;
+  const helpText = botManagementEnabled
+    ? `👋 Hi! I'm your AIOgames bot.\n\nUse /help to see available commands.`
+    : `👋 Hi! I'm your AIOgames bot.\n\n🔔 I'll send you game update notifications!\n\n💡 To enable bot commands like /track and /search, go to your AIOgames user settings and enable "Telegram Bot Management".`;
+  await botClient.sendMessage(chatId, helpText);
+}

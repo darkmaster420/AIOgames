@@ -139,7 +139,7 @@ The owner account is auto-created from environment variables at startup.
 ## 📲 Telegram Setup
 
 1. Create a bot via [@BotFather](https://t.me/botfather) → set `TELEGRAM_BOT_TOKEN`
-2. Set webhook: `https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://your-domain.com/api/telegram/webhook`
+2. (No webhook required) The app uses Telegram long-poll `getUpdates` on startup — works on localhost / behind NAT, no public URL needed.
 3. Users send `/start` to the bot to get their Chat ID
 4. Enter Chat ID or `@username` in `/user/manage` settings
 
