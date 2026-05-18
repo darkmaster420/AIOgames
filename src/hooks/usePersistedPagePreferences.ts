@@ -35,15 +35,35 @@ function layoutPayload(prefs: LayoutPreferences) {
   };
 }
 
+// Hard-coded SSR defaults. We deliberately do NOT seed state from cookies
+// at construction time - cookies live on `document`, which only exists in
+// the browser, so doing so would make the first client paint diverge from
+// the SSR'd HTML and trigger a hydration mismatch. Cookies are applied
+// inside a useEffect once we know we're on the client.
+const SSR_DEFAULT_LAYOUT: LayoutPreferences = {
+  layoutMode: 'grid',
+  customCols: 'auto',
+  customRows: 'auto',
+};
+
 export function usePersistedLayoutPreferences(page: 'tracking', authenticated: boolean) {
-  const initial = readLayoutFromCookies(page);
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>(initial.layoutMode);
-  const [customCols, setCustomCols] = useState<GridSize>(initial.customCols);
-  const [customRows, setCustomRows] = useState<GridSize>(initial.customRows);
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(SSR_DEFAULT_LAYOUT.layoutMode);
+  const [customCols, setCustomCols] = useState<GridSize>(SSR_DEFAULT_LAYOUT.customCols);
+  const [customRows, setCustomRows] = useState<GridSize>(SSR_DEFAULT_LAYOUT.customRows);
   const [showLayoutDropdown, setShowLayoutDropdown] = useState(false);
   const loadedFromDb = useRef(false);
   const prefsReady = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cookies → state, only after mount. This is what users with persisted
+  // preferences see on second paint. For authenticated users the DB-load
+  // effect below may then layer over these.
+  useEffect(() => {
+    const cookiePrefs = readLayoutFromCookies(page);
+    setLayoutMode(cookiePrefs.layoutMode);
+    setCustomCols(cookiePrefs.customCols);
+    setCustomRows(cookiePrefs.customRows);
+  }, [page]);
 
   const queueDbSave = useCallback(
     (prefs: LayoutPreferences) => {
@@ -72,10 +92,14 @@ export function usePersistedLayoutPreferences(page: 'tracking', authenticated: b
         const dbPrefs = layoutFromDbRecord(data.preferences?.tracking);
         if (dbPrefs && !cancelled) {
           loadedFromDb.current = true;
+          // Re-read cookies inside the closure so the merge can fall back to
+          // whatever the user already had locally when the DB doesn't carry
+          // a field (e.g. a new account hasn't saved layoutMode yet).
+          const cookiePrefs = readLayoutFromCookies(page);
           const merged: LayoutPreferences = {
-            layoutMode: dbPrefs.layoutMode ?? initial.layoutMode,
-            customCols: dbPrefs.customCols ?? initial.customCols,
-            customRows: dbPrefs.customRows ?? initial.customRows,
+            layoutMode: dbPrefs.layoutMode ?? cookiePrefs.layoutMode,
+            customCols: dbPrefs.customCols ?? cookiePrefs.customCols,
+            customRows: dbPrefs.customRows ?? cookiePrefs.customRows,
           };
           setLayoutMode(merged.layoutMode);
           setCustomCols(merged.customCols);
@@ -115,16 +139,31 @@ export function usePersistedLayoutPreferences(page: 'tracking', authenticated: b
 }
 
 export function usePersistedHomepagePreferences(authenticated: boolean) {
-  const initial = readHomepageFromCookies();
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>(initial.layoutMode);
-  const [customCols, setCustomCols] = useState<GridSize>(initial.customCols);
-  const [customRows, setCustomRows] = useState<GridSize>(initial.customRows);
-  const [showRecentGames, setShowRecentGames] = useState(initial.showRecentUploads);
-  const [showAllGames, setShowAllGames] = useState(initial.showAllGames);
+  // Same SSR-safe pattern as the layout hook: start from constants so the
+  // server-rendered HTML matches the client's first paint, then apply
+  // cookies in a useEffect after mount. Reading cookies during render
+  // would diverge SSR (document = undefined → defaults) from client
+  // (document present → cookie values) and crash hydration.
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(SSR_DEFAULT_LAYOUT.layoutMode);
+  const [customCols, setCustomCols] = useState<GridSize>(SSR_DEFAULT_LAYOUT.customCols);
+  const [customRows, setCustomRows] = useState<GridSize>(SSR_DEFAULT_LAYOUT.customRows);
+  const [showRecentGames, setShowRecentGames] = useState(false);
+  const [showAllGames, setShowAllGames] = useState(false);
   const [showLayoutDropdown, setShowLayoutDropdown] = useState(false);
   const loadedFromDb = useRef(false);
   const prefsReady = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cookies → state on mount only. Re-render is unavoidable but the first
+  // paint matches SSR so React stays happy.
+  useEffect(() => {
+    const cookiePrefs = readHomepageFromCookies();
+    setLayoutMode(cookiePrefs.layoutMode);
+    setCustomCols(cookiePrefs.customCols);
+    setCustomRows(cookiePrefs.customRows);
+    setShowRecentGames(cookiePrefs.showRecentUploads);
+    setShowAllGames(cookiePrefs.showAllGames);
+  }, []);
 
   const queueDbSave = useCallback(
     (prefs: HomepagePreferences) => {
@@ -170,12 +209,16 @@ export function usePersistedHomepagePreferences(authenticated: boolean) {
         const dbPrefs = homepageFromDbRecord(data.preferences?.homepage);
         if (dbPrefs && !cancelled) {
           loadedFromDb.current = true;
+          // Re-read cookies inside the closure so fields missing from the
+          // DB record fall back to the user's local state rather than
+          // resetting to defaults.
+          const cookiePrefs = readHomepageFromCookies();
           const merged: HomepagePreferences = {
-            layoutMode: dbPrefs.layoutMode ?? initial.layoutMode,
-            customCols: dbPrefs.customCols ?? initial.customCols,
-            customRows: dbPrefs.customRows ?? initial.customRows,
-            showRecentUploads: dbPrefs.showRecentUploads ?? initial.showRecentUploads,
-            showAllGames: dbPrefs.showAllGames ?? initial.showAllGames,
+            layoutMode: dbPrefs.layoutMode ?? cookiePrefs.layoutMode,
+            customCols: dbPrefs.customCols ?? cookiePrefs.customCols,
+            customRows: dbPrefs.customRows ?? cookiePrefs.customRows,
+            showRecentUploads: dbPrefs.showRecentUploads ?? cookiePrefs.showRecentUploads,
+            showAllGames: dbPrefs.showAllGames ?? cookiePrefs.showAllGames,
           };
           setLayoutMode(merged.layoutMode);
           setCustomCols(merged.customCols);
