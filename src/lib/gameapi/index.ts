@@ -187,7 +187,7 @@ async function searchSite(siteConfig: SiteConfig, searchQuery: string): Promise<
     }
 
     const transformPromises = allPosts.map((post: unknown) => transformPostForV2(post, siteConfig, false));
-    return await Promise.all(transformPromises);
+    return dropSiteMetaPosts(siteConfig.type, await Promise.all(transformPromises));
   } catch (error) {
     console.error(`Error searching ${siteConfig.name}:`, error);
     return [];
@@ -245,11 +245,29 @@ async function fetchRecentFromSite(siteConfig: SiteConfig): Promise<TransformedP
 
     const posts = await response.json();
     const transformPromises = posts.map((post: unknown) => transformPostForV2(post, siteConfig, false));
-    return await Promise.all(transformPromises);
+    return dropSiteMetaPosts(siteConfig.type, await Promise.all(transformPromises));
   } catch (error) {
     console.error(`Error fetching recent from ${siteConfig.name}:`, error);
     return [];
   }
+}
+
+// FitGirl publishes meta posts ("Upcoming Repacks", weekly "Updates
+// Digest for <date>") in the same WP feed as actual releases - they'd
+// dominate the home page and search results since FitGirl puts them out
+// constantly. Filter by slug prefix because it's stable and url-safe;
+// titles have unicode dashes that complicate matching.
+const FITGIRL_META_SLUG = /^(upcoming-repacks|updates-digest)/i;
+
+function shouldDropPost(siteType: string, post: TransformedPost): boolean {
+  if (siteType === 'fitgirl' && FITGIRL_META_SLUG.test(post.slug || '')) {
+    return true;
+  }
+  return false;
+}
+
+function dropSiteMetaPosts(siteType: string, posts: TransformedPost[]): TransformedPost[] {
+  return posts.filter(p => !shouldDropPost(siteType, p));
 }
 
 // â”€â”€â”€ Public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
