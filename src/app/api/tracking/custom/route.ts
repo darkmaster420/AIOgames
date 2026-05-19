@@ -8,6 +8,7 @@ import { updateScheduler } from '../../../../lib/scheduler';
 import { syncRssDownloadLinksCache } from '../../../../lib/trackedGameDownloadLinks';
 import { analyzeGameTitle } from '../../../../utils/versionDetection';
 import { searchIGDB, type IGDBSearchResult } from '../../../../utils/igdb';
+import { isRepackPost } from '../../../../lib/repackFilter';
 import logger from '../../../../utils/logger';
 import { rateLimit, validateInput, schemas } from '../../../../utils/validation';
 import { searchGames } from '../../../../lib/gameapi';
@@ -127,14 +128,15 @@ export async function POST(req: NextRequest) {
 
       // First try piracy sites
       if (searchData.success && searchData.results && searchData.results.length > 0) {
-        // Filter out repacks if user preference is enabled
+        // Filter out repacks if user preference is enabled. Catches both
+        // title-based ("...repack...") and source-based (DODI / FitGirl)
+        // repacks via the shared helper.
         let filteredResults = searchData.results;
         if (releaseGroupPreferences.avoidRepacks) {
           const originalCount = filteredResults.length;
-          filteredResults = filteredResults.filter((game: { title: string }) => {
-            const title = game.title.toLowerCase();
-            return !title.includes('repack') && !title.includes('-repack');
-          });
+          filteredResults = filteredResults.filter(
+            (game: { title: string; siteType?: string }) => !isRepackPost(game, true),
+          );
           const filteredCount = originalCount - filteredResults.length;
           if (filteredCount > 0) {
             logger.info(`Filtered out ${filteredCount} repack(s) from custom game search for "${trimmedGameName}"`);

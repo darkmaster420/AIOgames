@@ -8,6 +8,7 @@ import { sendUpdateNotification, createUpdateNotificationData } from '../../../.
 import { cleanGameTitle, decodeHtmlEntities, extractReleaseGroup, is0xdeadcodeRelease, isOnlineFixRelease, resolveComparableVersionData, resolvePubTimestampFromBuild, resolvePubTimestampFromVersion } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
 import { getPostDetails, getRecentUploads, clearGameApiCache } from '../../../../lib/gameapi';
+import { isRepackPost } from '../../../../lib/repackFilter';
 import { syncRssDownloadLinksCache } from '../../../../lib/trackedGameDownloadLinks';
 
 import { calculateGameSimilarity } from '../../../../utils/titleMatching';
@@ -754,13 +755,15 @@ export async function POST(request: Request) {
       const recentData = await getRecentUploads();
       recentGames = recentData.results || [];
         
-      // Filter out repacks if user preference is set
+      // Filter out repacks if user preference is set. Catches both
+      // title-based ("...repack...") and source-based (DODI / FitGirl)
+      // repacks - previously only the title check ran so a FitGirl post
+      // for "Cyberpunk 2077" still passed through.
       if (releaseGroupPreferences.avoidRepacks) {
         const originalCount = recentGames.length;
-        recentGames = recentGames.filter((game: GameSearchResult) => {
-          const title = game.title.toLowerCase();
-          return !title.includes('repack') && !title.includes('-repack');
-        });
+        recentGames = recentGames.filter(
+          (game: GameSearchResult) => !isRepackPost(game, true),
+        );
         const filtered = originalCount - recentGames.length;
         if (filtered > 0) {
           logger.info(`Filtered out ${filtered} repack(s) based on user preference`);

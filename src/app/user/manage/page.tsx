@@ -421,7 +421,7 @@ export default function UserManagePage() {
                     Avoid Repacks
                   </label>
                   <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                    Filter out repack releases (titles containing &quot;repack&quot; or &quot;-repack&quot;) from update notifications
+                    Filter out repack releases from update notifications. Drops posts whose titles contain &quot;repack&quot; / &quot;-repack&quot; AND posts from repack-focused sources (DODI, FitGirl).
                   </p>
                 </div>
               </div>
