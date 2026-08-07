@@ -206,7 +206,6 @@ export const MAX_POSTS_PER_SITE = {
   'reloadedsteam': 40,
   'steamunderground': 40,
   'onlinefix': 40,
-  'goggames': 50,
   'dodi': 40,
   'default': 50
 };
@@ -242,11 +241,6 @@ export const SITE_CONFIGS = {
     baseUrl: 'https://online-fix.me',
     type: 'onlinefix',
     name: 'Online-Fix'
-  },
-  'goggames': {
-    baseUrl: 'https://gog-games.to/api/web/recent-torrents',
-    type: 'goggames',
-    name: 'GOG-Games'
   },
   'dodi': {
     baseUrl: 'https://dodi-repacks.download/wp-json/wp/v2/posts',
@@ -1480,16 +1474,26 @@ export async function transformPostForV2(post, site, fetchLinks = false) {
   // /api/proxy-image with a same-site Referer when needed (see imageCache).
   let image = null;
   if (site.type === 'gamedrive') {
-    image = post.featured_image_src || post.jetpack_featured_media_url;
+    image = pickFirstValidImage(
+      post.featured_image_src,
+      post.jetpack_featured_media_url,
+      post.yoast_head_json?.og_image?.[0]?.url,
+    );
   } else if (
     site.type === 'steamrip' ||
     site.type === 'reloadedsteam' ||
     site.type === 'steamunderground' ||
     site.type === 'skidrow'
   ) {
-    if (post.yoast_head_json?.og_image && post.yoast_head_json.og_image.length > 0) {
-      image = post.yoast_head_json.og_image[0].url;
-    }
+    image = pickFirstValidImage(
+      post.featured_image_src,
+      post.jetpack_featured_media_url,
+      post.yoast_head_json?.og_image?.[0]?.url,
+      post._embedded?.['wp:featuredmedia']?.[0]?.source_url,
+      post._embedded?.['wp:featuredmedia']?.[0]?.media_details?.sizes?.large?.source_url,
+      post._embedded?.['wp:featuredmedia']?.[0]?.media_details?.sizes?.medium_large?.source_url,
+      post._embedded?.['wp:featuredmedia']?.[0]?.media_details?.sizes?.full?.source_url,
+    );
   }
 
   // Fallback to content/excerpt image extraction for any site that didn't
@@ -1940,9 +1944,21 @@ export async function extractDownloadLinksForV2(postUrl, siteType = 'skidrow', w
 
 function extractImageFromContent(content) {
   if (!content) return null;
-  const imgRegex = /<img[^>]+src=["']([^"']+)["']/i;
-  const match = imgRegex.exec(content);
-  return match ? match[1] : null;
+  const imgRegex = /<img[^>]+(?:src|data-src|data-lazy-src)=["']([^"']+)["']/gi;
+  let match;
+  while ((match = imgRegex.exec(content)) !== null) {
+    const image = decodeBasicHtmlEntities(match[1] || '').trim();
+    if (isValidImageUrl(image)) return image;
+  }
+  return null;
+}
+
+function pickFirstValidImage(...candidates) {
+  for (const candidate of candidates) {
+    const image = typeof candidate === 'string' ? decodeBasicHtmlEntities(candidate).trim() : '';
+    if (isValidImageUrl(image)) return image;
+  }
+  return null;
 }
 
 function extractDescription(content) {
@@ -2030,10 +2046,6 @@ export function isValidImageUrl(url) {
   }
 }
 
-// â”€â”€â”€ GOG-Games.to helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-const GOG_GAMES_BASE = 'https://gog-games.to';
-const GOG_GAMES_IMAGE_BASE = 'https://images.gog-statics.com';
 const ONLINE_FIX_BASE = 'https://online-fix.me';
 const steamHeaderImageCache = new Map();
 
@@ -2324,64 +2336,6 @@ export async function fetchOnlineFixSearch(searchQuery) {
   }));
 
   return results;
-}
-
-/**
- * Fetch recent torrents from GOG-Games.to API
- */
-export async function fetchGogGamesRecent() {
-  const url = `${GOG_GAMES_BASE}/api/web/recent-torrents`;
-  const response = await siteFetch(url, {
-    headers: { 'User-Agent': 'GameSearch-API-v2/2.0', 'Accept': 'application/json' }
-  });
-  if (!response.ok) {
-    throw new Error(`GOG-Games API returned ${response.status}`);
-  }
-  return response.json(); // returns array directly
-}
-
-/**
- * Transform a GOG-Games API item into the standard post format used by the rest of the API.
- * The `image` hash maps to: https://images.gog-statics.com/<hash>.jpg   (or _product_tile_256x.jpg via GOG CDN)
- * Torrent download link: https://gog-games.to/downloads/torrents/<torrent_filename>
- */
-export function transformGogGamesPost(item) {
-  const torrentUrl = item.torrent_filename
-    ? `${GOG_GAMES_BASE}/downloads/torrents/${item.torrent_filename}`
-    : null;
-
-  // Build image URL from hash â€“ GOG static images
-  const image = item.image
-    ? `${GOG_GAMES_IMAGE_BASE}/${item.image}.jpg`
-    : null;
-
-  // Use torrent_date (when torrent was added) as the post date, fall back to last_update
-  const date = item.torrent_date || item.last_update || null;
-
-  // Build a human-readable description from available metadata
-  const descParts = [];
-  if (item.developer) descParts.push(`Developer: ${item.developer}`);
-  if (item.publisher) descParts.push(`Publisher: ${item.publisher}`);
-  if (item.is_new) descParts.push('New release');
-  if (item.is_updated) descParts.push('Updated');
-  if (item.is_indev) descParts.push('In development');
-
-  return {
-    id: `goggames_${item.id}`,
-    originalId: item.id,
-    title: item.title || 'No title',
-    excerpt: descParts.join(' Â· ') || '',
-    link: `${GOG_GAMES_BASE}/game/${item.slug}`,
-    date,
-    slug: item.slug,
-    description: descParts.join(' Â· ') || '',
-    categories: [],
-    tags: [],
-    downloadLinks: torrentUrl ? [{ url: torrentUrl, label: 'Torrent', service: 'GOG-Games' }] : [],
-    source: 'GOG-Games',
-    siteType: 'goggames',
-    image
-  };
 }
 
 // ── cs.rin.ru forum integration ──────────────────────────────────────────────

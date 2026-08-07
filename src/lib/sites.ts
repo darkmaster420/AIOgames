@@ -5,7 +5,6 @@ export const SITES = [
   { value: 'reloadedsteam', label: 'ReloadedSteam' },
   { value: 'steamunderground', label: 'SteamUnderground' },
   { value: 'onlinefix', label: 'Online-Fix' },
-  { value: 'goggames', label: 'GOG-Games' },
   { value: 'dodi', label: 'DODI Repacks' },
   { value: 'fitgirl', label: 'FitGirl Repacks' },
   { value: 'csrin', label: 'CS.RIN.RU' },

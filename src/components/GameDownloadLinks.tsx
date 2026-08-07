@@ -36,7 +36,7 @@ interface GameDownloadLinksProps {
   siteType?: string;
   /** Original post URL (required for DODI follow-post notice). */
   postUrl?: string;
-  // Embedded download links (e.g. from goggames where links are in the initial response)
+  // Embedded download links when a result already includes direct links.
   embeddedDownloadLinks?: Array<{ url: string; label?: string; service?: string }>;
   gameTitle?: string;
   className?: string;
@@ -69,7 +69,7 @@ export function GameDownloadLinks({
   const RETRY_DELAY_MS = 800;
 
   const fetchDownloadLinks = async (attempt = 0): Promise<void> => {
-    // If embedded download links are available, use them directly (e.g. goggames)
+    // If embedded download links are available, use them directly.
     if (embeddedDownloadLinks && embeddedDownloadLinks.length > 0) {
       setDownloadLinks(embeddedDownloadLinks.map((link, i) => ({
         service: link.service || 'Direct',

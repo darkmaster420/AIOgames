@@ -18,14 +18,13 @@ A self-hosted Next.js app that monitors game updates across 8+ sites, verifies v
 ## ✨ Features (v2.0)
 
 ### Core
-- **Multi-Site Monitoring** — SteamRip, SteamUnderground, SkidRow, FreeGOG, ReloadedSteam, Online-Fix, GOG-Games, DODI-Repacks, CS.RIN.RU
+- **Multi-Site Monitoring** — SteamRip, SteamUnderground, SkidRow, FreeGOG, ReloadedSteam, Online-Fix, DODI-Repacks, FitGirl-Repacks, CS.RIN.RU
 - **Multi-Site Search Filter** — Pick any combination of sites from the home page (e.g. `?site=steamrip,skidrow`); default search excludes high-cost sources like CS.RIN.RU unless explicitly opted into
 - **Comprehensive Search Pagination** — Searches walk every page of matching results per site (WordPress REST `X-WP-TotalPages` with parallel fan-out), up to 10 pages × 100 per site, instead of silently truncating at the first page
 - **Auto-Fallback Search** — When a filtered site returns zero results (e.g. SkidRow's WP search missing a scene-format title), the search auto-widens to all sites and shows a banner explaining what happened
 - **Smart Version Detection** — Semantic versions, build numbers, date-based versions, scene group tags, and 50+ release format patterns
 - **Automatic Update Scheduling** — Built-in background scheduler, per-game frequency, no cron jobs
 - **Download Links** — One-click download link extraction with 30+ file host support (Mega, Mediafire, Pixeldrain, etc.)
-- **Embedded Downloads** — GOG-Games torrent links available directly without extra fetch
 - **Follow-Post Sites** — DODI-Repacks and CS.RIN.RU don't expose machine-readable download lists; the UI surfaces a clear "open the original post" CTA instead of attempting a failing scrape
 
 ### Verification & Matching
@@ -132,7 +131,6 @@ VAPID_PRIVATE_KEY=your-vapid-private-key
 | FreeGOG PC Games | WordPress API | ✅ | ✅ | ✅ | Cloudflare-gated; cached `cf_clearance` cookie reused before resolving via FlareSolverr |
 | ReloadedSteam | WordPress API | ✅ | ✅ | ✅ | — |
 | Online-Fix | Custom scraper | ✅ | ✅ | ✅ | HTML scraping, no WP API |
-| GOG-Games | JSON API | — | ✅ | ✅ | Includes embedded torrent links |
 | DODI-Repacks | WordPress API | ✅ | ✅ | "Open post" | Downloads aren't scraped; UI links straight to the DODI post |
 | CS.RIN.RU | phpBB forum | ✅ (opt-in) | — | "Open thread" | Bot login required (`CSRIN_USERNAME`/`CSRIN_PASSWORD`); excluded from default-all search; search results jump straight to the latest page of each thread |
 
@@ -254,7 +252,6 @@ Optional. Steam integration improves tracking accuracy but everything works with
 - [x] Auto-approval with configurable threshold
 - [x] Sequel and DLC detection
 - [x] Electron desktop app
-- [x] Embedded download links for GOG-Games
 - [x] Multi-site search filter (`?site=a,b,c`) with per-site auto-fallback when a selection returns nothing
 - [x] Full search pagination — fetch every page of matching results per site, not just the first 40
 - [x] Persistent per-account layout preferences (homepage + tracking page) across logins/devices

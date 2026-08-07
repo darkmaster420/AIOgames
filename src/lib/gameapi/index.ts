@@ -18,8 +18,6 @@ import {
   fetchFreegog,
   transformPostForV2,
   isValidImageUrl,
-  fetchGogGamesRecent,
-  transformGogGamesPost,
   fetchOnlineFixRecent,
   fetchOnlineFixSearch,
   fetchCsrinSearch,
@@ -95,7 +93,7 @@ const searchCache = new Map<string, { results: TransformedPost[]; timestamp: num
 function applySearchTermFilter(results: TransformedPost[], query: string): TransformedPost[] {
   return filterGamesBySearchQuery(results, query);
 }
-const SEARCH_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const SEARCH_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 // â”€â”€â”€ Internal Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -119,10 +117,6 @@ function dispatchWpFetch(siteConfig: SiteConfig, url: string) {
 
 async function searchSite(siteConfig: SiteConfig, searchQuery: string): Promise<TransformedPost[]> {
   try {
-    if (siteConfig.type === 'goggames') {
-      return [];
-    }
-
     if (siteConfig.type === 'onlinefix') {
       return await fetchOnlineFixSearch(searchQuery);
     }
@@ -196,11 +190,6 @@ async function searchSite(siteConfig: SiteConfig, searchQuery: string): Promise<
 
 async function fetchRecentFromSite(siteConfig: SiteConfig): Promise<TransformedPost[]> {
   try {
-    if (siteConfig.type === 'goggames') {
-      const items = await fetchGogGamesRecent();
-      return items.map((item: unknown) => transformGogGamesPost(item));
-    }
-
     if (siteConfig.type === 'onlinefix') {
       return await fetchOnlineFixRecent();
     }

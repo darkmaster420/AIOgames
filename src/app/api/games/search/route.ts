@@ -110,9 +110,9 @@ async function enrichSearchResults(rawResults: ApiGame[], searchQuery: string): 
   return results;
 }
 
-// In-memory cache with 10-minute TTL
+// In-memory cache with 1-hour TTL
 const searchCache = new Map<string, CacheEntry>();
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 // Clean up old cache entries periodically
 setInterval(() => {
