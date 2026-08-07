@@ -481,17 +481,18 @@ function DashboardInner() {
 
       const grouped = new Map<string, DisplayGame>();
       const isRecentUploads = !searchQuery.trim();
+      const shouldDedupeRecentUploads = isRecentUploads && !showAllGames;
 
       for (const game of refinedGames) {
         const appId = extractAppId(game);
         const cleanedTitle = cleanGameTitle(game.originalTitle || game.title || '').toLowerCase();
-        const groupKey = isRecentUploads
+        const groupKey = shouldDedupeRecentUploads
           ? (appId ? `appid:${appId}` : `title:${cleanedTitle || game.id}`)
           : game.id;
 
         const existing = grouped.get(groupKey);
 
-        if (!isRecentUploads || !existing) {
+        if (!shouldDedupeRecentUploads || !existing) {
           grouped.set(groupKey, { ...game, displayKey: groupKey, postCount: 1 });
           continue;
         }
@@ -532,7 +533,7 @@ function DashboardInner() {
         const dateB = b.date ? new Date(b.date).getTime() : 0;
         return dateB - dateA;
       });
-    }, [games, refineText, extractAppId, searchQuery]);
+    }, [games, refineText, extractAppId, searchQuery, showAllGames]);
 
     // Track/untrack handlers
     const handleTrackGame = useCallback(async (game: Game, forceReplace = false) => {
