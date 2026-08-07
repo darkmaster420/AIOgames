@@ -19,7 +19,7 @@ Welcome to the AIOgames documentation center! Here you'll find all guides, advan
 See the main [README.md](../README.md#screenshots) for a visual overview of the app on PC and mobile.
 
 ## 🔗 Related Projects
-- [Game API (Required)](https://github.com/darkmaster420/gameapi)
+- Built-in gameapi source scraper (included in this app)
 
 ---
 

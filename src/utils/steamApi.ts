@@ -139,9 +139,10 @@ export function isRetryableSteamTransportError(error: unknown): boolean {
 async function steamApiFetch(url: string, timeout: number = REQUEST_TIMEOUT): Promise<unknown> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const requestUrl = normalizeSteamApiRequestUrl(url);
 
   try {
-    const response = await fetch(url, {
+    const response = await fetch(requestUrl, {
       signal: controller.signal,
       headers: {
         'User-Agent': 'AIOgames-App/1.0',
@@ -172,6 +173,19 @@ async function steamApiFetch(url: string, timeout: number = REQUEST_TIMEOUT): Pr
     
     throw new Error('Unknown Steam API error');
   }
+}
+
+function normalizeSteamApiRequestUrl(url: string): string {
+  if (typeof window !== 'undefined' || !url.startsWith('/')) {
+    return url;
+  }
+
+  const serverBase = getDefaultBase();
+  if (serverBase.startsWith('/')) {
+    return url;
+  }
+
+  return `${new URL(serverBase).origin}${url}`;
 }
 
 /**

@@ -3,6 +3,7 @@ import { getCurrentUser } from '../../../../lib/auth';
 import { TrackedGame } from '../../../../lib/models';
 import connectDB from '../../../../lib/db';
 import { resolveIGDBImage } from '../../../../utils/igdb';
+import { getSteamAppDetails } from '../../../../utils/steamApi';
 
 interface SteamSpyData {
   appid: number;
@@ -112,63 +113,52 @@ export async function GET(
       );
     }
 
-    // 1) Primary metadata source: SteamSpy (fast, stable).
-    const fetchSteamSpy = async (): Promise<SteamSpyData | null> => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3000);
-      
-      try {
-        const response = await fetch(
-          `https://steamspy.com/api.php?request=appdetails&appid=${appid}`,
-          {
-            signal: controller.signal,
-            next: { revalidate: 3600 },
-          }
-        );
-        clearTimeout(timeout);
-        
-        if (response.ok) {
-          return await response.json();
-        }
-      } catch {
-        clearTimeout(timeout);
-      }
-      return null;
-    };
-
-    // 2) Fallback/extended metadata source: Steam Store API.
-    const fetchSteamStore = async () => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-      
-      try {
-        const response = await fetch(
-          `https://store.steampowered.com/api/appdetails?appids=${appid}&l=english&cc=US`,
-          {
-            signal: controller.signal,
-            next: { revalidate: 7200 },
-          }
-        );
-        clearTimeout(timeout);
-        
-        if (response.ok) {
-          const json = await response.json();
-          if (json[appid]?.success && json[appid]?.data) {
-            return json[appid].data;
-          }
-        }
-      } catch {
-        clearTimeout(timeout);
-      }
-      return null;
-    };
-
-    const steamSpyData = await fetchSteamSpy();
-    // Keep SteamSpy as the primary source, but still query Steam API as a
-    // separate fallback/enrichment source for details SteamSpy does not expose
-    // (description, screenshots, categories, etc.).
-    const shouldFetchSteamStore = true;
-    const steamStoreData = shouldFetchSteamStore ? await fetchSteamStore() : null;
+    const steamDetails = await getSteamAppDetails(appid).catch(() => null);
+    const steamSpyData = (steamDetails?.sources?.steamspy || null) as SteamSpyData | null;
+    const steamStoreData = (steamDetails?.sources?.steam || null) as {
+      type?: string;
+      name?: string;
+      detailed_description?: string;
+      about_the_game?: string;
+      short_description?: string;
+      header_image?: string;
+      background?: string;
+      background_raw?: string;
+      screenshots?: Array<{ id: number; path_thumbnail: string; path_full: string }>;
+      movies?: Array<{
+        id: number;
+        name: string;
+        thumbnail: string;
+        webm: { 480: string; max: string };
+        mp4: { 480: string; max: string };
+      }>;
+      developers?: string[];
+      publishers?: string[];
+      release_date?: {
+        coming_soon: boolean;
+        date: string;
+      };
+      platforms?: {
+        windows: boolean;
+        mac: boolean;
+        linux: boolean;
+      };
+      metacritic?: {
+        score: number;
+        url: string;
+      };
+      categories?: Array<{ id: number; description: string }>;
+      genres?: Array<{ id: string; description: string }>;
+      price_overview?: {
+        currency: string;
+        initial: number;
+        final: number;
+        discount_percent: number;
+        initial_formatted: string;
+        final_formatted: string;
+      };
+      drm_notice?: string;
+    } | null;
 
     // If we have neither source, return error
     // If we have neither Steam source, try DB + IGDB fallback
@@ -270,6 +260,7 @@ export async function GET(
       sourceAvailability: {
         steamspy: !!steamSpyData,
         steamapi: !!steamStoreData,
+        steamdb: !!steamDetails?.sources?.steamdb,
         igdb: imageSource === 'igdb',
         rawg: imageSource === 'rawg',
       },

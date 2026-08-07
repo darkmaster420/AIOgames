@@ -90,7 +90,6 @@ docker run -d \
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `GAME_API_URL` | Game API endpoint | `https://gameapi.a7a8524.workers.dev` |
 | `NODE_ENV` | Runtime environment | `production` |
 
 ### Example .env File
@@ -102,9 +101,6 @@ MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/aiogames
 # Authentication
 NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=your-super-secure-secret-key
-
-# Game API
-GAME_API_URL=https://gameapi.a7a8524.workers.dev
 
 # App Settings
 NODE_ENV=production

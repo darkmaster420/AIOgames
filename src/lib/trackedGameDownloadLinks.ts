@@ -176,6 +176,7 @@ export function mergeDownloadLinksForRss(
 
 type GameapiGameShape = {
   gameId?: string;
+  source?: string;
   gameLink?: string;
   updateHistory?: Array<{
     dateFound?: string | Date;
@@ -184,18 +185,23 @@ type GameapiGameShape = {
   }>;
 };
 
-/**
- * Same postId/siteType resolution as /api/games/downloads when DB has no links.
- */
-export async function fetchDownloadLinksViaGameapi(
-  game: GameapiGameShape
-): Promise<TrackedDownloadLink[]> {
+const GAMEAPI_SITE_TYPES = new Set([
+  'freegog',
+  'fitgirl',
+  'onlinefix',
+  'reloadedsteam',
+  'skidrow',
+  'steamrip',
+  'steamunderground',
+]);
+
+function resolveGameapiPostSource(game: GameapiGameShape): { postId: string; siteType: string } | null {
   let postId: string | null = null;
   let siteType: string | null = null;
 
   if (game.gameId) {
     const gameIdMatch = game.gameId.match(/^([a-z]+)_(.+)$/);
-    if (gameIdMatch) {
+    if (gameIdMatch && GAMEAPI_SITE_TYPES.has(gameIdMatch[1])) {
       [, siteType, postId] = gameIdMatch;
     }
   }
@@ -231,23 +237,39 @@ export async function fetchDownloadLinksViaGameapi(
       if (domainMatch) {
         const domain = domainMatch[1];
         if (domain.includes('skidrowreloaded')) siteType = 'skidrow';
+        else if (domain.includes('online-fix') || domain.includes('onlinefix')) siteType = 'onlinefix';
         else if (domain.includes('freegogpcgames')) siteType = 'freegog';
         else if (domain.includes('steamrip')) siteType = 'steamrip';
         else if (domain.includes('reloadedsteam')) siteType = 'reloadedsteam';
         else if (domain.includes('steamunderground')) siteType = 'steamunderground';
-        else if (domain.includes('dodi-repacks')) siteType = 'dodi';
+        else if (domain.includes('fitgirl-repacks')) siteType = 'fitgirl';
       }
     }
   }
 
-  if (!postId || !siteType) return [];
+  if (!postId || !siteType || !GAMEAPI_SITE_TYPES.has(siteType)) return null;
+  return { postId, siteType };
+}
 
-  if (isFollowPostSiteType(siteType)) {
+export function canFetchDownloadLinksViaGameapi(game: GameapiGameShape): boolean {
+  return !isFollowPostTrackedGame(game) && resolveGameapiPostSource(game) !== null;
+}
+
+/**
+ * Same postId/siteType resolution as /api/games/downloads when DB has no links.
+ */
+export async function fetchDownloadLinksViaGameapi(
+  game: GameapiGameShape
+): Promise<TrackedDownloadLink[]> {
+  const source = resolveGameapiPostSource(game);
+  if (!source) return [];
+
+  if (isFollowPostSiteType(source.siteType)) {
     return [];
   }
 
   try {
-    const gameapiData = await getPostDetails(postId, siteType);
+    const gameapiData = await getPostDetails(source.postId, source.siteType);
     if (gameapiData.success && gameapiData.post?.downloadLinks?.length) {
       return gameapiData.post.downloadLinks.map(
         (link: { service: string; url: string; type: string }) => ({
@@ -273,6 +295,7 @@ export async function syncRssDownloadLinksCache(trackedGameId: string): Promise<
 
   const game = await TrackedGame.findById(id).lean();
   if (!game) return false;
+  if (!canFetchDownloadLinksViaGameapi(game as GameapiGameShape)) return false;
 
   if (isFollowPostTrackedGame(game as GameapiGameShape)) {
     return false;
@@ -364,6 +387,8 @@ export async function warmRssDownloadLinksCacheBatch(
   const candidates = await TrackedGame.find(filter)
     .select({
       _id: 1,
+      gameId: 1,
+      gameLink: 1,
       rssCachedDownloadLinks: 1,
       rssDownloadLinksFetchedAt: 1,
       latestApprovedUpdate: 1,
@@ -374,7 +399,10 @@ export async function warmRssDownloadLinksCacheBatch(
     .lean();
 
   const toWarm = candidates
-    .filter(g => needsRssDownloadLinkWarm(g as DownloadLinkSourceGame, maxAgeMs))
+    .filter(g =>
+      canFetchDownloadLinksViaGameapi(g as GameapiGameShape) &&
+      needsRssDownloadLinkWarm(g as DownloadLinkSourceGame, maxAgeMs)
+    )
     .slice(0, maxGames);
 
   let succeeded = 0;

@@ -2,7 +2,7 @@
 
 A self-hosted Next.js app that monitors game updates across 8+ sites, verifies versions against Steam and GOG, and sends instant Telegram/push notifications when new releases drop.
 
-**[🌐 Live Demo](https://aiogames.iforgor.cc) | [📡 Game API](https://github.com/darkmaster420/gameapi)**
+**[🌐 Live Demo](https://aiogames.iforgor.cc)**
 
 > The demo is for testing — self-host for reliable long-term use.
 
@@ -52,7 +52,7 @@ A self-hosted Next.js app that monitors game updates across 8+ sites, verifies v
 ### Deployment
 - **Docker Ready** — Production and development compose files with MongoDB
 - **Electron Desktop App** — Standalone Windows app with auto-updater from GitHub releases
-- **Cloudflare Workers** — Game API and Steam API proxy deploy to the edge
+- **Built-In Source Scraper** — Game/source scraping and Steam data proxy run inside the app
 
 ---
 
@@ -61,7 +61,7 @@ A self-hosted Next.js app that monitors game updates across 8+ sites, verifies v
 ### Prerequisites
 - Node.js 18+
 - MongoDB instance (or use the Docker compose)
-- Deployed [gameapi](https://github.com/darkmaster420/gameapi) instance
+- No separate gameapi worker is required; the source scraper is built into AIOgames.
 
 ### Docker (Recommended)
 
@@ -92,8 +92,6 @@ npm run dev
 MONGODB_URI=mongodb://localhost:27017/aiogames
 NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=your-secret-key
-GAME_API_URL=https://your-gameapi-instance.workers.dev
-
 # Owner Account (auto-created at startup)
 OWNER_EMAIL=admin@example.com
 OWNER_PASSWORD=secure-password-here
@@ -172,7 +170,7 @@ Admin commands: `/approve <key>`, `/deny <key>`, `/help`
 |-------|-----------|
 | Frontend | Next.js 15, React 19, TypeScript, Tailwind CSS |
 | Backend | Next.js API Routes, MongoDB/Mongoose, NextAuth.js |
-| External | [Game API](https://github.com/darkmaster420/gameapi) (Cloudflare Workers), SteamDB RSS, Steam Web API, IGDB/Twitch API, GOGDB |
+| External | Source-site WordPress/JSON APIs, SteamDB RSS, Steam Web API, IGDB/Twitch API, GOGDB |
 | Desktop | Electron with auto-updater |
 | Infrastructure | Docker, Docker Compose |
 
@@ -233,7 +231,7 @@ See [docs/README.md](docs/README.md) for detailed guides:
 AIOgames only aggregates publicly available information. It does not download or distribute games. Use your own judgment and visit external sites with a VPN and adblocker.
 
 **Do I need my own gameapi instance?**
-Yes. Self-deployment keeps the project free, decentralized, and private. Setup takes minutes on Cloudflare Workers.
+No. The former gameapi service is integrated into AIOgames and runs through the app's own API routes.
 
 **How often does it check for updates?**
 Configurable per game — from 1 hour to 1 month. The background scheduler runs automatically.
@@ -265,13 +263,13 @@ Optional. Steam integration improves tracking accuracy but everything works with
 - [x] Telegram bot via `getUpdates` long-poll (no webhook / public URL required)
 - [ ] Email notifications
 - [ ] Custom themes
-- [ ] Merge GameAPI into AIOGames
+- [x] Merge GameAPI into AIOGames
 
 ---
 
 ## 🔗 Related Projects
 
-- **[gameapi](https://github.com/darkmaster420/gameapi)** — Cloudflare Workers API powering game search (required)
+- **Built-in gameapi module** — Internal source scraper powering game search and download-link extraction
 - **[Pixeldrain Limit Bypass](https://pdbypass.iforgor.cc)** — Cloudflare Workers proxy to bypass Pixeldrain limits
 - **[Game Search](https://github.com/darkmaster420/gamesearch)** — The original prototype that evolved into AIOgames
 
@@ -280,10 +278,9 @@ Optional. Steam integration improves tracking accuracy but everything works with
 ## 🤝 Contributing
 
 1. Fork the repo
-2. Deploy [gameapi](https://github.com/darkmaster420/gameapi) and configure `.env`
-3. Create a feature branch
-4. Test with both Steam-verified and non-verified games
-5. Open a Pull Request
+2. Create a feature branch
+3. Test with both Steam-verified and non-verified games
+4. Open a Pull Request
 
 ---
 

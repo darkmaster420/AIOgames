@@ -86,7 +86,7 @@ interface GameDetailsResponse {
   error?: string;
 }
 
-interface GameApiSearchResult {
+interface SourceSearchResult {
   id: string;
   originalId?: number | string;
   title: string;
@@ -116,7 +116,7 @@ export default function AppIdDetailPage() {
   const [resultsLoading, setResultsLoading] = useState(false);
   const [resultsError, setResultsError] = useState('');
   const [resultsQuery, setResultsQuery] = useState('');
-  const [gameResults, setGameResults] = useState<GameApiSearchResult[]>([]);
+  const [gameResults, setGameResults] = useState<SourceSearchResult[]>([]);
   const [trackingLoading, setTrackingLoading] = useState(false);
   const [trackingError, setTrackingError] = useState('');
   const [untrackingLoading, setUntrackingLoading] = useState(false);
@@ -227,7 +227,7 @@ export default function AppIdDetailPage() {
     }
   };
 
-  const handleMarkAsLatest = async (result: GameApiSearchResult) => {
+  const handleMarkAsLatest = async (result: SourceSearchResult) => {
     if (!game?.trackedGameId) return;
 
     const version = result.originalTitle || result.title || '';
@@ -307,61 +307,30 @@ export default function AppIdDetailPage() {
     setTrackingError('');
 
     try {
-      const appIdStr = String(game.appid);
-      const best =
-        gameResults.find(
-          (r) =>
-            String(r.originalId ?? '') === appIdStr ||
-            (r.link || '').includes(`/app/${appIdStr}`) ||
-            (r.link || '').includes(`app/${appIdStr}/`)
-        ) || gameResults[0];
+      const displayTitle = game.name?.trim();
+      if (!displayTitle) {
+        throw new Error('Game name is missing; cannot track yet.');
+      }
 
-      if (best?.id) {
-        const displayTitle = best.originalTitle || best.title || game.name;
-        const src = (best.source || best.siteType || '').trim() || 'Unknown';
-        const response = await fetch('/api/tracking', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            gameId: best.id,
-            title: displayTitle,
-            originalTitle: displayTitle,
-            cleanedTitle: cleanGameTitle(displayTitle),
-            steamAppId: game.appid,
-            source: src,
-            image: best.image || game.header_image || '',
-            description:
-              best.description ||
-              best.excerpt ||
-              summary ||
-              game.short_description ||
-              game.description ||
-              '',
-            gameLink: best.link || `https://store.steampowered.com/app/${game.appid}`,
-          }),
-        });
+      const response = await fetch('/api/tracking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gameId: `steam:${game.appid}`,
+          title: displayTitle,
+          originalTitle: displayTitle,
+          cleanedTitle: cleanGameTitle(displayTitle),
+          steamAppId: game.appid,
+          source: 'Steam',
+          image: game.header_image || '',
+          description: summary || game.short_description || game.description || '',
+          gameLink: `https://store.steampowered.com/app/${game.appid}`,
+        }),
+      });
 
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data?.error || 'Failed to track game.');
-        }
-      } else {
-        const name = game.name?.trim();
-        if (!name) {
-          throw new Error('Game name is missing; cannot track yet.');
-        }
-        const response = await fetch('/api/tracking/custom', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ gameName: name }),
-        });
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(
-            data?.error ||
-              'No search results yet. Wait for results below or use Quick Add from Tracking.'
-          );
-        }
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || 'Failed to track game.');
       }
 
       await loadGameByAppId();
@@ -397,10 +366,10 @@ export default function AppIdDetailPage() {
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data?.error || 'Failed to load results from gameapi.');
+          throw new Error(data?.error || 'Failed to load source results.');
         }
 
-        const results: GameApiSearchResult[] = Array.isArray(data) ? data : [];
+        const results: SourceSearchResult[] = Array.isArray(data) ? data : [];
         const normalizedQuery = query.toLowerCase();
         const ranked = [...results]
           .sort((a, b) => {
@@ -425,7 +394,7 @@ export default function AppIdDetailPage() {
         }
       } catch (err) {
         if (signal.aborted || (err as { name?: string })?.name === 'AbortError') return;
-        setResultsError(err instanceof Error ? err.message : 'Failed to load results from gameapi.');
+        setResultsError(err instanceof Error ? err.message : 'Failed to load source results.');
         setGameResults([]);
       } finally {
         if (!signal.aborted) setResultsLoading(false);
@@ -734,7 +703,7 @@ export default function AppIdDetailPage() {
               </div>
 
               <p className="mt-2 text-sm text-slate-400">
-                Live search results for this game from gameapi sources.
+                Live source-post results for this game.
               </p>
 
               {markLatestError && (
@@ -750,7 +719,7 @@ export default function AppIdDetailPage() {
 
               {resultsLoading && (
                 <div className="mt-4 rounded-md border border-slate-800 bg-slate-950/40 p-4 text-sm text-slate-300">
-                  Loading results from gameapi...
+                  Loading source results...
                 </div>
               )}
 
@@ -762,7 +731,7 @@ export default function AppIdDetailPage() {
 
               {!resultsLoading && !resultsError && gameResults.length === 0 && (
                 <div className="mt-4 rounded-md border border-slate-800 bg-slate-950/40 p-4 text-sm text-slate-400">
-                  No results found in gameapi for this title.
+                  No source posts found for this title.
                 </div>
               )}
 

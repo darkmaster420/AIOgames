@@ -18,7 +18,7 @@
 ### ✅ **External Services**
 1. GitHub OAuth app registered and configured
 2. Telegram bot created (optional, for notifications)
-3. Game API endpoint accessible (`https://gameapi.a7a8524.workers.dev`)
+3. Built-in source scraper can reach the supported source sites
 
 ---
 
@@ -46,8 +46,6 @@ NEXTAUTH_URL=https://your-domain.com
 NEXTAUTH_SECRET=your-secure-random-string
 GITHUB_CLIENT_ID=your-github-client-id  
 GITHUB_CLIENT_SECRET=your-github-client-secret
-GAME_API_URL=https://gameapi.a7a8524.workers.dev
-
 # Optional
 TELEGRAM_BOT_TOKEN=your-telegram-bot-token
 NEXT_PUBLIC_APP_URL=https://your-domain.com

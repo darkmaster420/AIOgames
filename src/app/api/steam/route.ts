@@ -530,9 +530,15 @@ interface SteamGameData {
   short_description?: string;
   supported_languages?: string;
   header_image?: string;
+  background?: string;
+  background_raw?: string;
   website?: string;
   developers?: string[];
   publishers?: string[];
+  screenshots?: unknown[];
+  movies?: unknown[];
+  drm_notice?: string;
+  metacritic?: Record<string, unknown>;
   price_overview?: Record<string, unknown>;
   platforms?: Record<string, unknown>;
   categories?: unknown[];
@@ -546,14 +552,20 @@ function pickSteamFields(data: SteamGameData) {
     type: data.type,
     required_age: data.required_age,
     is_free: data.is_free,
-    detailed_description: data.detailed_description?.substring(0, 500),
-    about_the_game: data.about_the_game?.substring(0, 500),
+    detailed_description: data.detailed_description,
+    about_the_game: data.about_the_game,
     short_description: data.short_description,
     supported_languages: data.supported_languages,
     header_image: data.header_image,
+    background: data.background,
+    background_raw: data.background_raw,
     website: data.website,
     developers: data.developers,
     publishers: data.publishers,
+    screenshots: data.screenshots,
+    movies: data.movies,
+    drm_notice: data.drm_notice,
+    metacritic: data.metacritic,
     price_overview: data.price_overview,
     platforms: data.platforms,
     categories: data.categories,

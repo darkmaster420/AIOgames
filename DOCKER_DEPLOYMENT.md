@@ -66,9 +66,6 @@ MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/aiogames
 NEXTAUTH_URL=http://localhost:3000  # Change for production domain
 NEXTAUTH_SECRET=your-super-secure-secret-key
 
-# Game API
-GAME_API_URL=https://gameapi.a7a8524.workers.dev
-
 # Environment
 NODE_ENV=production
 ```

@@ -105,8 +105,8 @@ export async function GET(req: NextRequest) {
       if (downloadLinks.length > 0) {
         context = {
           gameTitle: game.title,
-          currentVersion: context.currentVersion || 'Latest from gameapi',
-          type: 'gameapi-fallback'
+          currentVersion: context.currentVersion || 'Latest from source post',
+          type: 'built-in-source-fallback'
         };
         await TrackedGame.updateOne(
           { _id: game._id, userId: user.id },
