@@ -80,6 +80,12 @@ interface TrackedGame {
       type: string;
     }>;
   };
+  libraryMatch?: {
+    title: string;
+    fileName: string;
+    relativePath: string;
+    fileSizeBytes?: number | null;
+  } | null;
   isActive: boolean;
 }
 
@@ -93,6 +99,7 @@ export default function TrackingDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [checkingSingleGame, setCheckingSingleGame] = useState<string | null>(null);
+  const [scanningLibrary, setScanningLibrary] = useState(false);
 
   // Steam latest version/build info fetched from SteamDB RSS
   interface SteamLatestInfo {
@@ -442,6 +449,31 @@ export default function TrackingDashboard() {
   };
 
   const [checkingUpdates, setCheckingUpdates] = useState(false);
+
+  const handleLibraryScan = async () => {
+    try {
+      setScanningLibrary(true);
+      const response = await fetch('/api/library/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Library scan failed');
+      }
+
+      showSuccess(
+        'Library Scan Complete',
+        `Indexed ${data.filesSeen || 0} files (${data.gamesUpserted || 0} updated, ${data.gamesSkipped || 0} unchanged).`,
+      );
+      await loadTrackedGames();
+    } catch (scanError) {
+      const message = scanError instanceof Error ? scanError.message : 'Library scan failed';
+      showError('Library Scan Failed', message);
+    } finally {
+      setScanningLibrary(false);
+    }
+  };
 
   // Filter and sort games based on search query and sort settings
   useEffect(() => {
@@ -794,6 +826,23 @@ export default function TrackingDashboard() {
                 </span>
               )}
             </button>
+            <button
+              onClick={handleLibraryScan}
+              disabled={scanningLibrary}
+              className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl transition-all text-sm font-medium shadow-lg min-h-[48px]"
+              title="Scan the configured NAS library directory"
+            >
+              {scanningLibrary ? (
+                <span className="flex items-center gap-2">
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  Scanning...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <span>Scan Library</span>
+                </span>
+              )}
+            </button>
             <SequelNotifications />
           </div>
 
@@ -1101,6 +1150,7 @@ export default function TrackingDashboard() {
                 gogLatestBuildId={gogLatest[game._id]?.buildId}
                 gogLatestDate={gogLatest[game._id]?.date}
                 steamdbUpdate={game.steamdbUpdate}
+                libraryMatch={game.libraryMatch}
                 updateHistory={game.updateHistory}
                 onUntrack={async () => {
                   const confirmed = await confirm(

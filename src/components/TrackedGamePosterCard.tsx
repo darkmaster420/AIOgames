@@ -42,6 +42,12 @@ interface TrackedGamePosterCardProps {
     buildNumber?: string;
     date?: string;
   };
+  libraryMatch?: {
+    title: string;
+    fileName: string;
+    relativePath: string;
+    fileSizeBytes?: number | null;
+  } | null;
   updateHistory?: UpdateHistoryItem[];
   onUntrack: () => void;
   onCheckUpdate: () => void;
@@ -60,6 +66,7 @@ export function TrackedGamePosterCard(props: TrackedGamePosterCardProps) {
     gameLink,
     steamVerified,
     steamName,
+    libraryMatch,
     onUntrack,
     onCheckUpdate,
     isCheckingUpdate = false,
@@ -146,6 +153,11 @@ export function TrackedGamePosterCard(props: TrackedGamePosterCardProps) {
               NO APPID
             </span>
           )}
+          {libraryMatch && (
+            <span className="bg-emerald-500 text-white text-xs font-bold px-2 py-1 rounded ml-2">
+              ON NAS
+            </span>
+          )}
         </div>
 
         {/* Title Overlay - Always visible at bottom */}
@@ -178,6 +190,13 @@ export function TrackedGamePosterCard(props: TrackedGamePosterCardProps) {
                 className="w-full"
               />
             </div>
+
+            {libraryMatch && (
+              <div className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
+                <div className="font-semibold text-emerald-200">Available locally</div>
+                <div className="mt-1 break-all">{libraryMatch.relativePath}</div>
+              </div>
+            )}
           </div>
         </div>
       </div>

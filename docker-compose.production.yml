@@ -11,6 +11,10 @@ services:
     env_file: 
       - stack.env  # stack.env or .env
       #- .env
+    # To enable tracking-page NAS/library scans, set LIBRARY_ROOT=/library/games
+    # in stack.env and mount your host directory here.
+    # volumes:
+    #   - /mnt/user/Games:/library/games:ro
     networks:
       - npm_default
     restart: unless-stopped

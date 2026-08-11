@@ -10,6 +10,7 @@ import { updateScheduler } from '../../../lib/scheduler';
 import { analyzeGameTitle } from '../../../utils/versionDetection';
 import { searchGOGDBIndex, getLatestGOGVersion, initializeGOGDB } from '../../../utils/gogdbIndex';
 import { syncRssDownloadLinksCache } from '../../../lib/trackedGameDownloadLinks';
+import { buildLibraryMatchMap } from '../../../lib/libraryMatching';
 
 /** Steam auto-verify + GOG + version detection can exceed the default serverless limit. */
 export const maxDuration = 120;
@@ -58,7 +59,13 @@ export async function GET() {
       .sort({ dateAdded: -1 })
       .lean();
 
-    return NextResponse.json({ games });
+    const libraryMatches = await buildLibraryMatchMap(games);
+    const gamesWithLibrary = games.map(game => ({
+      ...game,
+      libraryMatch: libraryMatches.get(String(game._id)) || null,
+    }));
+
+    return NextResponse.json({ games: gamesWithLibrary });
 
   } catch (error) {
     console.error('Get tracking error:', error);

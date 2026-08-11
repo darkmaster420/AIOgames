@@ -659,7 +659,108 @@ gogVersionCacheSchema.index({ productId: 1, os: 1 }, { unique: true });
 // TTL index to automatically remove expired documents
 gogVersionCacheSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
+const libraryGameSchema = new mongoose.Schema({
+  filePath: {
+    type: String,
+    required: true,
+    unique: true,
+    index: true
+  },
+  fileName: {
+    type: String,
+    required: true
+  },
+  relativePath: {
+    type: String,
+    required: true
+  },
+  title: {
+    type: String,
+    required: true
+  },
+  normalizedTitle: {
+    type: String,
+    required: true,
+    index: true
+  },
+  extension: {
+    type: String,
+    required: true
+  },
+  fileSizeBytes: {
+    type: Number,
+    default: null
+  },
+  mtimeMs: {
+    type: Number,
+    required: true
+  },
+  contentKey: {
+    type: String,
+    required: true
+  },
+  lastSeenAt: {
+    type: Date,
+    required: true,
+    index: true
+  },
+  isActive: {
+    type: Boolean,
+    default: true,
+    index: true
+  }
+}, {
+  timestamps: true
+});
+
+libraryGameSchema.index({ normalizedTitle: 1, isActive: 1 });
+
+const libraryScanJobSchema = new mongoose.Schema({
+  status: {
+    type: String,
+    enum: ['running', 'completed', 'failed'],
+    required: true,
+    index: true
+  },
+  startedAt: {
+    type: Date,
+    required: true,
+    index: true
+  },
+  completedAt: {
+    type: Date
+  },
+  filesSeen: {
+    type: Number,
+    default: 0
+  },
+  gamesUpserted: {
+    type: Number,
+    default: 0
+  },
+  gamesSkipped: {
+    type: Number,
+    default: 0
+  },
+  gamesRemoved: {
+    type: Number,
+    default: 0
+  },
+  errorCount: {
+    type: Number,
+    default: 0
+  },
+  message: {
+    type: String,
+    default: ''
+  }
+}, {
+  timestamps: false
+});
+
 // Create and export models
 export const User = mongoose.models.User || mongoose.model('User', userSchema);
 export const TrackedGame = mongoose.models.TrackedGame || mongoose.model('TrackedGame', trackedGameSchema);
 export const GOGVersionCache = mongoose.models.GOGVersionCache || mongoose.model('GOGVersionCache', gogVersionCacheSchema);
+export const LibraryGame = mongoose.models.LibraryGame || mongoose.model('LibraryGame', libraryGameSchema);
+export const LibraryScanJob = mongoose.models.LibraryScanJob || mongoose.model('LibraryScanJob', libraryScanJobSchema);
