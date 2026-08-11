@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { copyTextToClipboard } from '../utils/clipboard';
 
 interface DownloadLink {
   service: string;
@@ -60,6 +61,8 @@ export function GameDownloadLinks({
   const [noticeButtonLabel, setNoticeButtonLabel] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
+  /** Which row was last copied, and whether it worked — drives inline feedback. */
+  const [copyState, setCopyState] = useState<{ index: number; ok: boolean } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [context, setContext] = useState<DownloadContext>({ gameTitle: '', currentVersion: '', type: '' });
@@ -257,13 +260,10 @@ export function GameDownloadLinks({
     }
   }, [isOpen]);
 
-  const copyToClipboard = async (url: string) => {
-    try {
-      await navigator.clipboard.writeText(url);
-      // You could add a toast notification here
-    } catch (err) {
-      console.error('Failed to copy to clipboard:', err);
-    }
+  const copyToClipboard = async (url: string, index: number) => {
+    const ok = await copyTextToClipboard(url);
+    setCopyState({ index, ok });
+    window.setTimeout(() => setCopyState(null), 1800);
   };
 
   return (
@@ -391,11 +391,21 @@ export function GameDownloadLinks({
                     
                     <div className="flex gap-1 ml-2">
                       <button
-                        onClick={() => copyToClipboard(link.url)}
-                      className="px-3 py-2 text-sm bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors min-h-[36px]"
-                        title="Copy link"
+                        onClick={() => copyToClipboard(link.url, index)}
+                        className={`px-3 py-2 text-sm rounded-lg transition-colors min-h-[36px] ${
+                          copyState?.index === index
+                            ? copyState.ok
+                              ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300'
+                              : 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300'
+                            : 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800'
+                        }`}
+                        title={
+                          copyState?.index === index && !copyState.ok
+                            ? 'Copy failed — select the link and copy manually'
+                            : 'Copy link'
+                        }
                       >
-                        📋
+                        {copyState?.index === index ? (copyState.ok ? '✓' : '✕') : '📋'}
                       </button>
                       <a
                         href={link.url}

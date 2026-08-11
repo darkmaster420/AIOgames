@@ -77,6 +77,9 @@ Thumbs.db
 *.backup
 index.sqlite3
 
+# Claude Code scratch worktrees
+.claude/worktrees/
+
 # Electron
 dist/
 *.exe

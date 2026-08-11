@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNotification } from '../contexts/NotificationContext';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { copyTextToClipboard } from '../utils/clipboard';
 
 export interface RSSTokenResponse {
   token: string | null;
@@ -97,12 +98,15 @@ export default function RSSFeedManager() {
     }
   };
 
-  const handleCopyUrl = () => {
-    if (rssData?.feedUrl) {
-      navigator.clipboard.writeText(rssData.feedUrl);
+  const handleCopyUrl = async () => {
+    if (!rssData?.feedUrl) return;
+
+    if (await copyTextToClipboard(rssData.feedUrl)) {
       setCopied(true);
       showSuccess('Feed URL copied to clipboard');
       setTimeout(() => setCopied(false), 2000);
+    } else {
+      showError('Could not copy automatically — select the URL and copy it manually.');
     }
   };
 
