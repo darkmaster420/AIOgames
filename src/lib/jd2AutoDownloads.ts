@@ -164,11 +164,48 @@ async function writeCrawlJob(params: {
     ...(downloadFolder ? { downloadFolder } : {}),
   }];
 
+  // Write to `.tmp` then rename, so JD2's folder watch never picks up a
+  // half-written .crawljob. Clean the temp file up if the rename fails,
+  // otherwise a failed dispatch leaves litter in the watched folder.
   const finalPath = path.join(params.watchDir, safeJobFileName(params.packageName));
   const tempPath = `${finalPath}.tmp`;
   await fs.writeFile(tempPath, JSON.stringify(job, null, 2), 'utf8');
-  await fs.rename(tempPath, finalPath);
+  try {
+    await fs.rename(tempPath, finalPath);
+  } catch (error) {
+    await fs.unlink(tempPath).catch(() => {});
+    throw error;
+  }
   return finalPath;
+}
+
+/**
+ * Turns a filesystem errno into something the operator can act on. The watch
+ * directory is almost always a bind mount, so failures here are permission or
+ * mount problems rather than bugs, and the raw errno doesn't say which.
+ */
+function describeWatchDirError(error: unknown, watchDir: string): string {
+  const code = error && typeof error === 'object' && 'code' in error
+    ? String((error as { code?: string }).code)
+    : '';
+
+  switch (code) {
+    case 'EACCES':
+    case 'EPERM':
+      return `Cannot write to the JD2 watch folder (${watchDir}): permission denied. `
+        + 'The container runs as uid 1001, so the mounted folder must be writable by it '
+        + '(e.g. chown -R 1001:1001 on the host path backing this mount).';
+    case 'ENOENT':
+      return `The JD2 watch folder (${watchDir}) does not exist and could not be created. `
+        + 'Check that the volume is mounted and JD2_FOLDERWATCH_DIR points at it.';
+    case 'EROFS':
+      return `The JD2 watch folder (${watchDir}) is mounted read-only. `
+        + 'Remove the :ro flag from that volume so crawljobs can be written.';
+    case 'ENOSPC':
+      return `No space left on the device holding the JD2 watch folder (${watchDir}).`;
+    default:
+      return error instanceof Error ? error.message : 'Failed to write JD2 crawljob';
+  }
 }
 
 /** True when the scheduled update-check pipeline is allowed to dispatch on its own. */
@@ -237,7 +274,7 @@ export async function performJd2Dispatch(
       ...base,
       ok: false,
       outcome: 'failed',
-      message: error instanceof Error ? error.message : 'Failed to write JD2 crawljob',
+      message: describeWatchDirError(error, watchDir),
     };
   }
 }
