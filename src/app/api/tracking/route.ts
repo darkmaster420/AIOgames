@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../lib/db';
-import { TrackedGame } from '../../../lib/models';
+import { LibraryTrackingExclusion, TrackedGame } from '../../../lib/models';
 import { getCurrentUser } from '../../../lib/auth';
 import { cleanGameTitle, decodeHtmlEntities, resolveBuildFromVersion, resolveVersionFromBuild, resolveVersionFromDate, resolveComparableVersionData, calculateGamePriority, detectAndResolveGameConflicts, resolvePubTimestampFromBuild, resolveLatestPubTimestamp } from '../../../utils/steamApi';
 import logger from '../../../utils/logger';
@@ -11,6 +11,7 @@ import { analyzeGameTitle } from '../../../utils/versionDetection';
 import { searchGOGDBIndex, getLatestGOGVersion, initializeGOGDB } from '../../../utils/gogdbIndex';
 import { syncRssDownloadLinksCache } from '../../../lib/trackedGameDownloadLinks';
 import { buildLibraryMatchMap } from '../../../lib/libraryMatching';
+import { normalizeLibraryTitle } from '../../../lib/libraryTitle';
 
 /** Steam auto-verify + GOG + version detection can exceed the default serverless limit. */
 export const maxDuration = 120;
@@ -614,6 +615,24 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json(
         { error: 'Tracked game not found' },
         { status: 404 }
+      );
+    }
+
+    const normalizedTitle = normalizeLibraryTitle(
+      result.cleanedTitle || cleanGameTitle(result.originalTitle || result.title || ''),
+    );
+    if (normalizedTitle) {
+      const libraryId = String(result.gameId || '').match(/^library:([a-f\d]{24})$/i)?.[1];
+      await LibraryTrackingExclusion.findOneAndUpdate(
+        { userId: user.id, normalizedTitle },
+        {
+          $set: {
+            sourceGameId: String(result.gameId || ''),
+            libraryGameId: libraryId || null,
+          },
+          $setOnInsert: { userId: user.id, normalizedTitle },
+        },
+        { upsert: true },
       );
     }
 

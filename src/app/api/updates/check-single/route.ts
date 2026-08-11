@@ -19,6 +19,7 @@ import {
   enrichVersionInfoWithSteamDb,
   extractVersionInfo,
   fetchDownloadLinks,
+  isSameReleaseVersion,
   parsePubTimestamp,
   type GameSearchResult,
   type VersionInfo,
@@ -645,11 +646,26 @@ export async function POST(request: Request) {
 
         logger.debug(`📊 Comparison: isNewer=${comparison.isNewer}, current="${currentVersionInfo.version || currentVersionInfo.build}", new="${newVersionInfo.version || newVersionInfo.build}"`);
         
+        const trackedReleaseInfo = {
+          ...currentVersionInfo,
+          version: game.currentVersionNumber || currentVersionInfo.version,
+          build: game.currentBuildNumber || currentVersionInfo.build,
+        };
+        const isVersionSame = isSameReleaseVersion(trackedReleaseInfo, newVersionInfo);
+        if (isVersionSame) {
+          comparison = {
+            ...comparison,
+            isNewer: false,
+            changeType: 'same_release',
+            significance: 0,
+          };
+        }
+
         // Version/regex detection
         let isUpdateCandidate = false;
         
         // Primary detection: version comparison
-        isUpdateCandidate = comparison.isNewer || newVersionInfo.needsUserConfirmation;
+        isUpdateCandidate = !isVersionSame && (comparison.isNewer || newVersionInfo.needsUserConfirmation);
         
         // Boost for strong update indicators
         const titleLower = decodedTitle.toLowerCase();
@@ -684,7 +700,7 @@ export async function POST(request: Request) {
         // Also allow scheme_mismatch_unverified: this fires when schemes differ (e.g. tracked as
         // build-number, new post uses semver) and pub_timestamp couldn't resolve it. In that case
         // strong update signals (version pattern + update keyword) are the only reliable guide.
-        if (updateIndicators >= 2 && similarity >= 0.85 &&
+        if (!isVersionSame && updateIndicators >= 2 && similarity >= 0.85 &&
             (comparison.isNewer || comparison.changeType === 'unknown' || comparison.changeType === 'scheme_mismatch_unverified')) {
           isUpdateCandidate = true;
         }

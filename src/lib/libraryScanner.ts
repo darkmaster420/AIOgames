@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Stats } from 'node:fs';
 import connectDB from './db';
-import { LibraryGame, LibraryScanJob, TrackedGame } from './models';
+import { LibraryGame, LibraryScanJob, LibraryTrackingExclusion, TrackedGame } from './models';
 import { getLibraryRoot } from './libraryConfig';
 import {
   ARCHIVE_EXTENSIONS,
@@ -202,6 +202,8 @@ export type LibraryScanStats = {
   gamesRemoved: number;
   trackedCreated: number;
   trackedExisting: number;
+  /** Releases the user explicitly chose not to track. */
+  trackedExcluded: number;
   /** Newly imported games that resolved to a Steam AppID. */
   trackedVerified: number;
   errors: number;
@@ -234,6 +236,7 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
     gamesRemoved: 0,
     trackedCreated: 0,
     trackedExisting: 0,
+    trackedExcluded: 0,
     trackedVerified: 0,
     errors: 0,
   };
@@ -241,6 +244,15 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
   try {
     await assertLibraryRootReadable(root);
     const files = await collectRootArchives(root);
+    const exclusions = userId
+      ? await LibraryTrackingExclusion.find({ userId })
+          .select('normalizedTitle libraryGameId')
+          .lean<Array<{ normalizedTitle: string; libraryGameId?: unknown }>>()
+      : [];
+    const excludedTitles = new Set(exclusions.map(exclusion => exclusion.normalizedTitle));
+    const excludedLibraryIds = new Set(
+      exclusions.map(exclusion => String(exclusion.libraryGameId || '')).filter(Boolean),
+    );
     stats.filesSeen = files.length;
     logger.info(`Library scan started: ${root} (${files.length} release(s))`);
 
@@ -357,6 +369,11 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
             }
             stats.trackedExisting += 1;
           } else {
+            if (excludedTitles.has(normalizedTitle) || excludedLibraryIds.has(libraryGameIdString)) {
+              stats.trackedExcluded += 1;
+              continue;
+            }
+
             const created = await TrackedGame.create({
               userId,
               gameId,
@@ -404,6 +421,7 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
           gamesRemoved: stats.gamesRemoved,
           trackedCreated: stats.trackedCreated,
           trackedExisting: stats.trackedExisting,
+          trackedExcluded: stats.trackedExcluded,
           trackedVerified: stats.trackedVerified,
           errorCount: stats.errors,
         },
@@ -411,7 +429,8 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
     );
     logger.info(
       `Library scan completed: ${stats.filesSeen} release(s), ${stats.trackedCreated} tracked created ` +
-      `(${stats.trackedVerified} Steam-verified), ${stats.trackedExisting} already tracked`,
+      `(${stats.trackedVerified} Steam-verified), ${stats.trackedExisting} already tracked, ` +
+      `${stats.trackedExcluded} excluded`,
     );
   } catch (error) {
     await LibraryScanJob.updateOne(
@@ -426,6 +445,7 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
           gamesRemoved: stats.gamesRemoved,
           trackedCreated: stats.trackedCreated,
           trackedExisting: stats.trackedExisting,
+          trackedExcluded: stats.trackedExcluded,
           trackedVerified: stats.trackedVerified,
           errorCount: stats.errors + 1,
           message: error instanceof Error ? error.message : 'Unknown scan failure',

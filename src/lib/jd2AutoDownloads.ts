@@ -163,20 +163,6 @@ function selectTorrentLinks(links: AutoDownloadLink[]): AutoDownloadLink[] {
   });
 }
 
-/**
- * Builds the crawljob's `downloadFolder`. "Remote" is literal: the result is
- * resolved by JDownloader in its own container, never opened by this process,
- * so it must be expressed in JD2's filesystem (e.g. /output) rather than this
- * container's mount of the same storage. Windows separators are honoured for
- * setups where JD2 runs on a Windows host.
- */
-function joinRemoteDownloadPath(root: string, packageName: string): string {
-  const trimmed = root.trim().replace(/[\\/]+$/, '');
-  if (!trimmed) return '';
-  const separator = /^[A-Za-z]:[\\/]/.test(trimmed) || trimmed.includes('\\') ? '\\' : '/';
-  return `${trimmed}${separator}${packageName}`;
-}
-
 function safeJobFileName(packageName: string): string {
   const base = sanitizePackagePart(packageName)
     .replace(/\s+/g, '-')
@@ -195,7 +181,9 @@ async function writeCrawlJob(params: {
 }): Promise<string> {
   await fs.mkdir(params.watchDir, { recursive: true });
 
-  const downloadRoot = process.env.JD2_DOWNLOAD_ROOT || process.env.AUTO_DOWNLOAD_ROOT || '';
+  // This path is resolved by JD2 in its own container. Keep it literal so a
+  // root such as /output does not become /output/<packageName>.
+  const downloadFolder = (process.env.JD2_DOWNLOAD_ROOT || process.env.AUTO_DOWNLOAD_ROOT || '').trim();
   // JD2 parses enabled/autoConfirm/autoStart/forcedStart as its BooleanStatus
   // enum, so these are the strings 'TRUE'/'FALSE' rather than JSON booleans.
   // deepAnalyseEnabled and overwritePackagizerEnabled are real booleans there.
@@ -204,10 +192,6 @@ async function writeCrawlJob(params: {
   // JD2 uses this only to decide whether the job's downloadFolder overrides a
   // matching Packagizer rule. Default false keeps the Packagizer authoritative.
   const overwritePackagizer = envFlag('JD2_OVERWRITE_PACKAGIZER', false);
-  const downloadFolder = downloadRoot
-    ? joinRemoteDownloadPath(downloadRoot, params.packageName)
-    : undefined;
-
   const job = [{
     text: params.links.map(link => link.url).join('\n'),
     packageName: params.packageName,

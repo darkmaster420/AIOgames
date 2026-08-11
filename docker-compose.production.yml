@@ -15,7 +15,8 @@ services:
       - JD2_AUTO_DOWNLOADS_ENABLED=true
       - JD2_FOLDERWATCH_DIR=/jd2/folderwatch
       # A path inside the JDOWNLOADER container, not this one: it is copied into
-      # the crawljob and resolved by JD2. /output is the jlesage image default.
+      # the crawljob exactly and resolved by JD2. Package names do not create
+      # subdirectories; /output is the jlesage image default.
       - JD2_DOWNLOAD_ROOT=/output
       # Stated explicitly rather than relying on the code defaults.
       # autoConfirm moves links from the LinkGrabber into the download list;

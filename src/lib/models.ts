@@ -715,6 +715,32 @@ const libraryGameSchema = new mongoose.Schema({
 
 libraryGameSchema.index({ normalizedTitle: 1, isActive: 1 });
 
+const libraryTrackingExclusionSchema = new mongoose.Schema({
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true
+  },
+  normalizedTitle: {
+    type: String,
+    required: true
+  },
+  libraryGameId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'LibraryGame',
+    default: null
+  },
+  sourceGameId: {
+    type: String,
+    default: ''
+  }
+}, {
+  timestamps: true
+});
+
+libraryTrackingExclusionSchema.index({ userId: 1, normalizedTitle: 1 }, { unique: true });
+
 const libraryScanJobSchema = new mongoose.Schema({
   status: {
     type: String,
@@ -751,6 +777,10 @@ const libraryScanJobSchema = new mongoose.Schema({
     default: 0
   },
   trackedExisting: {
+    type: Number,
+    default: 0
+  },
+  trackedExcluded: {
     type: Number,
     default: 0
   },
@@ -843,5 +873,6 @@ export const User = mongoose.models.User || mongoose.model('User', userSchema);
 export const TrackedGame = mongoose.models.TrackedGame || mongoose.model('TrackedGame', trackedGameSchema);
 export const GOGVersionCache = mongoose.models.GOGVersionCache || mongoose.model('GOGVersionCache', gogVersionCacheSchema);
 export const LibraryGame = mongoose.models.LibraryGame || mongoose.model('LibraryGame', libraryGameSchema);
+export const LibraryTrackingExclusion = mongoose.models.LibraryTrackingExclusion || mongoose.model('LibraryTrackingExclusion', libraryTrackingExclusionSchema);
 export const LibraryScanJob = mongoose.models.LibraryScanJob || mongoose.model('LibraryScanJob', libraryScanJobSchema);
 export const AutoDownloadJob = mongoose.models.AutoDownloadJob || mongoose.model('AutoDownloadJob', autoDownloadJobSchema);

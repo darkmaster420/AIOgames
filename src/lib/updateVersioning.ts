@@ -372,6 +372,34 @@ export function compareSemanticVersions(a: string, b: string): number {
   return 0;
 }
 
+/**
+ * Returns true when two records identify the same downloadable release.
+ * Build IDs are authoritative when both sides have one; otherwise semantic
+ * versions are compared so formatting differences such as v1.2 and 1.2.0 do
+ * not turn a repost into an update.
+ */
+export function isSameReleaseVersion(current: VersionInfo, candidate: VersionInfo): boolean {
+  const currentBuild = String(current.build || '').trim();
+  const candidateBuild = String(candidate.build || '').trim();
+  if (currentBuild && candidateBuild) {
+    return currentBuild === candidateBuild;
+  }
+
+  const currentVersion = String(current.version || '').trim();
+  const candidateVersion = String(candidate.version || '').trim();
+  if (!currentVersion || !candidateVersion) return false;
+
+  const normalize = (value: string) => {
+    const normalized = value.toLowerCase().replace(/^v\s*/i, '').trim();
+    return /^\d{4}[-.]?\d{2}[-.]?\d{2}$/.test(normalized)
+      ? normalized.replace(/[-.]/g, '')
+      : normalized;
+  };
+
+  return normalize(currentVersion) === normalize(candidateVersion) ||
+    compareSemanticVersions(currentVersion, candidateVersion) === 0;
+}
+
 function parseComparableVersionParts(version: string): Array<{ number: number; suffix: string }> {
   return String(version || '')
     .trim()
@@ -670,4 +698,3 @@ export async function enrichVersionInfoWithSteamDb(appId: number | undefined, ve
     fullVersionString: `${resolved.version || versionInfo.version}${resolved.build || versionInfo.build ? ` Build ${resolved.build || versionInfo.build}` : ''}${versionInfo.releaseType ? ` ${versionInfo.releaseType}` : ''}`,
   };
 }
-

@@ -21,6 +21,7 @@ import {
   enrichVersionInfoWithSteamDb,
   extractVersionInfo,
   fetchDownloadLinks,
+  isSameReleaseVersion,
   parsePubTimestamp,
   type EnhancedMatch,
   type GameSearchResult,
@@ -816,12 +817,12 @@ export async function POST(request: Request) {
           // Only treat a different link as an update if the version is actually newer
           // This prevents the same version from another site being flagged as an update,
           // except when user prefers Online-Fix/0xdeadcode and the new post is one of those.
-          let isVersionSame = !!(
-            currentVersionInfo &&
-            ((newVersionInfo.version && currentVersionInfo.version && newVersionInfo.version === currentVersionInfo.version) ||
-             (newVersionInfo.build && currentVersionInfo.build && newVersionInfo.build === currentVersionInfo.build)) &&
-            (!newVersionInfo.build || !currentVersionInfo.build || newVersionInfo.build === currentVersionInfo.build)
-          );
+          const trackedReleaseInfo = {
+            ...currentVersionInfo,
+            version: game.currentVersionNumber || currentVersionInfo.version,
+            build: game.currentBuildNumber || currentVersionInfo.build,
+          };
+          let isVersionSame = isSameReleaseVersion(trackedReleaseInfo, newVersionInfo);
 
           // --- Online-Fix/0xdeadcode preference override ---
           const userPrefersOnlineFix = fullUser?.preferences?.releaseGroups?.prefer0xdeadcodeForOnlineFixes;
@@ -834,6 +835,17 @@ export async function POST(request: Request) {
           ) {
             logger.info('User prefers Online-Fix/0xdeadcode: overriding isVersionSame to allow update');
             isVersionSame = false;
+          }
+
+          if (isVersionSame) {
+            isActuallyNewer = false;
+            comparison = {
+              ...(comparison || { isNewer: false, changeType: 'same_release', significance: 0 }),
+              isNewer: false,
+              changeType: 'same_release',
+              significance: 0,
+            };
+            comparisonReason = 'Candidate matches the currently tracked version/build';
           }
 
           logger.debug(`Update analysis: Different link=${isDifferentLink}, Newer=${isActuallyNewer}, VersionSame=${isVersionSame}, Reason=${comparisonReason}`);
