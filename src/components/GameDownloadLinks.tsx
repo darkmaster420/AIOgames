@@ -517,6 +517,7 @@ export function GameDownloadLinks({
                           )}
                         </button>
                       )}
+                      {!isTorrentUrl(link.url, link.type, link.service) && (
                       <button
                         onClick={() => sendLinkToJd2(link, index)}
                         disabled={sendingIndex !== null}
@@ -538,6 +539,7 @@ export function GameDownloadLinks({
                           '⬇️'
                         )}
                       </button>
+                      )}
                       <a
                         href={link.url}
                         target="_blank"
