@@ -802,7 +802,7 @@ const autoDownloadJobSchema = new mongoose.Schema({
   },
   downloader: {
     type: String,
-    enum: ['jd2-folderwatch'],
+    enum: ['jd2-folderwatch', 'qbittorrent', 'mixed'],
     default: 'jd2-folderwatch'
   },
   status: {

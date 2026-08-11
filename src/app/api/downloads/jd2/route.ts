@@ -10,7 +10,7 @@ import {
   dispatchManualDownloadToJd2,
   getJd2WatchDir,
 } from '../../../../lib/jd2AutoDownloads';
-import { normalizeDownloadLinks, type DownloadLinkLike } from '../../../../lib/downloadLinks';
+import { isTorrentUrl, normalizeDownloadLinks, type DownloadLinkLike } from '../../../../lib/downloadLinks';
 import {
   buildFollowPostDownloadResponse,
   isFollowPostSiteType,
@@ -77,6 +77,20 @@ export async function POST(req: NextRequest) {
 
     const suppliedLinks = normalizeDownloadLinks(body.downloadLinks);
     const ignoreHostPriority = body.ignoreHostPriority === true;
+
+    // Torrents are qBittorrent's job: JD2 cannot act on a magnet, and would
+    // fetch a .torrent URL as a plain file. Rejecting here rather than relying
+    // on the UI to hide the button means the request cannot silently no-op.
+    if (suppliedLinks.length > 0 && suppliedLinks.every(link => isTorrentUrl(link.url, link.type, link.service))) {
+      return NextResponse.json(
+        {
+          error: 'JDownloader cannot take magnet or .torrent links.',
+          hint: 'Send those to qBittorrent instead.',
+          outcome: 'wrong_downloader',
+        },
+        { status: 422 },
+      );
+    }
 
     // Sites where links deliberately aren't machine-extractable — there is
     // nothing to hand JD2, so say so instead of dispatching an empty package.

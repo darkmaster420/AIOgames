@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { AutoDownloadJob } from './models';
+import { isTorrentUrl } from './downloadLinks';
+import { addTorrentToQbit, isQbitConfigured } from './qbittorrent';
 import logger from '../utils/logger';
 
 export type AutoDownloadLink = {
@@ -41,6 +43,12 @@ export type Jd2DispatchResult = {
   outputFile?: string;
 };
 
+type AutoDownloader = 'jd2-folderwatch' | 'qbittorrent' | 'mixed';
+
+type AutoDispatchResult = Jd2DispatchResult & {
+  downloader: AutoDownloader;
+};
+
 type ExistingAutoDownloadJob = {
   status?: string;
 };
@@ -78,9 +86,14 @@ function detectHost(link: AutoDownloadLink): string {
   return service || 'unknown';
 }
 
-/** JD2 accepts magnets as readily as http(s) links, so both are dispatchable. */
+/**
+ * JD2's folder watch is for direct hoster links only. Magnets are not usable
+ * there, and a .torrent URL would just be fetched as a file rather than handed
+ * to a torrent client — both belong in qBittorrent instead (see lib/qbittorrent).
+ */
 function isDispatchableUrl(url: string): boolean {
-  return /^(?:https?:\/\/|magnet:\?)/i.test(url);
+  if (!/^https?:\/\//i.test(url)) return false;
+  return !isTorrentUrl(url);
 }
 
 export function sortDownloadLinksByJd2Hierarchy(
@@ -94,11 +107,9 @@ export function sortDownloadLinksByJd2Hierarchy(
     .filter(link => {
       const url = String(link.url || '').trim();
       if (!url) return false;
-      // Automatic dispatch stays http-only; an explicitly chosen link may be a
-      // magnet, which the caller has decided they want.
-      if (options.ignoreHostPriority ? !isDispatchableUrl(url) : !/^https?:\/\//i.test(url)) {
-        return false;
-      }
+      // Applies to explicit sends too: choosing a magnet does not make JD2 able
+      // to act on it, so it is filtered rather than dispatched into a no-op.
+      if (!isDispatchableUrl(url)) return false;
       // The hierarchy exists to pick a host on the user's behalf. When they
       // picked the link themselves there is nothing left to choose, so honour
       // it even if the host isn't listed.
@@ -136,6 +147,20 @@ function buildPackageName(gameTitle: string, version?: string): string {
   return versionPart && !title.toLowerCase().includes(versionPart.toLowerCase())
     ? `${title} - ${versionPart}`
     : title;
+}
+
+function selectTorrentLinks(links: AutoDownloadLink[]): AutoDownloadLink[] {
+  const seen = new Set<string>();
+
+  return links.filter(link => {
+    const url = String(link.url || '').trim();
+    if (!url || !isTorrentUrl(url, link.type, link.service)) return false;
+
+    const key = url.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /**
@@ -305,7 +330,7 @@ export async function performJd2Dispatch(
       ok: false,
       outcome: 'skipped',
       message: params.ignoreHostPriority
-        ? 'That link is not something JDownloader can take (needs an http(s) or magnet URL).'
+        ? 'JDownloader cannot take that link. Magnet and .torrent links need to go to qBittorrent instead.'
         : `No links from a preferred host (${hierarchy.join(', ')}) were found for this release.`,
     };
   }
@@ -347,10 +372,108 @@ export async function performJd2Dispatch(
   }
 }
 
+async function performQbitDispatch(
+  params: Pick<DispatchParams, 'gameTitle' | 'version' | 'downloadLinks'>,
+): Promise<Jd2DispatchResult> {
+  const torrentLinks = selectTorrentLinks(params.downloadLinks || []);
+  const packageName = buildPackageName(params.gameTitle, params.version);
+  const base = {
+    packageName,
+    linkCount: torrentLinks.length,
+    selectedHosts: torrentLinks.map(link => link.service || 'torrent'),
+    hierarchy: ['qbittorrent'],
+  };
+
+  if (!torrentLinks.length) {
+    return {
+      ...base,
+      ok: false,
+      outcome: 'skipped',
+      message: 'No magnet or .torrent links were found for this release.',
+    };
+  }
+
+  if (!isQbitConfigured()) {
+    return {
+      ...base,
+      ok: false,
+      outcome: 'skipped',
+      message: 'qBittorrent is not configured; set QBITTORRENT_URL to auto-add torrent links.',
+    };
+  }
+
+  const results = await Promise.all(
+    torrentLinks.map(link => addTorrentToQbit({
+      url: link.url,
+      gameTitle: params.gameTitle,
+    })),
+  );
+
+  const addedCount = results.filter(result => result.ok).length;
+  if (addedCount === torrentLinks.length) {
+    return {
+      ...base,
+      ok: true,
+      outcome: 'sent',
+      message: `Sent ${addedCount} torrent link(s) to qBittorrent.`,
+    };
+  }
+
+  const failures = results
+    .filter(result => !result.ok)
+    .map(result => result.message);
+
+  if (addedCount > 0) {
+    return {
+      ...base,
+      ok: true,
+      outcome: 'sent',
+      message: `Sent ${addedCount} of ${torrentLinks.length} torrent link(s) to qBittorrent. ${failures[0] || ''}`.trim(),
+    };
+  }
+
+  return {
+    ...base,
+    ok: false,
+    outcome: 'failed',
+    message: failures[0] || 'qBittorrent did not accept any torrent links.',
+  };
+}
+
+function combineAutoDispatchResults(
+  jd2: Jd2DispatchResult,
+  qbit: Jd2DispatchResult,
+): AutoDispatchResult {
+  const sentJd2 = jd2.outcome === 'sent';
+  const sentQbit = qbit.outcome === 'sent';
+  const downloader: AutoDownloader =
+    sentJd2 && sentQbit ? 'mixed'
+    : sentQbit ? 'qbittorrent'
+    : 'jd2-folderwatch';
+  const failures = [jd2, qbit].filter(result => result.outcome === 'failed');
+  const outcome: Jd2DispatchOutcome =
+    sentJd2 || sentQbit ? 'sent'
+    : failures.length > 0 ? 'failed'
+    : 'skipped';
+  const messages = [jd2.message, qbit.message].filter(Boolean);
+
+  return {
+    ok: sentJd2 || sentQbit,
+    outcome,
+    message: messages.join(' '),
+    packageName: jd2.packageName || qbit.packageName,
+    linkCount: jd2.linkCount + qbit.linkCount,
+    selectedHosts: [...new Set([...jd2.selectedHosts, ...qbit.selectedHosts])],
+    hierarchy: [...new Set([...jd2.hierarchy, ...qbit.hierarchy])],
+    outputFile: jd2.outputFile,
+    downloader,
+  };
+}
+
 /** Persist the outcome of a dispatch against its tracked game. */
 async function recordAutoDownloadJob(
   params: DispatchParams,
-  result: Jd2DispatchResult,
+  result: AutoDispatchResult,
 ): Promise<void> {
   await AutoDownloadJob.findOneAndUpdate(
     { trackedGameId: params.trackedGameId, gameLink: params.gameLink },
@@ -362,7 +485,7 @@ async function recordAutoDownloadJob(
         version: params.version || '',
         gameLink: params.gameLink,
         packageName: result.packageName,
-        downloader: 'jd2-folderwatch',
+        downloader: result.downloader,
         linkCount: result.linkCount,
         selectedHosts: result.selectedHosts,
         hierarchy: result.hierarchy,
@@ -395,15 +518,26 @@ export async function dispatchAutoDownloadToJd2(params: DispatchParams): Promise
     return false;
   }
 
-  const result = await performJd2Dispatch(params);
+  const [jd2Result, qbitResult] = await Promise.all([
+    performJd2Dispatch(params),
+    performQbitDispatch(params),
+  ]);
+  const result = combineAutoDispatchResults(jd2Result, qbitResult);
   await recordAutoDownloadJob(params, result);
 
+  if (jd2Result.ok) {
+    logger.info(`Sent ${jd2Result.linkCount} auto-download link(s) to JD2 for ${params.gameTitle}`);
+  }
+  if (qbitResult.ok) {
+    logger.info(`Sent ${qbitResult.linkCount} auto-download torrent link(s) to qBittorrent for ${params.gameTitle}`);
+  }
+
   if (result.ok) {
-    logger.info(`Sent ${result.linkCount} auto-download link(s) to JD2 for ${params.gameTitle}`);
+    logger.info(`Auto-download dispatched for ${params.gameTitle} via ${result.downloader}`);
   } else if (result.outcome === 'skipped') {
-    logger.info(`JD2 auto-download skipped for ${params.gameTitle}: no preferred host links`);
+    logger.info(`Auto-download skipped for ${params.gameTitle}: ${result.message}`);
   } else {
-    logger.error(`Failed to dispatch JD2 auto-download for ${params.gameTitle}: ${result.message}`);
+    logger.error(`Failed to dispatch auto-download for ${params.gameTitle}: ${result.message}`);
   }
 
   return result.ok;
@@ -427,7 +561,10 @@ export async function dispatchManualDownloadToJd2(
 
   if (params.trackedGameId) {
     try {
-      await recordAutoDownloadJob({ ...params, trackedGameId: params.trackedGameId }, result);
+      await recordAutoDownloadJob(
+        { ...params, trackedGameId: params.trackedGameId },
+        { ...result, downloader: 'jd2-folderwatch' },
+      );
     } catch (error) {
       // Bookkeeping must not mask a crawljob that was written successfully.
       logger.warn(`Could not record manual JD2 job for ${params.gameTitle}:`, error);
