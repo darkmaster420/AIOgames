@@ -4,7 +4,12 @@ import type { Stats } from 'node:fs';
 import connectDB from './db';
 import { LibraryGame, LibraryScanJob, TrackedGame } from './models';
 import { getLibraryRoot } from './libraryConfig';
-import { normalizeLibraryTitle, titleFromLibraryFile } from './libraryTitle';
+import {
+  compareLibraryReleaseInfo,
+  normalizeLibraryTitle,
+  parseLibraryReleaseInfo,
+  type LibraryReleaseInfo,
+} from './libraryTitle';
 import logger from '../utils/logger';
 
 type ExistingLibraryGame = {
@@ -14,6 +19,10 @@ type ExistingLibraryGame = {
 
 type ExistingTrackedGame = {
   _id: unknown;
+  currentVersionNumber?: string;
+  currentBuildNumber?: string;
+  lastKnownVersion?: string;
+  isDateVersion?: boolean;
 };
 
 const ARCHIVE_EXTENSIONS = new Set(['.zip']);
@@ -74,6 +83,43 @@ function contentKey(stat: Stats): string {
   return `${Math.trunc(stat.mtimeMs)}:${stat.size}`;
 }
 
+function buildTrackedReleaseFields(release: LibraryReleaseInfo, stat: Stats, relativePath: string) {
+  const fields: Record<string, unknown> = {
+    lastKnownVersion: release.lastKnownVersion,
+    lastVersionDate: new Date(stat.mtimeMs).toISOString(),
+    description: `Imported from library zip: ${relativePath}`,
+  };
+
+  if (release.version) {
+    fields.currentVersionNumber = release.version;
+    fields.versionNumberVerified = true;
+    fields.versionNumberSource = 'local-library';
+    fields.versionNumberLastUpdated = new Date();
+    fields.isDateVersion = release.isDateVersion;
+  }
+
+  if (release.build) {
+    fields.currentBuildNumber = release.build;
+    fields.buildNumberVerified = true;
+    fields.buildNumberSource = 'local-library';
+    fields.buildNumberLastUpdated = new Date();
+  }
+
+  return fields;
+}
+
+function isCandidateReleaseNewer(existing: ExistingTrackedGame, candidate: LibraryReleaseInfo): boolean {
+  if (!candidate.version && !candidate.build) return false;
+  return compareLibraryReleaseInfo(
+    {
+      version: existing.currentVersionNumber || '',
+      build: existing.currentBuildNumber || '',
+      isDateVersion: Boolean(existing.isDateVersion),
+    },
+    candidate,
+  ) > 0;
+}
+
 export type LibraryScanStats = {
   filesSeen: number;
   gamesUpserted: number;
@@ -131,7 +177,8 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
           .lean<ExistingLibraryGame | null>();
 
         let libraryGameId = existing?._id;
-        const title = titleFromLibraryFile(fileName);
+        const release = parseLibraryReleaseInfo(fileName);
+        const title = release.title;
         const normalizedTitle = normalizeLibraryTitle(title);
 
         if (existing?.contentKey === key) {
@@ -173,7 +220,7 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
               { gameId },
               { gameLink: `library://${libraryGameIdString}` },
             ],
-          }).select('_id').lean<ExistingTrackedGame | null>();
+          }).select('_id currentVersionNumber currentBuildNumber lastKnownVersion isDateVersion').lean<ExistingTrackedGame | null>();
 
           if (existingTrackedByIdentity) {
             await TrackedGame.updateOne(
@@ -183,9 +230,8 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
                   title,
                   originalTitle: title,
                   source: 'Local Library',
-                  description: `Imported from library zip: ${relativePath}`,
                   gameLink: `library://${libraryGameIdString}`,
-                  lastVersionDate: new Date(stat.mtimeMs).toISOString(),
+                  ...buildTrackedReleaseFields(release, stat, relativePath),
                   lastChecked: new Date(),
                   isActive: true,
                 },
@@ -202,9 +248,25 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
               { title },
               { originalTitle: fileName },
             ],
-          }).select('_id').lean<ExistingTrackedGame | null>();
+          }).select('_id currentVersionNumber currentBuildNumber lastKnownVersion isDateVersion').lean<ExistingTrackedGame | null>();
 
           if (existingTrackedByTitle) {
+            if (isCandidateReleaseNewer(existingTrackedByTitle, release)) {
+              await TrackedGame.updateOne(
+                { _id: existingTrackedByTitle._id },
+                {
+                  $set: {
+                    title,
+                    originalTitle: title,
+                    source: 'Local Library',
+                    gameLink: `library://${libraryGameIdString}`,
+                    ...buildTrackedReleaseFields(release, stat, relativePath),
+                    lastChecked: new Date(),
+                    isActive: true,
+                  },
+                },
+              );
+            }
             stats.trackedExisting += 1;
           } else {
             await TrackedGame.create({
@@ -214,10 +276,8 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
               originalTitle: title,
               source: 'Local Library',
               image: '',
-              description: `Imported from library zip: ${relativePath}`,
+              ...buildTrackedReleaseFields(release, stat, relativePath),
               gameLink: `library://${libraryGameIdString}`,
-              lastKnownVersion: '',
-              lastVersionDate: new Date(stat.mtimeMs).toISOString(),
               lastChecked: new Date(),
               notificationsEnabled: true,
               isActive: true,
