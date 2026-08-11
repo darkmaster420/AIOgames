@@ -114,6 +114,13 @@ function buildPackageName(gameTitle: string, version?: string): string {
     : title;
 }
 
+/**
+ * Builds the crawljob's `downloadFolder`. "Remote" is literal: the result is
+ * resolved by JDownloader in its own container, never opened by this process,
+ * so it must be expressed in JD2's filesystem (e.g. /output) rather than this
+ * container's mount of the same storage. Windows separators are honoured for
+ * setups where JD2 runs on a Windows host.
+ */
 function joinRemoteDownloadPath(root: string, packageName: string): string {
   const trimmed = root.trim().replace(/[\\/]+$/, '');
   if (!trimmed) return '';
