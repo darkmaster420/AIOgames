@@ -2,24 +2,21 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Stats } from 'node:fs';
 import connectDB from './db';
-import { LibraryGame, LibraryScanJob } from './models';
+import { LibraryGame, LibraryScanJob, TrackedGame } from './models';
 import { getLibraryRoot } from './libraryConfig';
 import { normalizeLibraryTitle, titleFromLibraryFile } from './libraryTitle';
+import logger from '../utils/logger';
 
 type ExistingLibraryGame = {
   _id: unknown;
   contentKey?: string;
 };
 
-const ARCHIVE_EXTENSIONS = new Set([
-  '.zip',
-  '.7z',
-  '.rar',
-  '.iso',
-  '.cso',
-  '.chd',
-  '.rvz',
-]);
+type ExistingTrackedGame = {
+  _id: unknown;
+};
+
+const ARCHIVE_EXTENSIONS = new Set(['.zip']);
 
 function isLikelyInstallerPart(fileName: string): boolean {
   const lower = fileName.toLowerCase();
@@ -82,20 +79,22 @@ export type LibraryScanStats = {
   gamesUpserted: number;
   gamesSkipped: number;
   gamesRemoved: number;
+  trackedCreated: number;
+  trackedExisting: number;
   errors: number;
 };
 
 let scanInFlight: Promise<LibraryScanStats> | null = null;
 
-export async function runLibraryScan(): Promise<LibraryScanStats> {
+export async function runLibraryScan(userId?: string): Promise<LibraryScanStats> {
   if (scanInFlight) return scanInFlight;
-  scanInFlight = runLibraryScanInternal().finally(() => {
+  scanInFlight = runLibraryScanInternal(userId).finally(() => {
     scanInFlight = null;
   });
   return scanInFlight;
 }
 
-async function runLibraryScanInternal(): Promise<LibraryScanStats> {
+async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats> {
   await connectDB();
 
   const root = getLibraryRoot();
@@ -110,6 +109,8 @@ async function runLibraryScanInternal(): Promise<LibraryScanStats> {
     gamesUpserted: 0,
     gamesSkipped: 0,
     gamesRemoved: 0,
+    trackedCreated: 0,
+    trackedExisting: 0,
     errors: 0,
   };
 
@@ -117,6 +118,7 @@ async function runLibraryScanInternal(): Promise<LibraryScanStats> {
     await assertLibraryRootReadable(root);
     const files = await collectRootArchives(root);
     stats.filesSeen = files.length;
+    logger.info(`Library scan started: ${root} (${files.length} zip file(s))`);
 
     for (const filePath of files) {
       try {
@@ -128,36 +130,101 @@ async function runLibraryScanInternal(): Promise<LibraryScanStats> {
           .select('_id contentKey')
           .lean<ExistingLibraryGame | null>();
 
+        let libraryGameId = existing?._id;
+        const title = titleFromLibraryFile(fileName);
+        const normalizedTitle = normalizeLibraryTitle(title);
+
         if (existing?.contentKey === key) {
           await LibraryGame.updateOne(
             { _id: existing._id },
             { $set: { lastSeenAt: new Date(), isActive: true } },
           );
           stats.gamesSkipped += 1;
-          continue;
+        } else {
+          const updateResult = await LibraryGame.findOneAndUpdate(
+            { filePath },
+            {
+              $set: {
+                fileName,
+                relativePath,
+                title,
+                normalizedTitle,
+                extension: path.extname(fileName).toLowerCase(),
+                fileSizeBytes: stat.size,
+                mtimeMs: stat.mtimeMs,
+                contentKey: key,
+                lastSeenAt: new Date(),
+                isActive: true,
+              },
+              $setOnInsert: { filePath },
+            },
+            { upsert: true, new: true },
+          ).select('_id').lean<ExistingLibraryGame | null>();
+          libraryGameId = updateResult?._id;
+          stats.gamesUpserted += 1;
         }
 
-        const title = titleFromLibraryFile(fileName);
-        await LibraryGame.updateOne(
-          { filePath },
-          {
-            $set: {
-              fileName,
-              relativePath,
+        if (userId && libraryGameId) {
+          const libraryGameIdString = String(libraryGameId);
+          const gameId = `library:${libraryGameIdString}`;
+          const existingTrackedByIdentity = await TrackedGame.findOne({
+            userId,
+            $or: [
+              { gameId },
+              { gameLink: `library://${libraryGameIdString}` },
+            ],
+          }).select('_id').lean<ExistingTrackedGame | null>();
+
+          if (existingTrackedByIdentity) {
+            await TrackedGame.updateOne(
+              { _id: existingTrackedByIdentity._id },
+              {
+                $set: {
+                  title,
+                  originalTitle: fileName,
+                  source: 'Local Library',
+                  description: `Imported from library zip: ${relativePath}`,
+                  gameLink: `library://${libraryGameIdString}`,
+                  lastVersionDate: new Date(stat.mtimeMs).toISOString(),
+                  lastChecked: new Date(),
+                  isActive: true,
+                },
+              },
+            );
+            stats.trackedExisting += 1;
+            continue;
+          }
+
+          const existingTrackedByTitle = await TrackedGame.findOne({
+            userId,
+            isActive: true,
+            $or: [
+              { title },
+              { originalTitle: fileName },
+            ],
+          }).select('_id').lean<ExistingTrackedGame | null>();
+
+          if (existingTrackedByTitle) {
+            stats.trackedExisting += 1;
+          } else {
+            await TrackedGame.create({
+              userId,
+              gameId,
               title,
-              normalizedTitle: normalizeLibraryTitle(title),
-              extension: path.extname(fileName).toLowerCase(),
-              fileSizeBytes: stat.size,
-              mtimeMs: stat.mtimeMs,
-              contentKey: key,
-              lastSeenAt: new Date(),
+              originalTitle: fileName,
+              source: 'Local Library',
+              image: '',
+              description: `Imported from library zip: ${relativePath}`,
+              gameLink: `library://${libraryGameIdString}`,
+              lastKnownVersion: '',
+              lastVersionDate: new Date(stat.mtimeMs).toISOString(),
+              lastChecked: new Date(),
+              notificationsEnabled: true,
               isActive: true,
-            },
-            $setOnInsert: { filePath },
-          },
-          { upsert: true },
-        );
-        stats.gamesUpserted += 1;
+            });
+            stats.trackedCreated += 1;
+          }
+        }
       } catch {
         stats.errors += 1;
       }
@@ -179,9 +246,14 @@ async function runLibraryScanInternal(): Promise<LibraryScanStats> {
           gamesUpserted: stats.gamesUpserted,
           gamesSkipped: stats.gamesSkipped,
           gamesRemoved: stats.gamesRemoved,
+          trackedCreated: stats.trackedCreated,
+          trackedExisting: stats.trackedExisting,
           errorCount: stats.errors,
         },
       },
+    );
+    logger.info(
+      `Library scan completed: ${stats.filesSeen} zip(s), ${stats.trackedCreated} tracked created, ${stats.trackedExisting} already tracked`,
     );
   } catch (error) {
     await LibraryScanJob.updateOne(
@@ -194,6 +266,8 @@ async function runLibraryScanInternal(): Promise<LibraryScanStats> {
           gamesUpserted: stats.gamesUpserted,
           gamesSkipped: stats.gamesSkipped,
           gamesRemoved: stats.gamesRemoved,
+          trackedCreated: stats.trackedCreated,
+          trackedExisting: stats.trackedExisting,
           errorCount: stats.errors + 1,
           message: error instanceof Error ? error.message : 'Unknown scan failure',
         },

@@ -34,7 +34,7 @@ export async function POST() {
   }
 
   try {
-    const result = await runLibraryScan();
+    const result = await runLibraryScan(user.id);
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Library scan failed';

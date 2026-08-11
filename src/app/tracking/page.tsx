@@ -464,7 +464,7 @@ export default function TrackingDashboard() {
 
       showSuccess(
         'Library Scan Complete',
-        `Indexed ${data.filesSeen || 0} files (${data.gamesUpserted || 0} updated, ${data.gamesSkipped || 0} unchanged).`,
+        `Found ${data.filesSeen || 0} zip files. Added ${data.trackedCreated || 0} to tracking (${data.trackedExisting || 0} already tracked).`,
       );
       await loadTrackedGames();
     } catch (scanError) {

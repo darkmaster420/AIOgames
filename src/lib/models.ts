@@ -746,6 +746,14 @@ const libraryScanJobSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  trackedCreated: {
+    type: Number,
+    default: 0
+  },
+  trackedExisting: {
+    type: Number,
+    default: 0
+  },
   errorCount: {
     type: Number,
     default: 0
