@@ -103,6 +103,42 @@ export const authOptions: AuthOptions = {
         token.id = (user as unknown as { id: string }).id;
         token.role = (user as unknown as { role?: string }).role;
         token.username = (user as unknown as { username?: string }).username;
+        token.accountMissing = false;
+        token.userValidatedAt = Date.now();
+        return token;
+      }
+
+      const lastValidated = Number(token.userValidatedAt || 0);
+      if (Date.now() - lastValidated >= 5 * 60 * 1000) {
+        try {
+          await connectDB();
+
+          const tokenId = String(token.id || '');
+          const tokenEmail = String(token.email || '').trim().toLowerCase();
+          let currentUser = /^[a-f\d]{24}$/i.test(tokenId)
+            ? await User.findById(tokenId).select('_id role username banned')
+            : null;
+
+          // A restored/recreated database gives the same account a new ObjectId.
+          // Recover the session by its unique email instead of making the user log in again.
+          if (!currentUser && tokenEmail) {
+            currentUser = await User.findOne({ email: tokenEmail }).select('_id role username banned');
+          }
+
+          if (currentUser && !currentUser.banned) {
+            token.id = currentUser._id.toString();
+            token.role = currentUser.role || 'user';
+            token.username = currentUser.username;
+            token.accountMissing = false;
+          } else {
+            token.id = '';
+            token.accountMissing = true;
+          }
+          token.userValidatedAt = Date.now();
+        } catch (error) {
+          // Keep the existing session during transient database failures.
+          console.error('Failed to validate auth session:', error);
+        }
       }
       return token;
     },
@@ -111,6 +147,7 @@ export const authOptions: AuthOptions = {
         (session.user as { id: string }).id = token.id as string;
         (session.user as { role?: string }).role = token.role as string;
         (session.user as { username?: string }).username = token.username as string | undefined;
+        (session.user as { accountMissing?: boolean }).accountMissing = Boolean(token.accountMissing);
       }
       return session;
     },

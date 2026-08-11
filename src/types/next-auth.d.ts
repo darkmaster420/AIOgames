@@ -8,6 +8,7 @@ declare module 'next-auth' {
       name: string;
       role?: string;
       username?: string;
+      accountMissing?: boolean;
     };
   }
 
@@ -24,5 +25,7 @@ declare module 'next-auth/jwt' {
     id: string;
     role?: string;
     username?: string;
+    accountMissing?: boolean;
+    userValidatedAt?: number;
   }
 }

@@ -22,6 +22,7 @@ interface TrackedGame {
   gameId: string;
   title: string;
   originalTitle: string;
+  cleanedTitle?: string;
   source: string;
   image?: string;
   description: string;
@@ -87,6 +88,33 @@ interface TrackedGame {
     fileSizeBytes?: number | null;
   } | null;
   isActive: boolean;
+}
+
+function getTrackedTitleKeys(game: TrackedGame): Set<string> {
+  return new Set(
+    [game.cleanedTitle, game.steamName, game.gogName, game.title, game.originalTitle]
+      .map(title => cleanGameTitle(String(title || '')).trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+function isDuplicateTrackedGame(game: TrackedGame, existing: TrackedGame): boolean {
+  if (String(game.gameId) === String(existing.gameId)) return true;
+
+  const gameSteamId = String(game.steamAppId || '').trim();
+  const existingSteamId = String(existing.steamAppId || '').trim();
+  if (gameSteamId && existingSteamId) {
+    return gameSteamId === existingSteamId;
+  }
+
+  const existingTitles = getTrackedTitleKeys(existing);
+  return [...getTrackedTitleKeys(game)].some(title => existingTitles.has(title));
+}
+
+function dedupeTrackedGames(games: TrackedGame[]): TrackedGame[] {
+  return games.filter((game, index, allGames) =>
+    allGames.findIndex(existing => isDuplicateTrackedGame(game, existing)) === index
+  );
 }
 
 export default function TrackingDashboard() {
@@ -582,7 +610,7 @@ export default function TrackingDashboard() {
       if (!response.ok) throw new Error('Failed to load tracked games');
       const data = await response.json();
       
-      const games: TrackedGame[] = data.games || [];
+      const games = dedupeTrackedGames((data.games || []) as TrackedGame[]);
       
       // Show games immediately — don't block on SteamDB
       setTrackedGames(games);
