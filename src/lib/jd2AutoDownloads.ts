@@ -176,6 +176,19 @@ async function writeCrawlJob(params: {
   const finalPath = path.join(params.watchDir, safeJobFileName(params.packageName));
   const tempPath = `${finalPath}.tmp`;
   await fs.writeFile(tempPath, JSON.stringify(job, null, 2), 'utf8');
+
+  // The watched folder is shared with a separate JD2 process that must both
+  // read the job and delete it once handled. Whoever JD2 runs as rarely matches
+  // this process, and an inherited ACL or a restrictive umask (notably on
+  // ZFS/TrueNAS) can leave the file unreadable to it — which looks exactly like
+  // JD2 ignoring the job. Widen the mode so ownership stops mattering.
+  // Failure here is not fatal: the default mode still works when the two
+  // processes share a user.
+  const mode = parseCrawlJobMode();
+  await fs.chmod(tempPath, mode).catch(error => {
+    logger.debug(`Could not chmod crawljob to ${mode.toString(8)}:`, error);
+  });
+
   try {
     await fs.rename(tempPath, finalPath);
   } catch (error) {
@@ -183,6 +196,18 @@ async function writeCrawlJob(params: {
     throw error;
   }
   return finalPath;
+}
+
+/** File mode for written crawljobs. Octal string, e.g. "666" (the default). */
+function parseCrawlJobMode(): number {
+  const raw = (process.env.JD2_CRAWLJOB_MODE || '').trim();
+  if (!raw) return 0o666;
+  const parsed = parseInt(raw, 8);
+  if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 0o777) {
+    logger.warn(`Ignoring invalid JD2_CRAWLJOB_MODE "${raw}"; using 666.`);
+    return 0o666;
+  }
+  return parsed;
 }
 
 /**
