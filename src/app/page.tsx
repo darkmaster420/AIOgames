@@ -268,7 +268,7 @@ function DashboardInner() {
 
       return () => clearTimeout(timer);
     }
-  }, [searchParams, getFetchSignal]);
+  }, [searchParams, getFetchSignal, setRecentGamesVisible]);
 
   // Load tracked games from localStorage or API
   const loadTrackedGames = useCallback(async () => {
@@ -592,7 +592,7 @@ function DashboardInner() {
         console.error('Track game error:', error);
         notify?.showError('Failed to track game');
       }
-    }, [status, router, notify, confirm, loadTrackedGames]);
+    }, [status, router, notify, confirm, loadTrackedGames, extractAppId]);
 
     const handleUntrackGame = useCallback(async (game: Game) => {
       try {

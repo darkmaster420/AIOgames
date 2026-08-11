@@ -116,7 +116,6 @@ export function usePersistedLayoutPreferences(page: 'tracking', authenticated: b
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authenticated, page]);
 
   useEffect(() => {
@@ -237,7 +236,6 @@ export function usePersistedHomepagePreferences(authenticated: boolean) {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authenticated]);
 
   useEffect(() => {
