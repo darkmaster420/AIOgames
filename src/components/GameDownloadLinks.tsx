@@ -63,6 +63,9 @@ export function GameDownloadLinks({
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   /** Which row was last copied, and whether it worked — drives inline feedback. */
   const [copyState, setCopyState] = useState<{ index: number; ok: boolean } | null>(null);
+  /** Row currently being handed to JD2, and the outcome of the last send. */
+  const [sendingIndex, setSendingIndex] = useState<number | null>(null);
+  const [sendState, setSendState] = useState<{ index: number; ok: boolean; message: string } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [context, setContext] = useState<DownloadContext>({ gameTitle: '', currentVersion: '', type: '' });
@@ -266,6 +269,46 @@ export function GameDownloadLinks({
     window.setTimeout(() => setCopyState(null), 1800);
   };
 
+  const sendLinkToJd2 = async (link: DownloadLink, index: number) => {
+    setSendingIndex(index);
+    try {
+      const response = await fetch('/api/downloads/jd2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: context.gameTitle || gameTitle || 'Download',
+          version: context.currentVersion && context.currentVersion !== 'Unknown'
+            ? context.currentVersion
+            : undefined,
+          gameLink: context.postUrl || postUrl || '',
+          trackedGameId: gameId,
+          postId,
+          siteType,
+          downloadLinks: [{ service: link.service, url: link.url, type: link.type }],
+          // The user picked this exact link, so JD2_HOST_PRIORITY must not
+          // filter it out for being an unlisted host.
+          ignoreHostPriority: true,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setSendState({
+          index,
+          ok: false,
+          message: data.hint ? `${data.error} ${data.hint}` : (data.error || 'Failed to send to JDownloader'),
+        });
+        return;
+      }
+      setSendState({ index, ok: true, message: data.message || 'Sent to JDownloader' });
+    } catch {
+      setSendState({ index, ok: false, message: 'Could not reach the server.' });
+    } finally {
+      setSendingIndex(null);
+      window.setTimeout(() => setSendState(null), 4000);
+    }
+  };
+
   return (
     <div className={`relative inline-block ${className}`}>
       <button
@@ -407,6 +450,27 @@ export function GameDownloadLinks({
                       >
                         {copyState?.index === index ? (copyState.ok ? '✓' : '✕') : '📋'}
                       </button>
+                      <button
+                        onClick={() => sendLinkToJd2(link, index)}
+                        disabled={sendingIndex !== null}
+                        className={`px-3 py-2 text-sm rounded-lg transition-colors min-h-[36px] disabled:opacity-50 disabled:cursor-not-allowed ${
+                          sendState?.index === index
+                            ? sendState.ok
+                              ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300'
+                              : 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300'
+                            : 'bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800'
+                        }`}
+                        title="Send this link to JDownloader"
+                        aria-label="Send this link to JDownloader"
+                      >
+                        {sendingIndex === index ? (
+                          <span className="inline-block h-3.5 w-3.5 border-2 border-amber-500/40 border-t-amber-600 rounded-full animate-spin align-middle" />
+                        ) : sendState?.index === index ? (
+                          sendState.ok ? '✓' : '✕'
+                        ) : (
+                          '⬇️'
+                        )}
+                      </button>
                       <a
                         href={link.url}
                         target="_blank"
@@ -420,6 +484,18 @@ export function GameDownloadLinks({
                   </div>
                 ))}
                 
+                {sendState && (
+                  <div
+                    className={`text-xs rounded-lg p-2 ${
+                      sendState.ok
+                        ? 'bg-green-50 dark:bg-green-900/30 text-green-800 dark:text-green-200'
+                        : 'bg-red-50 dark:bg-red-900/30 text-red-800 dark:text-red-200'
+                    }`}
+                  >
+                    {sendState.message}
+                  </div>
+                )}
+
                 {context.postUrl && (
                   <div className="pt-2 mt-2 border-t border-gray-200 dark:border-gray-600">
                     <a

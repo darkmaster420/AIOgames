@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+// Imported explicitly: lib/db declares a global `mongoose` connection cache
+// that would otherwise shadow the module here.
+import mongoose from 'mongoose';
 import connectDB from '../../../../lib/db';
 import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
@@ -27,6 +30,14 @@ type Jd2SendBody = {
   version?: string;
   /** Links the caller already has, saving a round-trip to the source site. */
   downloadLinks?: DownloadLinkLike[];
+  /**
+   * Set when the user picked these links themselves (the per-link button in the
+   * download dropdown). Host-priority filtering is bypassed: the choice has
+   * already been made, so a host outside JD2_HOST_PRIORITY must still go.
+   */
+  ignoreHostPriority?: boolean;
+  /** Tracked game to file the job under, when the caller already knows it. */
+  trackedGameId?: string;
 };
 
 export async function POST(req: NextRequest) {
@@ -64,9 +75,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const suppliedLinks = normalizeDownloadLinks(body.downloadLinks);
+    const ignoreHostPriority = body.ignoreHostPriority === true;
+
     // Sites where links deliberately aren't machine-extractable — there is
     // nothing to hand JD2, so say so instead of dispatching an empty package.
-    if (siteType && isFollowPostSiteType(siteType)) {
+    // Only relevant when we would have to go and fetch them: if the caller
+    // already handed us links, the policy has nothing to protect against.
+    if (siteType && suppliedLinks.length === 0 && isFollowPostSiteType(siteType)) {
       const followPost = buildFollowPostDownloadResponse({ title, gameLink }, siteType);
       return NextResponse.json(
         {
@@ -79,7 +95,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let links = normalizeDownloadLinks(body.downloadLinks);
+    let links = suppliedLinks;
 
     if (links.length === 0) {
       if (!postId || !siteType) {
@@ -108,10 +124,22 @@ export async function POST(req: NextRequest) {
 
     await connectDB();
 
-    // Attach the tracked game when the user already tracks this post, so the
-    // send shows up in the same AutoDownloadJob ledger as automatic dispatches.
+    // Attach the tracked game when we can, so the send shows up in the same
+    // AutoDownloadJob ledger as automatic dispatches. The caller may name it
+    // directly (the tracking page knows its own id and has no postId), and it
+    // is re-checked against the session so an id from elsewhere can't be filed
+    // against another user's game.
     let trackedGameId: string | undefined;
-    if (postId && siteType) {
+    const requestedTrackedId = (body.trackedGameId || '').trim();
+
+    if (requestedTrackedId && mongoose.Types.ObjectId.isValid(requestedTrackedId)) {
+      const owned = await TrackedGame.findOne({ _id: requestedTrackedId, userId: user.id })
+        .select('_id')
+        .lean<{ _id: unknown } | null>();
+      if (owned?._id) trackedGameId = String(owned._id);
+    }
+
+    if (!trackedGameId && postId && siteType) {
       const tracked = await TrackedGame.findOne({
         userId: user.id,
         gameId: `${siteType}_${postId}`,
@@ -128,6 +156,7 @@ export async function POST(req: NextRequest) {
       version: (body.version || '').trim() || undefined,
       gameLink: gameLink || postId,
       downloadLinks: links,
+      ignoreHostPriority,
     });
 
     if (!result.ok) {

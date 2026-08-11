@@ -18,9 +18,14 @@ type DispatchParams = {
   downloadLinks?: AutoDownloadLink[];
 };
 
-/** Same as DispatchParams, but a manual send may target an untracked game. */
+/**
+ * Same as DispatchParams, but a manual send may target an untracked game and
+ * may carry links the user picked themselves.
+ */
 type ManualDispatchParams = Omit<DispatchParams, 'trackedGameId'> & {
   trackedGameId?: string;
+  /** Set when the user chose these links, bypassing host-priority filtering. */
+  ignoreHostPriority?: boolean;
 };
 
 export type Jd2DispatchOutcome = 'sent' | 'skipped' | 'failed' | 'disabled' | 'duplicate';
@@ -73,26 +78,45 @@ function detectHost(link: AutoDownloadLink): string {
   return service || 'unknown';
 }
 
+/** JD2 accepts magnets as readily as http(s) links, so both are dispatchable. */
+function isDispatchableUrl(url: string): boolean {
+  return /^(?:https?:\/\/|magnet:\?)/i.test(url);
+}
+
 export function sortDownloadLinksByJd2Hierarchy(
   links: AutoDownloadLink[],
   hierarchy = getHostHierarchy(),
+  options: { ignoreHostPriority?: boolean } = {},
 ): Array<AutoDownloadLink & { hostKey: string }> {
   const seen = new Set<string>();
-  const preferred = links
+  const selected = links
     .map(link => ({ ...link, hostKey: detectHost(link) }))
     .filter(link => {
       const url = String(link.url || '').trim();
       if (!url) return false;
-      if (!/^https?:\/\//i.test(url)) return false;
-      if (!hierarchy.includes(link.hostKey)) return false;
+      // Automatic dispatch stays http-only; an explicitly chosen link may be a
+      // magnet, which the caller has decided they want.
+      if (options.ignoreHostPriority ? !isDispatchableUrl(url) : !/^https?:\/\//i.test(url)) {
+        return false;
+      }
+      // The hierarchy exists to pick a host on the user's behalf. When they
+      // picked the link themselves there is nothing left to choose, so honour
+      // it even if the host isn't listed.
+      if (!options.ignoreHostPriority && !hierarchy.includes(link.hostKey)) return false;
       const key = url.toLowerCase();
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
 
-  return preferred.sort((a, b) => {
-    const hostDelta = hierarchy.indexOf(a.hostKey) - hierarchy.indexOf(b.hostKey);
+  // Unlisted hosts sort last rather than being dropped.
+  const rank = (hostKey: string) => {
+    const index = hierarchy.indexOf(hostKey);
+    return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+  };
+
+  return selected.sort((a, b) => {
+    const hostDelta = rank(a.hostKey) - rank(b.hostKey);
     if (hostDelta !== 0) return hostDelta;
     return a.url.localeCompare(b.url);
   });
@@ -262,10 +286,14 @@ export function getJd2WatchDir(): string {
  * two can never drift on host priority, package naming or crawljob format.
  */
 export async function performJd2Dispatch(
-  params: Pick<DispatchParams, 'gameTitle' | 'version' | 'gameLink' | 'downloadLinks'>,
+  params: Pick<DispatchParams, 'gameTitle' | 'version' | 'gameLink' | 'downloadLinks'> & {
+    ignoreHostPriority?: boolean;
+  },
 ): Promise<Jd2DispatchResult> {
   const hierarchy = getHostHierarchy();
-  const sortedLinks = sortDownloadLinksByJd2Hierarchy(params.downloadLinks || [], hierarchy);
+  const sortedLinks = sortDownloadLinksByJd2Hierarchy(params.downloadLinks || [], hierarchy, {
+    ignoreHostPriority: params.ignoreHostPriority,
+  });
   const packageName = buildPackageName(params.gameTitle, params.version);
   const selectedHosts = [...new Set(sortedLinks.map(link => link.hostKey))];
 
@@ -276,7 +304,9 @@ export async function performJd2Dispatch(
       ...base,
       ok: false,
       outcome: 'skipped',
-      message: `No links from a preferred host (${hierarchy.join(', ')}) were found for this release.`,
+      message: params.ignoreHostPriority
+        ? 'That link is not something JDownloader can take (needs an http(s) or magnet URL).'
+        : `No links from a preferred host (${hierarchy.join(', ')}) were found for this release.`,
     };
   }
 
