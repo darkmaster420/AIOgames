@@ -5,11 +5,16 @@ import connectDB from './db';
 import { LibraryGame, LibraryScanJob, TrackedGame } from './models';
 import { getLibraryRoot } from './libraryConfig';
 import {
+  ARCHIVE_EXTENSIONS,
   compareLibraryReleaseInfo,
   normalizeLibraryTitle,
   parseLibraryReleaseInfo,
+  stripArchiveExtension,
   type LibraryReleaseInfo,
 } from './libraryTitle';
+import { autoVerifyWithSteamLadderForTrack } from '../utils/autoSteamVerification';
+import { resolveIGDBImage } from '../utils/igdb';
+import { cleanGameTitle, calculateGamePriority } from '../utils/steamApi';
 import logger from '../utils/logger';
 
 type ExistingLibraryGame = {
@@ -25,7 +30,10 @@ type ExistingTrackedGame = {
   isDateVersion?: boolean;
 };
 
-const ARCHIVE_EXTENSIONS = new Set(['.zip']);
+const ARCHIVE_EXTENSION_SET = new Set<string>(ARCHIVE_EXTENSIONS);
+
+/** Top-level folders that hold other things rather than being a release. */
+const IGNORED_DIRECTORY_NAMES = new Set(['backups', 'repacks', 'temp', 'tmp', 'incomplete', '$recycle.bin']);
 
 function isLikelyInstallerPart(fileName: string): boolean {
   const lower = fileName.toLowerCase();
@@ -65,15 +73,35 @@ async function assertLibraryRootReadable(root: string): Promise<void> {
   }
 }
 
+/**
+ * A top-level directory counts as a library entry when its name parses like a
+ * release (carries a version or build), e.g. `Outbound.v1.1.7.969-P2`. Without
+ * that test every incidental folder in the library root would be imported as a
+ * game.
+ */
+function isLikelyReleaseDirectory(name: string): boolean {
+  if (name.startsWith('.') || IGNORED_DIRECTORY_NAMES.has(name.toLowerCase())) return false;
+  const release = parseLibraryReleaseInfo(name);
+  return Boolean(release.version || release.build);
+}
+
 async function collectRootArchives(root: string): Promise<string[]> {
   const entries = await fs.readdir(root, { withFileTypes: true });
   const files: string[] = [];
 
   for (const entry of entries) {
-    if (!entry.isFile()) continue;
     if (isLikelyInstallerPart(entry.name)) continue;
-    if (!ARCHIVE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
-    files.push(path.join(root, entry.name));
+
+    if (entry.isFile()) {
+      if (!ARCHIVE_EXTENSION_SET.has(path.extname(entry.name).toLowerCase())) continue;
+      files.push(path.join(root, entry.name));
+      continue;
+    }
+
+    // Extracted releases live as folders alongside the archives.
+    if (entry.isDirectory() && isLikelyReleaseDirectory(entry.name)) {
+      files.push(path.join(root, entry.name));
+    }
   }
 
   return files;
@@ -87,7 +115,7 @@ function buildTrackedReleaseFields(release: LibraryReleaseInfo, stat: Stats, rel
   const fields: Record<string, unknown> = {
     lastKnownVersion: release.lastKnownVersion,
     lastVersionDate: new Date(stat.mtimeMs).toISOString(),
-    description: `Imported from library zip: ${relativePath}`,
+    description: `Imported from library: ${relativePath}`,
   };
 
   if (release.version) {
@@ -120,6 +148,53 @@ function isCandidateReleaseNewer(existing: ExistingTrackedGame, candidate: Libra
   ) > 0;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Resolves a Steam AppID (and poster art) for a freshly imported library game.
+ *
+ * Mirrors what `POST /api/tracking` does for games tracked from a site — the
+ * scanner previously skipped it entirely, which is why NAS imports had no
+ * AppID and were never checked against SteamDB for updates.
+ *
+ * Never throws: a failed lookup must not fail the scan.
+ */
+async function verifyLibraryGameOnSteam(
+  trackedGameId: unknown,
+  title: string,
+  cleanedTitle: string,
+): Promise<boolean> {
+  try {
+    const verification = await autoVerifyWithSteamLadderForTrack(title, cleanedTitle);
+
+    const update: Record<string, unknown> = {};
+    if (verification.success && verification.steamAppId && verification.steamName) {
+      update.steamVerified = true;
+      update.steamAppId = verification.steamAppId;
+      update.steamName = verification.steamName;
+    }
+
+    const image = await resolveIGDBImage(cleanedTitle || title).catch(() => null);
+    if (image) update.image = image;
+
+    if (Object.keys(update).length === 0) {
+      logger.debug(`No Steam match for library game "${title}": ${verification.reason}`);
+      return false;
+    }
+
+    await TrackedGame.updateOne({ _id: trackedGameId }, { $set: update });
+    if (update.steamAppId) {
+      logger.info(`Steam-verified library game "${title}" → ${update.steamName} (${update.steamAppId})`);
+    }
+    return Boolean(update.steamAppId);
+  } catch (error) {
+    logger.warn(`Steam verification failed for library game "${title}":`, error);
+    return false;
+  }
+}
+
 export type LibraryScanStats = {
   filesSeen: number;
   gamesUpserted: number;
@@ -127,6 +202,8 @@ export type LibraryScanStats = {
   gamesRemoved: number;
   trackedCreated: number;
   trackedExisting: number;
+  /** Newly imported games that resolved to a Steam AppID. */
+  trackedVerified: number;
   errors: number;
 };
 
@@ -157,6 +234,7 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
     gamesRemoved: 0,
     trackedCreated: 0,
     trackedExisting: 0,
+    trackedVerified: 0,
     errors: 0,
   };
 
@@ -164,7 +242,7 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
     await assertLibraryRootReadable(root);
     const files = await collectRootArchives(root);
     stats.filesSeen = files.length;
-    logger.info(`Library scan started: ${root} (${files.length} zip file(s))`);
+    logger.info(`Library scan started: ${root} (${files.length} release(s))`);
 
     for (const filePath of files) {
       try {
@@ -180,6 +258,9 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
         const release = parseLibraryReleaseInfo(fileName);
         const title = release.title;
         const normalizedTitle = normalizeLibraryTitle(title);
+        // Same cleaning the discovery/track flow applies, so a game imported
+        // from the NAS and the same game tracked from a site collapse together.
+        const cleanedTitle = cleanGameTitle(title);
 
         if (existing?.contentKey === key) {
           await LibraryGame.updateOne(
@@ -196,7 +277,9 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
                 relativePath,
                 title,
                 normalizedTitle,
-                extension: path.extname(fileName).toLowerCase(),
+                extension: stripArchiveExtension(fileName) === fileName
+                  ? ''
+                  : path.extname(fileName).toLowerCase(),
                 fileSizeBytes: stat.size,
                 mtimeMs: stat.mtimeMs,
                 contentKey: key,
@@ -241,11 +324,16 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
             continue;
           }
 
+          // Case- and edition-insensitive so `FATAL.FURY...v2.0.2.zip` and
+          // `rune-fatal.fury...v2.0.1.iso` resolve to the same tracked game
+          // instead of creating a second card for the same title.
+          const titlePattern = new RegExp(`^${escapeRegExp(title)}$`, 'i');
           const existingTrackedByTitle = await TrackedGame.findOne({
             userId,
             isActive: true,
             $or: [
-              { title },
+              { title: titlePattern },
+              { cleanedTitle: cleanedTitle },
               { originalTitle: fileName },
             ],
           }).select('_id currentVersionNumber currentBuildNumber lastKnownVersion isDateVersion').lean<ExistingTrackedGame | null>();
@@ -269,11 +357,13 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
             }
             stats.trackedExisting += 1;
           } else {
-            await TrackedGame.create({
+            const created = await TrackedGame.create({
               userId,
               gameId,
               title,
               originalTitle: title,
+              cleanedTitle,
+              priority: calculateGamePriority(title, false),
               source: 'Local Library',
               image: '',
               ...buildTrackedReleaseFields(release, stat, relativePath),
@@ -283,6 +373,12 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
               isActive: true,
             });
             stats.trackedCreated += 1;
+
+            // Without a Steam AppID an imported game can never be checked
+            // against SteamDB, so it shows NO APPID and never reports updates.
+            if (await verifyLibraryGameOnSteam(created._id, title, cleanedTitle)) {
+              stats.trackedVerified += 1;
+            }
           }
         }
       } catch {
@@ -308,12 +404,14 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
           gamesRemoved: stats.gamesRemoved,
           trackedCreated: stats.trackedCreated,
           trackedExisting: stats.trackedExisting,
+          trackedVerified: stats.trackedVerified,
           errorCount: stats.errors,
         },
       },
     );
     logger.info(
-      `Library scan completed: ${stats.filesSeen} zip(s), ${stats.trackedCreated} tracked created, ${stats.trackedExisting} already tracked`,
+      `Library scan completed: ${stats.filesSeen} release(s), ${stats.trackedCreated} tracked created ` +
+      `(${stats.trackedVerified} Steam-verified), ${stats.trackedExisting} already tracked`,
     );
   } catch (error) {
     await LibraryScanJob.updateOne(
@@ -328,6 +426,7 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
           gamesRemoved: stats.gamesRemoved,
           trackedCreated: stats.trackedCreated,
           trackedExisting: stats.trackedExisting,
+          trackedVerified: stats.trackedVerified,
           errorCount: stats.errors + 1,
           message: error instanceof Error ? error.message : 'Unknown scan failure',
         },

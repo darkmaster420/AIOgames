@@ -464,7 +464,8 @@ export default function TrackingDashboard() {
 
       showSuccess(
         'Library Scan Complete',
-        `Found ${data.filesSeen || 0} zip files. Added ${data.trackedCreated || 0} to tracking (${data.trackedExisting || 0} already tracked).`,
+        `Found ${data.filesSeen || 0} releases. Added ${data.trackedCreated || 0} to tracking ` +
+        `(${data.trackedVerified || 0} matched on Steam, ${data.trackedExisting || 0} already tracked).`,
       );
       await loadTrackedGames();
     } catch (scanError) {

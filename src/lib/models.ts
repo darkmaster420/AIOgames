@@ -754,6 +754,11 @@ const libraryScanJobSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  /** Newly imported games that resolved to a Steam AppID during the scan. */
+  trackedVerified: {
+    type: Number,
+    default: 0
+  },
   errorCount: {
     type: Number,
     default: 0
