@@ -77,11 +77,13 @@ export default function UpdatesPage() {
       const response = await fetch('/api/updates/check', {
         method: 'POST'
       });
+      const result = await response.json().catch(() => ({}));
       
       if (response.ok) {
-        const result = await response.json();
         showSuccess('Update Check Complete', `📊 Checked: ${result.checked} games\n🆕 Updates found: ${result.updatesFound}\n🎮 Sequels found: ${result.sequelsFound}`);
         fetchUpdates(); // Refresh the data
+      } else {
+        showError('Update Check Failed', result?.error || 'Failed to check for updates. Please try again.');
       }
     } catch (error) {
       console.error('Failed to check updates:', error);

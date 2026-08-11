@@ -1027,14 +1027,18 @@ export async function POST(request: Request) {
                   }
                 }
 
-                await dispatchAutoDownloadToJd2({
-                  userId: game.userId.toString(),
-                  trackedGameId: String(game._id),
-                  gameTitle: game.title,
-                  version: versionString,
-                  gameLink: bestMatch.link,
-                  downloadLinks: fullDownloadLinks,
-                });
+                try {
+                  await dispatchAutoDownloadToJd2({
+                    userId: game.userId.toString(),
+                    trackedGameId: String(game._id),
+                    gameTitle: game.title,
+                    version: versionString,
+                    gameLink: bestMatch.link,
+                    downloadLinks: fullDownloadLinks,
+                  });
+                } catch (autoDownloadError) {
+                  logger.error(`Auto-download dispatch failed for ${game.title}:`, autoDownloadError);
+                }
 
                 // Send notification only if enabled for this game
                 if (game.notificationsEnabled) {
@@ -1113,7 +1117,11 @@ export async function POST(request: Request) {
   } catch (error) {
   logger.error('Update check error:', error);
     return NextResponse.json(
-      { error: 'Failed to check for updates' },
+      {
+        error: error instanceof Error
+          ? `Failed to check for updates: ${error.message}`
+          : 'Failed to check for updates'
+      },
       { status: 500 }
     );
   }

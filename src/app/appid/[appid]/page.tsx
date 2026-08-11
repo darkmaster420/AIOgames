@@ -369,7 +369,11 @@ export default function AppIdDetailPage() {
           throw new Error(data?.error || 'Failed to load source results.');
         }
 
-        const results: SourceSearchResult[] = Array.isArray(data) ? data : [];
+        const results: SourceSearchResult[] = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.results)
+            ? data.results
+            : [];
         const normalizedQuery = query.toLowerCase();
         const ranked = [...results]
           .sort((a, b) => {

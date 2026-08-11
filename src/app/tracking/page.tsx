@@ -692,9 +692,9 @@ export default function TrackingDashboard() {
         method: 'POST'
       });
 
-      if (!response.ok) throw new Error('Failed to check for updates');
-      
-      const result = await response.json();
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result?.error || 'Failed to check for updates');
+
       showInfo('Update Check Complete!', `Checked ${result.checked} games and found ${result.updatesFound} updates.`);
       
       // Reload tracked games to show any updates
