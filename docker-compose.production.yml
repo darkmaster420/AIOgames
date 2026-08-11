@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.production
-    #ports: #recommend using a reverse proxy like Nginx or Traefik instead of exposing ports directly
-    #  - "${PORT:-3000}:3000"
+    ports:
+      - "3001:3000"
     environment:
       - NODE_ENV=production
       - FLARESOLVERR_URL=http://flaresolverr:8191/v1
@@ -19,8 +19,6 @@ services:
       - /mnt/main/games:/library/games:ro
       - /mnt/main/downloads:/downloads/games
       - /mnt/main/downloads/watch:/jd2/folderwatch
-    networks:
-      - npm_default
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
@@ -28,7 +26,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-
-networks:
-  npm_default:
-    external: true
