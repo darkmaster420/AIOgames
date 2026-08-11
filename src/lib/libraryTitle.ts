@@ -15,15 +15,39 @@ export type LibraryReleaseInfo = {
  */
 export const ARCHIVE_EXTENSIONS = ['.zip', '.iso', '.rar', '.7z'] as const;
 
-const VERSION_PATTERNS = [
-  /\bbuild\s*\d+[\w.-]*/gi,
+/**
+ * Version/build tokens. Applied while `.` still separates the parts of a
+ * version, because a letter-only patch part is its own component in names like
+ * `PEAK.v1.33.a` — flattening separators first would leave a stray "a" behind
+ * in the title. `(?:\.[a-z]\d*|[a-z]\d*)` accepts both `v1.33.a` and `v1.62a`,
+ * matching what the update-check parser already understood.
+ */
+/**
+ * A single-letter patch part, either appended (`v1.62a`) or dot-separated
+ * (`v1.33.a`). The `(?![a-z])` guard stops it eating the first letter of a
+ * following word — without it `v3.2-beta` matched ".b" and left "eta" behind.
+ */
+const LETTER_PATCH_PART = String.raw`(?:\.[a-z]\d*(?![a-z])|[a-z]\d*(?![a-z]))?`;
+/** Named pre-release/patch suffixes, e.g. `v3.2-beta`, `v1.4-hotfix2`. */
+const NAMED_SUFFIX = String.raw`(?:[-_.]?(?:alpha|beta|rc|pre|preview|dev|final|release|hotfix|patch|update)\d*)?`;
+
+const VERSION_TOKEN_PATTERNS = [
+  /\bbuild\.?\s*\d+[\w.]*/gi,
   /\bb\d{2,}\b/gi,
-  /\bv?\d+(?:[.\s]\d+)+(?:[a-z]\d*)?(?:[-_. ]?(?:hotfix|patch|update|early access)\d*)?/gi,
-  /\bv\d{2,}\b/gi,
-  /\b\d{4}[-_.]\d{2}[-_.]\d{2}\b/g,
+  new RegExp(String.raw`\bv?\d+(?:\.\d+)+${LETTER_PATCH_PART}${NAMED_SUFFIX}`, 'gi'),
+  new RegExp(String.raw`\bv\d{2,}${LETTER_PATCH_PART}${NAMED_SUFFIX}\b`, 'gi'),
+  /\b\d{4}\.\d{2}\.\d{2}\b/g,
+];
+
+/** Word-based noise, applied after separators are flattened to spaces. */
+const NOISE_WORD_PATTERNS = [
   /\b(?:incl|update|dlc|bonus|ost|multi\d+|repack|portable|crack|ripped|pre-installed|early access)\b/gi,
   /\b(?:fitgirl|dodi|elamigos|gog|gog-games|steamrip|skidrow|reloaded|flt|codex|rune|tenoke|p2p|0xdeadcode|insaneramzes|goldberg|lws)\b/gi,
 ];
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 /** Removes a trailing container extension, leaving folder names untouched. */
 export function stripArchiveExtension(fileName: string): string {
@@ -39,14 +63,27 @@ export function titleFromLibraryFile(fileName: string): string {
 export function parseLibraryReleaseInfo(fileName: string): LibraryReleaseInfo {
   const baseName = stripArchiveExtension(fileName);
   const withoutExt = stripLibraryFilenameNoise(baseName);
-  const cleaned = withoutExt
+
+  // Bracketed chunks go first — they hold repacker tags, not title words.
+  const debracketed = withoutExt
     .replace(/\[[^\]]*]/g, ' ')
-    .replace(/\([^)]*\)/g, ' ')
-    .replace(/[._-]+/g, ' ')
+    .replace(/\([^)]*\)/g, ' ');
+
+  // Normalise `_` and `-` to `.` so every version token is dot-delimited, then
+  // strip version tokens while that structure still holds.
+  const dotted = debracketed.replace(/[_-]+/g, '.');
+  const withoutVersionTokens = VERSION_TOKEN_PATTERNS.reduce(
+    (title, pattern) => title.replace(pattern, ' '),
+    dotted,
+  );
+
+  // Only now flatten to words, and remove the word-based noise.
+  const cleaned = withoutVersionTokens
+    .replace(/[.]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
-  const withoutVersionNoise = VERSION_PATTERNS.reduce(
+  const withoutVersionNoise = NOISE_WORD_PATTERNS.reduce(
     (title, pattern) => title.replace(pattern, ' '),
     cleaned,
   )
@@ -57,8 +94,18 @@ export function parseLibraryReleaseInfo(fileName: string): LibraryReleaseInfo {
   // Detect from the de-noised name, never the raw one: export timestamps like
   // `-2026-05-18T22-25-49.326Z` contain dotted numbers that would otherwise be
   // picked up as the version.
-  const version = detectLibraryVersion(withoutExt);
+  let version = detectLibraryVersion(withoutExt);
   const build = detectLibraryBuild(withoutExt);
+
+  // A trailing build tag must not also be read as a version part: in
+  // `7.Days.To.Die.v2.6.B14` the version is 2.6 and the build is 14, but the
+  // letter-patch rule would otherwise claim ".B14" for the version too.
+  if (build && version) {
+    version = version.replace(
+      new RegExp(String.raw`\.[a-z]?${escapeRegExp(build)}$`, 'i'),
+      '',
+    );
+  }
   const lastKnownVersion = [
     version,
     build ? `Build ${build}` : '',
@@ -125,8 +172,9 @@ function detectLibraryVersion(name: string): string {
     // Date-style versions first: v20260616 must not be read as a build id.
     /\bv(\d{4}[-_.]\d{2}[-_.]\d{2})\b/i,
     /\bv(\d{8})\b/i,
-    /\bv(\d+(?:\.\d+)+(?:[a-z]\d*)?)\b/i,
-    /\bversion[-_. ]?(\d+(?:\.\d+)+(?:[a-z]\d*)?)\b/i,
+    // Accepts both PEAK v1.33.a and PEAK v1.62a, plus named suffixes (v3.2-beta).
+    new RegExp(String.raw`\bv(\d+(?:\.\d+)+${LETTER_PATCH_PART}${NAMED_SUFFIX})`, 'i'),
+    new RegExp(String.raw`\bversion[-_. ]?(\d+(?:\.\d+)+${LETTER_PATCH_PART}${NAMED_SUFFIX})`, 'i'),
   ];
 
   for (const pattern of patterns) {
@@ -142,7 +190,7 @@ function detectLibraryVersion(name: string): string {
   // Last resort: a dotted number with no `v` prefix. Runs only after every
   // prefixed form has failed, so `F1.2024.v1.5` still resolves to 1.5 — this
   // exists purely so `Elden.Ring.1.12.3` stops discarding its version.
-  const unprefixed = name.match(/\b(\d+(?:\.\d+)+(?:[a-z]\d*)?)\b/i);
+  const unprefixed = name.match(/\b(\d+(?:\.\d+)+(?:\.[a-z]\d*|[a-z]\d*)?)\b/i);
   if (unprefixed?.[1]) return unprefixed[1].replace(/_/g, '.');
 
   return '';
