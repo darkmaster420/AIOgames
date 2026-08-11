@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import connectDB from '../../../../lib/db';
 import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
@@ -12,6 +13,31 @@ import {
   isFollowPostTrackedGame,
   resolveTrackedGameSiteType,
 } from '../../../../lib/downloadSitePolicy';
+import {
+  normalizeDownloadLinks,
+  toDisplayDownloadLinks,
+  type DownloadLinkLike,
+} from '../../../../lib/downloadLinks';
+
+type TrackedUpdateRow = {
+  version?: string;
+  dateFound?: string | Date;
+  gameLink?: string;
+  downloadLinks?: DownloadLinkLike[];
+};
+
+type TrackedGameDoc = {
+  _id: mongoose.Types.ObjectId;
+  gameId?: string;
+  title?: string;
+  source?: string;
+  gameLink?: string;
+  lastKnownVersion?: string;
+  latestApprovedUpdate?: TrackedUpdateRow;
+  updateHistory?: TrackedUpdateRow[];
+  rssCachedDownloadLinks?: DownloadLinkLike[];
+  rssDownloadLinksFetchedAt?: Date;
+};
 
 // GET: Get download links for a specific game or update
 export async function GET(req: NextRequest) {
@@ -37,10 +63,19 @@ export async function GET(req: NextRequest) {
 
     await connectDB();
 
+    if (!mongoose.Types.ObjectId.isValid(gameId)) {
+      return NextResponse.json(
+        { error: 'Game not found or access denied' },
+        { status: 404 }
+      );
+    }
+
+    // `.lean()` matters here: hydrated subdocuments cannot be safely spread,
+    // and nothing on this path needs document methods.
     const game = await TrackedGame.findOne({
       _id: gameId,
       userId: user.id
-    });
+    }).lean<TrackedGameDoc | null>();
 
     if (!game) {
       return NextResponse.json(
@@ -63,48 +98,54 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    let downloadLinks: TrackedDownloadLink[] = [];
+    const history = Array.isArray(game.updateHistory) ? game.updateHistory : [];
 
+    let downloadLinks: TrackedDownloadLink[] = [];
     let context = {
-      gameTitle: game.title,
+      gameTitle: game.title || 'Unknown',
       currentVersion: game.lastKnownVersion || 'Unknown',
       type: 'current'
     };
 
-    if (updateIndex !== null && updateIndex !== undefined) {
-      // Get download links from a specific update in history
-      const index = parseInt(updateIndex);
-      if (index >= 0 && index < game.updateHistory.length) {
-        const update = game.updateHistory[index];
-        if (Array.isArray(update.downloadLinks) && update.downloadLinks.length > 0) {
-          downloadLinks = update.downloadLinks;
-          context = {
-            gameTitle: game.title,
-            currentVersion: update.version,
-            type: 'update'
-          };
-        }
+    const requestedIndex = updateIndex === null ? null : Number.parseInt(updateIndex, 10);
+
+    if (requestedIndex !== null) {
+      // Links for one specific point in update history.
+      if (!Number.isInteger(requestedIndex) || requestedIndex < 0 || requestedIndex >= history.length) {
+        return NextResponse.json(
+          { error: 'updateIndex is out of range for this game' },
+          { status: 400 }
+        );
       }
+
+      const update = history[requestedIndex];
+      downloadLinks = normalizeDownloadLinks(update.downloadLinks);
+      context = {
+        gameTitle: game.title || 'Unknown',
+        currentVersion: update.version || game.lastKnownVersion || 'Unknown',
+        type: 'update'
+      };
     } else {
       downloadLinks = collectStoredDownloadLinks(game);
-      if (downloadLinks.length > 0 && game.updateHistory?.length) {
-        const latestUpdate = [...game.updateHistory].sort(
-          (a: { dateFound?: string | Date }, b: { dateFound?: string | Date }) =>
-            new Date(b.dateFound || 0).getTime() - new Date(a.dateFound || 0).getTime()
+      if (downloadLinks.length > 0 && history.length > 0) {
+        const latestUpdate = [...history].sort(
+          (a, b) => new Date(b.dateFound || 0).getTime() - new Date(a.dateFound || 0).getTime()
         )[0];
         context = {
-          gameTitle: game.title,
-          currentVersion: latestUpdate.version,
+          gameTitle: game.title || 'Unknown',
+          currentVersion: latestUpdate.version || game.lastKnownVersion || 'Unknown',
           type: 'latest'
         };
       }
     }
 
+    // Nothing stored (or the requested history row carried none) — go back to
+    // the source post. Only worth doing for games we can actually resolve.
     if (downloadLinks.length === 0) {
       downloadLinks = await fetchDownloadLinksViaGameapi(game);
       if (downloadLinks.length > 0) {
         context = {
-          gameTitle: game.title,
+          gameTitle: game.title || 'Unknown',
           currentVersion: context.currentVersion || 'Latest from source post',
           type: 'built-in-source-fallback'
         };
@@ -120,17 +161,13 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const displayLinks = toDisplayDownloadLinks(downloadLinks);
+
     return NextResponse.json({
       gameId: game._id,
       context,
-      downloadLinks: downloadLinks.map(link => ({
-        service: link.service,
-        url: link.url,
-        type: link.type,
-        displayName: formatServiceName(link.service),
-        icon: getServiceIcon(link.service)
-      })),
-      totalLinks: downloadLinks.length
+      downloadLinks: displayLinks,
+      totalLinks: displayLinks.length
     });
 
   } catch (error) {
@@ -140,38 +177,4 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-// Helper function to format service names for display
-function formatServiceName(service: string): string {
-  const serviceNames: { [key: string]: string } = {
-    'mega': 'MEGA',
-    'mediafire': 'MediaFire',
-    'googledrive': 'Google Drive',
-    '1fichier': '1fichier',
-    'rapidgator': 'RapidGator',
-    'uploadhaven': 'UploadHaven',
-    'torrent': 'Torrent',
-    'magnet': 'Magnet Link',
-    'direct': 'Direct Download'
-  };
-  
-  return serviceNames[service.toLowerCase()] || service.charAt(0).toUpperCase() + service.slice(1);
-}
-
-// Helper function to get service icons/styles
-function getServiceIcon(service: string): string {
-  const serviceIcons: { [key: string]: string } = {
-    'mega': '☁️',
-    'mediafire': '🔥',
-    'googledrive': '📁',
-    '1fichier': '📄',
-    'rapidgator': '⚡',
-    'uploadhaven': '📤',
-    'torrent': '🌊',
-    'magnet': '🧲',
-    'direct': '⬇️'
-  };
-  
-  return serviceIcons[service.toLowerCase()] || '🔗';
 }

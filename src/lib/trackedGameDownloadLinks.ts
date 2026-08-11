@@ -3,6 +3,7 @@ import connectDB from './db';
 import { getPostDetails } from './gameapi';
 import { TrackedGame } from './models';
 import { isFollowPostTrackedGame, isFollowPostSiteType } from './downloadSitePolicy';
+import { normalizeDownloadLinks, type DownloadLinkLike } from './downloadLinks';
 
 export type TrackedDownloadLink = {
   service: string;
@@ -14,64 +15,56 @@ export type TrackedDownloadLink = {
  * Prefer latestApprovedUpdate links when non-empty; otherwise the newest
  * updateHistory entry that has download links; otherwise rssCachedDownloadLinks.
  * (Empty [] must not block fallback.)
+ *
+ * Every branch goes through `normalizeDownloadLinks`, which reads fields
+ * explicitly — spreading these entries is unsafe because callers may pass a
+ * hydrated mongoose document, whose subdocuments spread to internal state
+ * instead of `service`/`url`/`type`.
  */
 export function collectStoredDownloadLinks(game: {
   gameId?: string;
   source?: string;
   gameLink?: string;
-  latestApprovedUpdate?: { downloadLinks?: TrackedDownloadLink[] };
+  latestApprovedUpdate?: { downloadLinks?: DownloadLinkLike[] };
   updateHistory?: Array<{
     dateFound?: string | Date;
-    downloadLinks?: TrackedDownloadLink[];
+    downloadLinks?: DownloadLinkLike[];
   }>;
-  rssCachedDownloadLinks?: TrackedDownloadLink[];
+  rssCachedDownloadLinks?: DownloadLinkLike[];
 }): TrackedDownloadLink[] {
   if (isFollowPostTrackedGame(game)) {
     return [];
   }
 
-  const approved = game.latestApprovedUpdate?.downloadLinks;
-  if (Array.isArray(approved) && approved.length > 0) {
-    return approved.map(l => ({ ...l }));
+  const approved = normalizeDownloadLinks(game.latestApprovedUpdate?.downloadLinks);
+  if (approved.length > 0) {
+    return approved;
   }
 
-  if (!game.updateHistory?.length) {
-    const cachedOnly = game.rssCachedDownloadLinks;
-    if (Array.isArray(cachedOnly) && cachedOnly.length > 0) {
-      return cachedOnly.map(l => ({ ...l }));
+  if (game.updateHistory?.length) {
+    const sorted = [...game.updateHistory].sort(
+      (a, b) =>
+        new Date(b.dateFound || 0).getTime() - new Date(a.dateFound || 0).getTime()
+    );
+    for (const row of sorted) {
+      const links = normalizeDownloadLinks(row.downloadLinks);
+      if (links.length > 0) return links;
     }
-    return [];
   }
 
-  const sorted = [...game.updateHistory].sort(
-    (a, b) =>
-      new Date(b.dateFound || 0).getTime() - new Date(a.dateFound || 0).getTime()
-  );
-  const row = sorted.find(
-    u => Array.isArray(u.downloadLinks) && u.downloadLinks.length > 0
-  );
-  if (row?.downloadLinks?.length) {
-    return row.downloadLinks.map(l => ({ ...l }));
-  }
-
-  const cached = game.rssCachedDownloadLinks;
-  if (Array.isArray(cached) && cached.length > 0) {
-    return cached.map(l => ({ ...l }));
-  }
-
-  return [];
+  return normalizeDownloadLinks(game.rssCachedDownloadLinks);
 }
 
 type DownloadLinkSourceGame = {
   latestApprovedUpdate?: {
     dateFound?: string | Date;
-    downloadLinks?: TrackedDownloadLink[];
+    downloadLinks?: DownloadLinkLike[];
   };
   updateHistory?: Array<{
     dateFound?: string | Date;
-    downloadLinks?: TrackedDownloadLink[];
+    downloadLinks?: DownloadLinkLike[];
   }>;
-  rssCachedDownloadLinks?: TrackedDownloadLink[];
+  rssCachedDownloadLinks?: DownloadLinkLike[];
   rssDownloadLinksFetchedAt?: string | Date;
 };
 
@@ -139,23 +132,10 @@ export function mergeDownloadLinksForRss(
     return [];
   }
 
-  const seen = new Set<string>();
-  const out: TrackedDownloadLink[] = [];
+  const collected: DownloadLinkLike[] = [];
 
-  const push = (arr?: TrackedDownloadLink[] | null) => {
-    if (!Array.isArray(arr)) return;
-    for (const l of arr) {
-      const u = (l.url || '').trim();
-      if (!u) continue;
-      const key = u.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({
-        service: typeof l.service === 'string' && l.service.trim() ? l.service.trim() : 'download',
-        url: l.url,
-        type: l.type
-      });
-    }
+  const push = (arr?: DownloadLinkLike[] | null) => {
+    if (Array.isArray(arr)) collected.push(...arr);
   };
 
   push(game.latestApprovedUpdate?.downloadLinks);
@@ -171,7 +151,9 @@ export function mergeDownloadLinksForRss(
   if (!isRssDownloadCacheStale(game)) {
     push(game.rssCachedDownloadLinks);
   }
-  return out;
+
+  // Deduping happens once at the end so the first occurrence (newest source) wins.
+  return normalizeDownloadLinks(collected);
 }
 
 type GameapiGameShape = {
@@ -181,7 +163,7 @@ type GameapiGameShape = {
   updateHistory?: Array<{
     dateFound?: string | Date;
     gameLink?: string;
-    downloadLinks?: TrackedDownloadLink[];
+    downloadLinks?: DownloadLinkLike[];
   }>;
 };
 
@@ -271,13 +253,7 @@ export async function fetchDownloadLinksViaGameapi(
   try {
     const gameapiData = await getPostDetails(source.postId, source.siteType);
     if (gameapiData.success && gameapiData.post?.downloadLinks?.length) {
-      return gameapiData.post.downloadLinks.map(
-        (link: { service: string; url: string; type: string }) => ({
-          service: link.service,
-          url: link.url,
-          type: link.type
-        })
-      );
+      return normalizeDownloadLinks(gameapiData.post.downloadLinks);
     }
   } catch {
     // non-fatal for RSS / callers

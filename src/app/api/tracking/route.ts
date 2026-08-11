@@ -53,8 +53,12 @@ export async function GET() {
       userId: user.id,
       isActive: true,
     })
+      // Keep this in sync with the TrackedGame interface in src/app/tracking/page.tsx —
+      // a field the page reads but doesn't select comes back undefined and the
+      // feature depending on it silently no-ops (that's how the UPDATE badge and
+      // the "Updated" sort were both dead).
       .select(
-        'gameId title originalTitle cleanedTitle priority source image description gameLink lastKnownVersion steamAppId steamName steamVerified gogVerified gogProductId gogName gogVersion gogBuildId gogLastChecked buildNumberVerified currentBuildNumber buildNumberSource versionNumberVerified currentVersionNumber versionNumberSource lastVersionDate dateAdded lastChecked notificationsEnabled checkFrequency updateHistory isActive'
+        'gameId title originalTitle cleanedTitle priority source image description gameLink lastKnownVersion steamAppId steamName steamVerified gogVerified gogProductId gogName gogVersion gogBuildId gogLastChecked buildNumberVerified currentBuildNumber buildNumberSource versionNumberVerified currentVersionNumber versionNumberSource lastVersionDate dateAdded lastChecked notificationsEnabled checkFrequency updateHistory latestApprovedUpdate hasNewUpdate newUpdateSeen isActive'
       )
       .sort({ dateAdded: -1 })
       .lean();

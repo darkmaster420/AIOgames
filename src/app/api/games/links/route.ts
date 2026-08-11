@@ -4,6 +4,7 @@ import {
   buildFollowPostDownloadResponse,
   isFollowPostSiteType,
 } from '../../../../lib/downloadSitePolicy';
+import { toDisplayDownloadLinks, type DisplayDownloadLink } from '../../../../lib/downloadLinks';
 
 // In-memory cache for gameapi download link responses
 const linksCache = new Map<string, { data: unknown; timestamp: number }>();
@@ -70,27 +71,7 @@ export async function GET(req: NextRequest) {
       }
 
       const post = data.post;
-      let downloadLinks: Array<{
-        service: string;
-        url: string;
-        type: string;
-        displayName: string;
-        icon: string;
-      }> = [];
-
-      if (post && post.downloadLinks && Array.isArray(post.downloadLinks)) {
-        downloadLinks = post.downloadLinks.map((link: {
-          service: string;
-          url: string;
-          type: string;
-        }) => ({
-          service: link.service,
-          url: link.url,
-          type: link.type,
-          displayName: formatServiceName(link.service),
-          icon: getServiceIcon(link.service)
-        }));
-      }
+      const downloadLinks: DisplayDownloadLink[] = toDisplayDownloadLinks(post?.downloadLinks);
 
       const context = {
         gameTitle: gameTitle || post?.title || 'Unknown Game',
@@ -136,56 +117,4 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-// Helper function to format service names for display
-function formatServiceName(service: string): string {
-  const serviceNames: { [key: string]: string } = {
-    'mega': 'MEGA',
-    'mediafire': 'MediaFire',
-    'googledrive': 'Google Drive',
-    '1fichier': '1fichier',
-    'rapidgator': 'RapidGator',
-    'uploadhaven': 'UploadHaven',
-    'pixeldrain': 'Pixeldrain',
-    'gofile': 'Gofile',
-    'krakenfiles': 'KrakenFiles',
-    'dailyuploads': 'DailyUploads',
-    'nitroflare': 'Nitroflare',
-    'turbobit': 'Turbobit',
-    'hitfile': 'HitFile',
-    'katfile': 'Katfile',
-    'multiup': 'MultiUp',
-    'torrent': 'Torrent',
-    'magnet': 'Magnet Link',
-    'direct': 'Direct Download'
-  };
-  
-  return serviceNames[service.toLowerCase()] || service.charAt(0).toUpperCase() + service.slice(1);
-}
-
-// Helper function to get service icons/styles
-function getServiceIcon(service: string): string {
-  const serviceIcons: { [key: string]: string } = {
-    'mega': '☁️',
-    'mediafire': '🔥',
-    'googledrive': '📁',
-    '1fichier': '📄',
-    'rapidgator': '⚡',
-    'uploadhaven': '📤',
-    'pixeldrain': '💧',
-    'gofile': '📁',
-    'krakenfiles': '🐙',
-    'dailyuploads': '📤',
-    'nitroflare': '🔥',
-    'turbobit': '⚡',
-    'hitfile': '🎯',
-    'katfile': '🐱',
-    'multiup': '📦',
-    'torrent': '🌊',
-    'magnet': '🧲',
-    'direct': '⬇️'
-  };
-  
-  return serviceIcons[service.toLowerCase()] || '🔗';
 }
