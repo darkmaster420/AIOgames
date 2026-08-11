@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { ImageWithFallback } from '../utils/imageProxy';
 import { GameDownloadLinks } from './GameDownloadLinks';
+import { Jd2SendButton } from './Jd2SendButton';
 import { ExternalLinkIcon } from './ExternalLinkIcon';
 
 interface GamePosterCardProps {
@@ -135,7 +136,7 @@ export function GamePosterCard({
             
             {postId && siteType && (
               <div onClick={(e) => e.stopPropagation()}>
-                <GameDownloadLinks 
+                <GameDownloadLinks
                   postId={postId}
                   siteType={siteType}
                   postUrl={sourceLink || link}
@@ -145,7 +146,18 @@ export function GamePosterCard({
                 />
               </div>
             )}
-            
+
+            {/* Hands the release straight to JDownloader without tracking it first. */}
+            <div onClick={(e) => e.stopPropagation()}>
+              <Jd2SendButton
+                postId={postId}
+                siteType={siteType}
+                title={title}
+                gameLink={sourceLink || link}
+                downloadLinks={embeddedDownloadLinks}
+              />
+            </div>
+
             {/* View Original Post */}
             {(sourceLink || link) && (
               <a

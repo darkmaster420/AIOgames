@@ -18,6 +18,24 @@ type DispatchParams = {
   downloadLinks?: AutoDownloadLink[];
 };
 
+/** Same as DispatchParams, but a manual send may target an untracked game. */
+type ManualDispatchParams = Omit<DispatchParams, 'trackedGameId'> & {
+  trackedGameId?: string;
+};
+
+export type Jd2DispatchOutcome = 'sent' | 'skipped' | 'failed' | 'disabled' | 'duplicate';
+
+export type Jd2DispatchResult = {
+  ok: boolean;
+  outcome: Jd2DispatchOutcome;
+  message: string;
+  packageName: string;
+  linkCount: number;
+  selectedHosts: string[];
+  hierarchy: string[];
+  outputFile?: string;
+};
+
 type ExistingAutoDownloadJob = {
   status?: string;
 };
@@ -153,70 +171,48 @@ async function writeCrawlJob(params: {
   return finalPath;
 }
 
-export async function dispatchAutoDownloadToJd2(params: DispatchParams): Promise<boolean> {
-  if (!envFlag('JD2_AUTO_DOWNLOADS_ENABLED') && !envFlag('AUTO_DOWNLOADS_ENABLED')) {
-    return false;
-  }
+/** True when the scheduled update-check pipeline is allowed to dispatch on its own. */
+export function isJd2AutoDispatchEnabled(): boolean {
+  return envFlag('JD2_AUTO_DOWNLOADS_ENABLED') || envFlag('AUTO_DOWNLOADS_ENABLED');
+}
 
+export function getJd2WatchDir(): string {
+  return (process.env.JD2_FOLDERWATCH_DIR || process.env.JDOWNLOADER_FOLDERWATCH_DIR || '').trim();
+}
+
+/**
+ * Link selection + crawljob write, with no database side effects.
+ *
+ * Shared by the automatic pipeline and the manual "Send to JD2" action so the
+ * two can never drift on host priority, package naming or crawljob format.
+ */
+export async function performJd2Dispatch(
+  params: Pick<DispatchParams, 'gameTitle' | 'version' | 'gameLink' | 'downloadLinks'>,
+): Promise<Jd2DispatchResult> {
   const hierarchy = getHostHierarchy();
   const sortedLinks = sortDownloadLinksByJd2Hierarchy(params.downloadLinks || [], hierarchy);
   const packageName = buildPackageName(params.gameTitle, params.version);
   const selectedHosts = [...new Set(sortedLinks.map(link => link.hostKey))];
 
-  const existing = await AutoDownloadJob.findOne({
-    trackedGameId: params.trackedGameId,
-    gameLink: params.gameLink,
-  }).lean<ExistingAutoDownloadJob | null>();
-
-  if (existing?.status && ['queued', 'sent'].includes(existing.status)) {
-    logger.info(`JD2 auto-download already dispatched for ${params.gameTitle}: ${params.gameLink}`);
-    return false;
-  }
-
-  const baseJob = {
-    userId: params.userId,
-    trackedGameId: params.trackedGameId,
-    gameTitle: params.gameTitle,
-    version: params.version || '',
-    gameLink: params.gameLink,
-    packageName,
-    downloader: 'jd2-folderwatch',
-    linkCount: sortedLinks.length,
-    selectedHosts,
-    hierarchy,
-  };
+  const base = { packageName, linkCount: sortedLinks.length, selectedHosts, hierarchy };
 
   if (!sortedLinks.length) {
-    await AutoDownloadJob.findOneAndUpdate(
-      { trackedGameId: params.trackedGameId, gameLink: params.gameLink },
-      {
-        $set: {
-          ...baseJob,
-          status: 'skipped',
-          message: `No preferred host links found (${hierarchy.join(', ')})`,
-        },
-      },
-      { upsert: true, new: true },
-    );
-    logger.info(`JD2 auto-download skipped for ${params.gameTitle}: no preferred host links`);
-    return false;
+    return {
+      ...base,
+      ok: false,
+      outcome: 'skipped',
+      message: `No links from a preferred host (${hierarchy.join(', ')}) were found for this release.`,
+    };
   }
 
-  const watchDir = process.env.JD2_FOLDERWATCH_DIR || process.env.JDOWNLOADER_FOLDERWATCH_DIR || '';
-  if (!watchDir.trim()) {
-    await AutoDownloadJob.findOneAndUpdate(
-      { trackedGameId: params.trackedGameId, gameLink: params.gameLink },
-      {
-        $set: {
-          ...baseJob,
-          status: 'failed',
-          message: 'Set JD2_FOLDERWATCH_DIR to enable JD2 Folder Watch dispatch.',
-        },
-      },
-      { upsert: true, new: true },
-    );
-    logger.warn('JD2 auto-download enabled but JD2_FOLDERWATCH_DIR is not set.');
-    return false;
+  const watchDir = getJd2WatchDir();
+  if (!watchDir) {
+    return {
+      ...base,
+      ok: false,
+      outcome: 'failed',
+      message: 'Set JD2_FOLDERWATCH_DIR to enable JD2 Folder Watch dispatch.',
+    };
   }
 
   try {
@@ -229,35 +225,115 @@ export async function dispatchAutoDownloadToJd2(params: DispatchParams): Promise
       gameLink: params.gameLink,
     });
 
-    await AutoDownloadJob.findOneAndUpdate(
-      { trackedGameId: params.trackedGameId, gameLink: params.gameLink },
-      {
-        $set: {
-          ...baseJob,
-          status: 'sent',
-          outputFile,
-          message: `Sent ${sortedLinks.length} link(s) to JD2 Folder Watch.`,
-          sentAt: new Date(),
-        },
-      },
-      { upsert: true, new: true },
-    );
-    logger.info(`Sent ${sortedLinks.length} auto-download link(s) to JD2 for ${params.gameTitle}`);
-    return true;
+    return {
+      ...base,
+      ok: true,
+      outcome: 'sent',
+      outputFile,
+      message: `Sent ${sortedLinks.length} link(s) to JD2 Folder Watch.`,
+    };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to write JD2 crawljob';
-    await AutoDownloadJob.findOneAndUpdate(
-      { trackedGameId: params.trackedGameId, gameLink: params.gameLink },
-      {
-        $set: {
-          ...baseJob,
-          status: 'failed',
-          message,
-        },
+    return {
+      ...base,
+      ok: false,
+      outcome: 'failed',
+      message: error instanceof Error ? error.message : 'Failed to write JD2 crawljob',
+    };
+  }
+}
+
+/** Persist the outcome of a dispatch against its tracked game. */
+async function recordAutoDownloadJob(
+  params: DispatchParams,
+  result: Jd2DispatchResult,
+): Promise<void> {
+  await AutoDownloadJob.findOneAndUpdate(
+    { trackedGameId: params.trackedGameId, gameLink: params.gameLink },
+    {
+      $set: {
+        userId: params.userId,
+        trackedGameId: params.trackedGameId,
+        gameTitle: params.gameTitle,
+        version: params.version || '',
+        gameLink: params.gameLink,
+        packageName: result.packageName,
+        downloader: 'jd2-folderwatch',
+        linkCount: result.linkCount,
+        selectedHosts: result.selectedHosts,
+        hierarchy: result.hierarchy,
+        status: result.outcome === 'sent' ? 'sent' : result.outcome === 'skipped' ? 'skipped' : 'failed',
+        message: result.message,
+        ...(result.outputFile ? { outputFile: result.outputFile } : {}),
+        ...(result.outcome === 'sent' ? { sentAt: new Date() } : {}),
       },
-      { upsert: true, new: true },
-    );
-    logger.error(`Failed to dispatch JD2 auto-download for ${params.gameTitle}:`, error);
+    },
+    { upsert: true, new: true },
+  );
+}
+
+/**
+ * Automatic dispatch from the update-check pipeline. Gated behind the
+ * auto-download env flag and skips releases already dispatched.
+ */
+export async function dispatchAutoDownloadToJd2(params: DispatchParams): Promise<boolean> {
+  if (!isJd2AutoDispatchEnabled()) {
     return false;
   }
+
+  const existing = await AutoDownloadJob.findOne({
+    trackedGameId: params.trackedGameId,
+    gameLink: params.gameLink,
+  }).lean<ExistingAutoDownloadJob | null>();
+
+  if (existing?.status && ['queued', 'sent'].includes(existing.status)) {
+    logger.info(`JD2 auto-download already dispatched for ${params.gameTitle}: ${params.gameLink}`);
+    return false;
+  }
+
+  const result = await performJd2Dispatch(params);
+  await recordAutoDownloadJob(params, result);
+
+  if (result.ok) {
+    logger.info(`Sent ${result.linkCount} auto-download link(s) to JD2 for ${params.gameTitle}`);
+  } else if (result.outcome === 'skipped') {
+    logger.info(`JD2 auto-download skipped for ${params.gameTitle}: no preferred host links`);
+  } else {
+    logger.error(`Failed to dispatch JD2 auto-download for ${params.gameTitle}: ${result.message}`);
+  }
+
+  return result.ok;
+}
+
+/**
+ * Manual dispatch triggered by the user from the UI.
+ *
+ * Differs from the automatic path in three ways, all deliberate:
+ *  - not gated by the auto-download env flag; that flag governs unattended
+ *    dispatch, and an explicit click is consent on its own,
+ *  - re-sends a release that was already dispatched, because asking again is
+ *    the normal way to recover from a download the user cancelled in JD2,
+ *  - tolerates an untracked game. The AutoDownloadJob ledger requires a
+ *    tracked game, so an untracked send still reaches JD2 but isn't recorded.
+ */
+export async function dispatchManualDownloadToJd2(
+  params: ManualDispatchParams,
+): Promise<Jd2DispatchResult> {
+  const result = await performJd2Dispatch(params);
+
+  if (params.trackedGameId) {
+    try {
+      await recordAutoDownloadJob({ ...params, trackedGameId: params.trackedGameId }, result);
+    } catch (error) {
+      // Bookkeeping must not mask a crawljob that was written successfully.
+      logger.warn(`Could not record manual JD2 job for ${params.gameTitle}:`, error);
+    }
+  }
+
+  if (result.ok) {
+    logger.info(`Manual JD2 send: ${result.linkCount} link(s) for ${params.gameTitle}`);
+  } else {
+    logger.warn(`Manual JD2 send did not dispatch ${params.gameTitle}: ${result.message}`);
+  }
+
+  return result;
 }
