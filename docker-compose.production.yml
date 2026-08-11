@@ -30,6 +30,14 @@ services:
     volumes:
       - /mnt/main/games:/library/games:ro
       - /mnt/main/downloads:/downloads/games
+      # The JDownloader container must mount this same host path and have it in
+      # its Folder Watch folder list, otherwise crawljobs are written here and
+      # nothing ever consumes them. JD2 usually runs from a separate stack, e.g.
+      #   jdownloader-2:
+      #     volumes:
+      #       - /mnt/main/downloads/watch:/watch
+      # then add /watch under Settings -> Extensions -> Folder Watch in JD2.
+      # scripts/diagnose-jd2.sh reports whether that mount exists.
       - /mnt/main/downloads/watch:/jd2/folderwatch
     restart: unless-stopped
     healthcheck:
