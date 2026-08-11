@@ -1,8 +1,6 @@
 services:
   aiogames:
-    build:
-      context: .
-      dockerfile: Dockerfile.production
+    image: ${AIOGAMES_IMAGE:-ghcr.io/lukewarmsodas/aiogames:latest}
     ports:
       - "3001:3000"
     environment:
