@@ -1,6 +1,11 @@
 services:
   aiogames:
     image: ${AIOGAMES_IMAGE:-ghcr.io/lukewarmsodas/aiogames:latest}
+    # The image builds with USER nextjs (uid 1001), so the bind mounts below
+    # would each have to be writable by that uid. Running as root instead means
+    # the host paths need no ownership changes. Drop this line to fall back to
+    # uid 1001 and chown the mounts on the host.
+    user: "0:0"
     ports:
       - "3001:3000"
     environment:
@@ -10,6 +15,15 @@ services:
       - JD2_AUTO_DOWNLOADS_ENABLED=true
       - JD2_FOLDERWATCH_DIR=/jd2/folderwatch
       - JD2_DOWNLOAD_ROOT=/downloads/games
+      # Stated explicitly rather than relying on the code defaults.
+      # autoConfirm moves links from the LinkGrabber into the download list;
+      # autoStart begins the download once they are there.
+      - JD2_AUTO_CONFIRM=true
+      - JD2_AUTO_START=true
+      # When true, JD2_DOWNLOAD_ROOT wins over any Packagizer folder rule.
+      # Left false to preserve existing behaviour - set it if downloads are not
+      # landing under JD2_DOWNLOAD_ROOT.
+      - JD2_OVERWRITE_PACKAGIZER=false
     env_file: 
       - stack.env  # stack.env or .env
       #- .env

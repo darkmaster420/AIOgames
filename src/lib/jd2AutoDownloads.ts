@@ -140,8 +140,14 @@ async function writeCrawlJob(params: {
   await fs.mkdir(params.watchDir, { recursive: true });
 
   const downloadRoot = process.env.JD2_DOWNLOAD_ROOT || process.env.AUTO_DOWNLOAD_ROOT || '';
+  // JD2 parses enabled/autoConfirm/autoStart/forcedStart as its BooleanStatus
+  // enum, so these are the strings 'TRUE'/'FALSE' rather than JSON booleans.
+  // deepAnalyseEnabled and overwritePackagizerEnabled are real booleans there.
   const autoStart = envFlag('JD2_AUTO_START', true) ? 'TRUE' : 'FALSE';
   const autoConfirm = envFlag('JD2_AUTO_CONFIRM', true) ? 'TRUE' : 'FALSE';
+  // JD2 uses this only to decide whether the job's downloadFolder overrides a
+  // matching Packagizer rule. Default false keeps the Packagizer authoritative.
+  const overwritePackagizer = envFlag('JD2_OVERWRITE_PACKAGIZER', false);
   const downloadFolder = downloadRoot
     ? joinRemoteDownloadPath(downloadRoot, params.packageName)
     : undefined;
@@ -160,7 +166,7 @@ async function writeCrawlJob(params: {
     autoStart,
     forcedStart: autoStart,
     deepAnalyseEnabled: true,
-    overwritePackagizerEnabled: false,
+    overwritePackagizerEnabled: overwritePackagizer,
     ...(downloadFolder ? { downloadFolder } : {}),
   }];
 
