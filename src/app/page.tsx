@@ -13,17 +13,20 @@ import { getProxiedImageUrl } from '../utils/imageProxy';
 import { PageLayoutSettings } from '../components/PageLayoutSettings';
 import { usePersistedHomepagePreferences } from '../hooks/usePersistedPagePreferences';
 import { buildCustomGridStyle } from '../utils/pagePreferences';
+import { analyzeGameTitle, normalizeBuildNumber, normalizeVersionNumber } from '../utils/versionDetection';
 
 type TrackedGameInfo = {
   trackedId: string;
   gameId: string;
   version: string;
+  build: string;
   priority: number;
   fullTitle: string;
 };
 
 type TrackState = {
   isExactTracked: boolean;
+  isTrackedRelease: boolean;
   hasTrackedVariant: boolean;
   trackedVersion?: string;
   trackedLabel?: string;
@@ -286,12 +289,16 @@ function DashboardInner() {
           for (const game of data.games) {
             const cleaned = cleanGameTitle(game.title || game.originalTitle || '');
             if (cleaned) {
+              const trackedAnalysis = analyzeGameTitle(
+                [game.originalTitle, game.title, game.lastKnownVersion].filter(Boolean).join(' '),
+              );
               const info: TrackedGameInfo = {
                 trackedId: game._id,
                 gameId: game.gameId,
-                version: game.lastKnownVersion || '',
+                version: game.currentVersionNumber || trackedAnalysis.detectedVersion || '',
+                build: game.currentBuildNumber || trackedAnalysis.detectedBuild || '',
                 priority: game.priority || 2,
-                fullTitle: game.title || game.originalTitle || ''
+                fullTitle: game.originalTitle || game.title || ''
               };
               idMap.set(String(game.gameId), info);
               
@@ -434,6 +441,7 @@ function DashboardInner() {
       if (trackedGames.has(game.id) && exactTracked) {
         return {
           isExactTracked: true,
+          isTrackedRelease: true,
           hasTrackedVariant: false,
           trackedVersion: exactTracked.version || undefined,
           trackedLabel: exactTracked.version ? `Tracking ${exactTracked.version}` : 'Tracked'
@@ -441,22 +449,57 @@ function DashboardInner() {
       }
       
       if (!cleaned) {
-        return { isExactTracked: false, hasTrackedVariant: false };
+        return { isExactTracked: false, isTrackedRelease: false, hasTrackedVariant: false };
       }
       
       const exactMatches = trackedTitles.get(cleaned);
       if (exactMatches && exactMatches.length > 0) {
         const sorted = [...exactMatches].sort((a, b) => a.priority - b.priority);
         const best = sorted[0];
+        const candidateAnalysis = analyzeGameTitle(game.originalTitle || game.title);
+        const candidateVersion = candidateAnalysis.detectedVersion
+          ? normalizeVersionNumber(candidateAnalysis.detectedVersion)
+          : '';
+        const candidateBuild = candidateAnalysis.detectedBuild
+          ? normalizeBuildNumber(candidateAnalysis.detectedBuild)
+          : '';
+        const matchingRelease = sorted.find((tracked) => {
+          const trackedVersion = tracked.version ? normalizeVersionNumber(tracked.version) : '';
+          const trackedBuild = tracked.build ? normalizeBuildNumber(tracked.build) : '';
+          return Boolean(
+            (candidateVersion && trackedVersion && candidateVersion === trackedVersion) ||
+            (candidateBuild && trackedBuild && candidateBuild === trackedBuild)
+          );
+        });
+
+        if (matchingRelease) {
+          const versionMatches = Boolean(
+            candidateVersion &&
+            matchingRelease.version &&
+            candidateVersion === normalizeVersionNumber(matchingRelease.version)
+          );
+          const matchedValue = versionMatches ? matchingRelease.version : matchingRelease.build;
+          return {
+            isExactTracked: false,
+            isTrackedRelease: true,
+            hasTrackedVariant: false,
+            trackedVersion: matchedValue || undefined,
+            trackedLabel: versionMatches
+              ? `Tracking version ${matchingRelease.version}`
+              : `Tracking build ${matchingRelease.build}`
+          };
+        }
+
         return {
           isExactTracked: false,
+          isTrackedRelease: false,
           hasTrackedVariant: true,
           trackedVersion: best.version || undefined,
           trackedLabel: best.version ? `Tracking another version (${best.version})` : 'Tracking another version'
         };
       }
       
-      return { isExactTracked: false, hasTrackedVariant: false };
+      return { isExactTracked: false, isTrackedRelease: false, hasTrackedVariant: false };
     }, [trackedGames, trackedGamesById, trackedTitles]);
 
     const extractAppId = useCallback((game: Game): string | null => {
@@ -958,13 +1001,14 @@ function DashboardInner() {
                       title={game.originalTitle || game.title}
                       image={game.image}
                       badge={game.source}
-                      badgeColor={trackState.isExactTracked ? 'green' : trackState.hasTrackedVariant ? 'yellow' : 'blue'}
+                      badgeColor={trackState.isExactTracked ? 'purple' : trackState.isTrackedRelease ? 'green' : trackState.hasTrackedVariant ? 'yellow' : 'blue'}
                       hasUpdate={false}
                       isTracked={trackState.isExactTracked}
+                      isTrackedRelease={trackState.isTrackedRelease}
                       hasTrackedVariant={trackState.hasTrackedVariant}
                       trackedVersion={trackState.trackedVersion}
                       trackedLabel={trackState.trackedLabel}
-                      onTrack={status === 'authenticated' && !trackState.isExactTracked ? () => handleTrackGame(game) : undefined}
+                      onTrack={status === 'authenticated' && !trackState.isTrackedRelease ? () => handleTrackGame(game) : undefined}
                       onUntrack={status === 'authenticated' && trackState.isExactTracked ? () => handleUntrackGame(game) : undefined}
                       trackButtonText={trackState.hasTrackedVariant ? '↻ Track This Version' : '➕ Track Game'}
                       className={layoutMode === 'horizontal' ? 'min-w-[160px] snap-start shrink-0' : ''}

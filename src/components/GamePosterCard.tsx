@@ -16,9 +16,10 @@ interface GamePosterCardProps {
   image: string;
   year?: string;
   badge?: string;
-  badgeColor?: 'blue' | 'green' | 'red' | 'yellow';
+  badgeColor?: 'blue' | 'green' | 'purple' | 'red' | 'yellow';
   hasUpdate?: boolean;
   isTracked?: boolean;
+  isTrackedRelease?: boolean;
   hasTrackedVariant?: boolean;
   trackedVersion?: string;
   trackedLabel?: string;
@@ -41,6 +42,7 @@ export function GamePosterCard({
   badgeColor = 'blue',
   hasUpdate = false,
   isTracked = false,
+  isTrackedRelease = isTracked,
   hasTrackedVariant = false,
   trackedVersion,
   trackedLabel,
@@ -65,6 +67,7 @@ export function GamePosterCard({
   const badgeColors = {
     blue: 'bg-blue-600',
     green: 'bg-green-600',
+    purple: 'bg-purple-600',
     red: 'bg-red-600',
     yellow: 'bg-yellow-600',
   };
@@ -74,7 +77,7 @@ export function GamePosterCard({
       {/* Poster Image Container */}
       <div 
         className={`relative rounded-lg overflow-hidden bg-gray-800 shadow-lg transition-all duration-300 group-hover:shadow-2xl group-hover:scale-105 h-[350px] sm:h-[420px] ${
-          isTracked ? 'ring-2 ring-green-500/70' : hasTrackedVariant ? 'ring-2 ring-amber-400/70' : ''
+          isTracked ? 'ring-2 ring-purple-500/70' : isTrackedRelease ? 'ring-2 ring-green-500/70' : hasTrackedVariant ? 'ring-2 ring-amber-400/70' : ''
         } ${link ? 'cursor-pointer' : ''}`}
         onClick={handleOpenLink}
       >
@@ -101,12 +104,12 @@ export function GamePosterCard({
             )}
           </div>
           <div className="flex items-center gap-1">
-            {isTracked && (
-              <span className="bg-green-500/90 text-white text-xs font-bold px-2 py-1 rounded flex items-center gap-1 shadow-lg">
+            {isTrackedRelease && (
+              <span className={`${isTracked ? 'bg-purple-500/90' : 'bg-green-500/90'} text-white text-xs font-bold px-2 py-1 rounded flex items-center gap-1 shadow-lg`}>
                 ✓ {trackedLabel || (trackedVersion ? `Tracking ${trackedVersion}` : 'Tracked')}
               </span>
             )}
-            {!isTracked && hasTrackedVariant && (
+            {!isTrackedRelease && hasTrackedVariant && (
               <span className="bg-amber-500/90 text-white text-xs font-bold px-2 py-1 rounded flex items-center gap-1 shadow-lg">
                 ↻ {trackedLabel || (trackedVersion ? `Tracking another version (${trackedVersion})` : 'Tracking another version')}
               </span>
