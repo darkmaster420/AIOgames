@@ -181,7 +181,7 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
               {
                 $set: {
                   title,
-                  originalTitle: fileName,
+                  originalTitle: title,
                   source: 'Local Library',
                   description: `Imported from library zip: ${relativePath}`,
                   gameLink: `library://${libraryGameIdString}`,
@@ -211,7 +211,7 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
               userId,
               gameId,
               title,
-              originalTitle: fileName,
+              originalTitle: title,
               source: 'Local Library',
               image: '',
               description: `Imported from library zip: ${relativePath}`,
