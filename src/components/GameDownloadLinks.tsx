@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { copyTextToClipboard } from '../utils/clipboard';
+import { isTorrentUrl } from '../lib/downloadLinks';
 
 interface DownloadLink {
   service: string;
@@ -63,9 +64,22 @@ export function GameDownloadLinks({
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   /** Which row was last copied, and whether it worked — drives inline feedback. */
   const [copyState, setCopyState] = useState<{ index: number; ok: boolean } | null>(null);
-  /** Row currently being handed to JD2, and the outcome of the last send. */
+  /** Row currently being handed to a downloader, and the outcome of the last send. */
   const [sendingIndex, setSendingIndex] = useState<number | null>(null);
   const [sendState, setSendState] = useState<{ index: number; ok: boolean; message: string } | null>(null);
+  /** Whether this server has qBittorrent configured; hides the button if not. */
+  const [qbitConfigured, setQbitConfigured] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/downloads/qbittorrent')
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (!cancelled && data?.configured) setQbitConfigured(true);
+      })
+      .catch(() => {}); // Non-fatal: the button just stays hidden.
+    return () => { cancelled = true; };
+  }, []);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [context, setContext] = useState<DownloadContext>({ gameTitle: '', currentVersion: '', type: '' });
@@ -269,6 +283,36 @@ export function GameDownloadLinks({
     window.setTimeout(() => setCopyState(null), 1800);
   };
 
+  const sendLinkToQbit = async (link: DownloadLink, index: number) => {
+    setSendingIndex(index);
+    try {
+      const response = await fetch('/api/downloads/qbittorrent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: link.url,
+          title: context.gameTitle || gameTitle || undefined,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setSendState({
+          index,
+          ok: false,
+          message: data.hint ? `${data.error} ${data.hint}` : (data.error || 'Failed to send to qBittorrent'),
+        });
+        return;
+      }
+      setSendState({ index, ok: true, message: data.message || 'Added to qBittorrent' });
+    } catch {
+      setSendState({ index, ok: false, message: 'Could not reach the server.' });
+    } finally {
+      setSendingIndex(null);
+      window.setTimeout(() => setSendState(null), 4000);
+    }
+  };
+
   const sendLinkToJd2 = async (link: DownloadLink, index: number) => {
     setSendingIndex(index);
     try {
@@ -450,6 +494,29 @@ export function GameDownloadLinks({
                       >
                         {copyState?.index === index ? (copyState.ok ? '✓' : '✕') : '📋'}
                       </button>
+                      {qbitConfigured && isTorrentUrl(link.url, link.type, link.service) && (
+                        <button
+                          onClick={() => sendLinkToQbit(link, index)}
+                          disabled={sendingIndex !== null}
+                          className={`px-3 py-2 text-sm rounded-lg transition-colors min-h-[36px] disabled:opacity-50 disabled:cursor-not-allowed ${
+                            sendState?.index === index
+                              ? sendState.ok
+                                ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300'
+                                : 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300'
+                              : 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800'
+                          }`}
+                          title="Send this torrent to qBittorrent"
+                          aria-label="Send this torrent to qBittorrent"
+                        >
+                          {sendingIndex === index ? (
+                            <span className="inline-block h-3.5 w-3.5 border-2 border-purple-500/40 border-t-purple-600 rounded-full animate-spin align-middle" />
+                          ) : sendState?.index === index ? (
+                            sendState.ok ? '✓' : '✕'
+                          ) : (
+                            '🧲'
+                          )}
+                        </button>
+                      )}
                       <button
                         onClick={() => sendLinkToJd2(link, index)}
                         disabled={sendingIndex !== null}

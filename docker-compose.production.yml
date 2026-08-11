@@ -26,6 +26,12 @@ services:
       # Left false to preserve existing behaviour - set it if downloads are not
       # landing under JD2_DOWNLOAD_ROOT.
       - JD2_OVERWRITE_PACKAGIZER=false
+      # Magnet / .torrent links are handed to qBittorrent instead of JD2.
+      # Reachable by service name when both share a docker network, same as
+      # FlareSolverr. Credentials go in stack.env, not here.
+      - QBITTORRENT_URL=http://qbitvpn:8080
+      - QBIT_CATEGORY=games
+      - QBIT_TAGS=aiogames
     env_file: 
       - stack.env  # stack.env or .env
       #- .env

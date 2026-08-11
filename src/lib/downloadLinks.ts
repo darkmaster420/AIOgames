@@ -77,6 +77,21 @@ const SERVICE_ICONS: Record<string, string> = {
   uploadhaven: '📤',
 };
 
+/**
+ * True for anything a torrent client can take: a magnet URI or a .torrent URL.
+ *
+ * Lives here rather than next to the qBittorrent client so the download-links
+ * UI can call it without pulling server-only code into the browser bundle.
+ */
+export function isTorrentUrl(url: string, type?: string, service?: string): boolean {
+  const value = (url || '').trim();
+  if (!value) return false;
+  if (/^magnet:\?/i.test(value)) return true;
+  if (/^https?:\/\/\S+\.torrent(?:[?#]|$)/i.test(value)) return true;
+  const hint = `${type || ''} ${service || ''}`.toLowerCase();
+  return hint.includes('magnet') || hint.includes('torrent');
+}
+
 /** Display label for a service key. Falls back to capitalising the raw value. */
 export function formatServiceName(service: string | null | undefined): string {
   const raw = typeof service === 'string' ? service.trim() : '';
