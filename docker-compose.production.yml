@@ -13,8 +13,11 @@ services:
       #- .env
     # To enable tracking-page NAS/library scans, set LIBRARY_ROOT=/library/games
     # in stack.env and mount your host directory here.
+    # To enable JD2 auto-download dispatch, set JD2_AUTO_DOWNLOADS_ENABLED=true
+    # and JD2_FOLDERWATCH_DIR=/jd2/folderwatch, then mount JD2's watched folder.
     # volumes:
     #   - /mnt/user/Games:/library/games:ro
+    #   - /mnt/user/appdata/jdownloader/folderwatch:/jd2/folderwatch
     networks:
       - npm_default
     restart: unless-stopped

@@ -758,9 +758,77 @@ const libraryScanJobSchema = new mongoose.Schema({
   timestamps: false
 });
 
+const autoDownloadJobSchema = new mongoose.Schema({
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true
+  },
+  trackedGameId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'TrackedGame',
+    required: true,
+    index: true
+  },
+  gameTitle: {
+    type: String,
+    required: true
+  },
+  version: {
+    type: String,
+    default: ''
+  },
+  gameLink: {
+    type: String,
+    required: true
+  },
+  packageName: {
+    type: String,
+    required: true
+  },
+  downloader: {
+    type: String,
+    enum: ['jd2-folderwatch'],
+    default: 'jd2-folderwatch'
+  },
+  status: {
+    type: String,
+    enum: ['queued', 'sent', 'skipped', 'failed'],
+    default: 'queued',
+    index: true
+  },
+  linkCount: {
+    type: Number,
+    default: 0
+  },
+  selectedHosts: [{
+    type: String
+  }],
+  hierarchy: [{
+    type: String
+  }],
+  outputFile: {
+    type: String,
+    default: ''
+  },
+  message: {
+    type: String,
+    default: ''
+  },
+  sentAt: {
+    type: Date
+  }
+}, {
+  timestamps: true
+});
+
+autoDownloadJobSchema.index({ trackedGameId: 1, gameLink: 1 }, { unique: true });
+
 // Create and export models
 export const User = mongoose.models.User || mongoose.model('User', userSchema);
 export const TrackedGame = mongoose.models.TrackedGame || mongoose.model('TrackedGame', trackedGameSchema);
 export const GOGVersionCache = mongoose.models.GOGVersionCache || mongoose.model('GOGVersionCache', gogVersionCacheSchema);
 export const LibraryGame = mongoose.models.LibraryGame || mongoose.model('LibraryGame', libraryGameSchema);
 export const LibraryScanJob = mongoose.models.LibraryScanJob || mongoose.model('LibraryScanJob', libraryScanJobSchema);
+export const AutoDownloadJob = mongoose.models.AutoDownloadJob || mongoose.model('AutoDownloadJob', autoDownloadJobSchema);

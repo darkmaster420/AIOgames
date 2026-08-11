@@ -10,6 +10,7 @@ import logger from '../../../../utils/logger';
 import { getPostDetails, getRecentUploads, clearGameApiCache } from '../../../../lib/gameapi';
 import { isRepackPost } from '../../../../lib/repackFilter';
 import { syncRssDownloadLinksCache } from '../../../../lib/trackedGameDownloadLinks';
+import { dispatchAutoDownloadToJd2 } from '../../../../lib/jd2AutoDownloads';
 
 import { calculateGameSimilarity } from '../../../../utils/titleMatching';
 
@@ -1643,32 +1644,43 @@ export async function POST(request: Request) {
                 updatesFound++;
                 
                 let rssFilledFromNotificationFetch = false;
+                let fullDownloadLinks = bestMatch.downloadLinks || [];
+
+                if (fullDownloadLinks.length === 0) {
+                  fullDownloadLinks = await fetchDownloadLinks(bestMatch);
+                  if (fullDownloadLinks.length > 0) {
+                    rssFilledFromNotificationFetch = true;
+                    await TrackedGame.updateOne(
+                      { _id: game._id },
+                      {
+                        $set: {
+                          rssCachedDownloadLinks: fullDownloadLinks,
+                          rssDownloadLinksFetchedAt: new Date()
+                        }
+                      }
+                    );
+                  }
+                }
+
+                await dispatchAutoDownloadToJd2({
+                  userId: game.userId.toString(),
+                  trackedGameId: String(game._id),
+                  gameTitle: game.title,
+                  version: versionString,
+                  gameLink: bestMatch.link,
+                  downloadLinks: fullDownloadLinks,
+                });
 
                 // Send notification only if enabled for this game
                 if (game.notificationsEnabled) {
                   try {
-                    // Fetch full download links for auto-approved updates
-                    const downloadLinks = await fetchDownloadLinks(bestMatch);
-                    if (downloadLinks.length > 0) {
-                      rssFilledFromNotificationFetch = true;
-                      await TrackedGame.updateOne(
-                        { _id: game._id },
-                        {
-                          $set: {
-                            rssCachedDownloadLinks: downloadLinks,
-                            rssDownloadLinksFetchedAt: new Date()
-                          }
-                        }
-                      );
-                    }
-                    
                     const notificationData = createUpdateNotificationData({
                       gameTitle: game.title,
                       version: versionString,
                       gameLink: bestMatch.link,
                       imageUrl: bestMatch.image ?? undefined,
                       updateType: 'update',
-                      downloadLinks: downloadLinks,
+                      downloadLinks: fullDownloadLinks,
                       trackedGameId: String(game._id),
                     });
                     

@@ -7,8 +7,9 @@ import { detectSequel } from '../../../../utils/sequelDetection';
 import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities, resolveComparableVersionData, resolvePubTimestampFromBuild, resolvePubTimestampFromVersion } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
-import { searchGames, getRecentUploads } from '../../../../lib/gameapi';
+import { getPostDetails, searchGames, getRecentUploads } from '../../../../lib/gameapi';
 import { syncRssDownloadLinksCache } from '../../../../lib/trackedGameDownloadLinks';
+import { dispatchAutoDownloadToJd2 } from '../../../../lib/jd2AutoDownloads';
 
 import { calculateGameSimilarity } from '../../../../utils/titleMatching';
 
@@ -37,6 +38,23 @@ interface VersionInfo {
   confidence: number;
   needsUserConfirmation: boolean;
   isDateVersion?: boolean;
+}
+
+async function fetchDownloadLinks(game: GameSearchResult): Promise<Array<{ service: string; url: string; type: string }>> {
+  try {
+    const [siteType, originalId] = game.id.split('_');
+    if (!siteType || !originalId || siteType === 'dodi') {
+      return [];
+    }
+
+    const data = await getPostDetails(originalId, siteType);
+    if (data.success && data.post?.downloadLinks?.length) {
+      return data.post.downloadLinks;
+    }
+  } catch (error) {
+    logger.error(`Error fetching download links for ${game.title}:`, error);
+  }
+  return [];
 }
 
 async function enrichVersionInfoWithSteamDb(appId: number | undefined, versionInfo: VersionInfo): Promise<VersionInfo> {
@@ -1194,6 +1212,7 @@ export async function POST(request: Request) {
               confidence: newVersionInfo.confidence || similarity,
               reason: autoApproveResult.reason || 'Version number detected',
             };
+            let fullDownloadLinks = result.downloadLinks || [];
 
             if (autoApproveResult.canApprove) {
               const hasEmbeddedLinks =
@@ -1293,7 +1312,34 @@ export async function POST(request: Request) {
                 continue;
               }
 
-              if (!hasEmbeddedLinks) {
+              let rssFilledFromAutoDownloadFetch = false;
+
+              if (fullDownloadLinks.length === 0) {
+                fullDownloadLinks = await fetchDownloadLinks(result);
+                if (fullDownloadLinks.length > 0) {
+                  rssFilledFromAutoDownloadFetch = true;
+                  await TrackedGame.updateOne(
+                    { _id: game._id },
+                    {
+                      $set: {
+                        rssCachedDownloadLinks: fullDownloadLinks,
+                        rssDownloadLinksFetchedAt: new Date()
+                      }
+                    }
+                  );
+                }
+              }
+
+              await dispatchAutoDownloadToJd2({
+                userId: game.userId.toString(),
+                trackedGameId: String(game._id),
+                gameTitle: game.title,
+                version: decodedTitle,
+                gameLink: result.link,
+                downloadLinks: fullDownloadLinks,
+              });
+
+              if (!hasEmbeddedLinks && !rssFilledFromAutoDownloadFetch) {
                 void syncRssDownloadLinksCache(String(game._id)).catch(() => {});
               }
               
@@ -1311,7 +1357,7 @@ export async function POST(request: Request) {
                   updateType: 'update', // Always 'update' for version updates
                   gameLink: result.link,
                   imageUrl: result.image ?? undefined,
-                  downloadLinks: result.downloadLinks,
+                  downloadLinks: fullDownloadLinks,
                   previousVersion: game.lastKnownVersion || game.title,
                   trackedGameId: String(game._id),
                 });
