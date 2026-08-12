@@ -90,6 +90,16 @@ interface TrackedGame {
   isActive: boolean;
 }
 
+interface DownloadStatus {
+  status: string;
+  message?: string;
+  currentHost?: string;
+  progressBytes: number;
+  totalBytes: number;
+  speedBytesPerSecond: number;
+  retryCount: number;
+}
+
 function getTrackedTitleKeys(game: TrackedGame): Set<string> {
   return new Set(
     [game.cleanedTitle, game.steamName, game.gogName, game.title, game.originalTitle]
@@ -128,6 +138,7 @@ export default function TrackingDashboard() {
   const [error, setError] = useState('');
   const [checkingSingleGame, setCheckingSingleGame] = useState<string | null>(null);
   const [scanningLibrary, setScanningLibrary] = useState(false);
+  const [downloadStatuses, setDownloadStatuses] = useState<Record<string, DownloadStatus>>({});
 
   // Steam latest version/build info fetched from SteamDB RSS
   interface SteamLatestInfo {
@@ -695,6 +706,29 @@ export default function TrackingDashboard() {
     }
   }, [status, loadTrackedGames]);
 
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+
+    const loadDownloadStatuses = async () => {
+      try {
+        const response = await fetch('/api/downloads/status', { cache: 'no-store' });
+        if (!response.ok) return;
+        const data = await response.json();
+        const statuses: Record<string, DownloadStatus> = {};
+        for (const job of data.jobs || []) {
+          statuses[String(job.trackedGameId)] = job;
+        }
+        setDownloadStatuses(statuses);
+      } catch {
+        // Download monitoring is optional; tracking remains usable without it.
+      }
+    };
+
+    void loadDownloadStatuses();
+    const interval = window.setInterval(() => void loadDownloadStatuses(), 30_000);
+    return () => window.clearInterval(interval);
+  }, [status]);
+
   const handleUntrack = async (gameId: string) => {
     try {
       const response = await fetch(`/api/tracking?gameId=${gameId}`, {
@@ -1182,6 +1216,7 @@ export default function TrackingDashboard() {
                 steamdbUpdate={game.steamdbUpdate}
                 libraryMatch={game.libraryMatch}
                 updateHistory={game.updateHistory}
+                downloadStatus={downloadStatuses[game._id]}
                 onUntrack={async () => {
                   const confirmed = await confirm(
                     'Remove Game from Tracking',

@@ -20,6 +20,8 @@ class UpdateScheduler {
   private cacheWarmInterval: NodeJS.Timeout | null = null;
   private rssDownloadLinksCacheInterval: NodeJS.Timeout | null = null;
   private titleMigrationInterval: NodeJS.Timeout | null = null;
+  private jd2MonitorInterval: NodeJS.Timeout | null = null;
+  private isJd2MonitorRunning = false;
   private scheduledChecks = new Map<string, ScheduledCheck>();
   private readonly CHECK_FREQUENCY_HOURS = 1; // All games checked hourly
 
@@ -82,6 +84,9 @@ class UpdateScheduler {
       }
     }, 6 * 60 * 60 * 1000); // 6 hours
 
+    const jd2MonitorMs = Math.max(30_000, parseInt(process.env.JD2_MONITOR_INTERVAL_MS || '', 10) || 60_000);
+    this.jd2MonitorInterval = setInterval(() => void this.monitorJd2(), jd2MonitorMs);
+
     // Initial load of scheduled checks
     this.loadScheduledChecks();
     
@@ -93,6 +98,9 @@ class UpdateScheduler {
 
     // Initial title migration (delayed by 2 minutes to let app start and avoid startup congestion)
     setTimeout(() => this.autoMigrateTitles(), 120000);
+
+    // Let JD2 ingest startup API jobs before the first status query.
+    setTimeout(() => void this.monitorJd2(), 45_000);
     
     logger.info('✅ Update scheduler started successfully');
   }
@@ -120,7 +128,24 @@ class UpdateScheduler {
       clearInterval(this.titleMigrationInterval);
       this.titleMigrationInterval = null;
     }
+    if (this.jd2MonitorInterval) {
+      clearInterval(this.jd2MonitorInterval);
+      this.jd2MonitorInterval = null;
+    }
     logger.info('⏹️ Update scheduler stopped');
+  }
+
+  private async monitorJd2(): Promise<void> {
+    if (this.isJd2MonitorRunning) return;
+    this.isJd2MonitorRunning = true;
+    try {
+      const { monitorJd2Downloads } = await import('./jd2Monitor');
+      await monitorJd2Downloads();
+    } catch (error) {
+      logger.error('JD2 status monitor error:', error);
+    } finally {
+      this.isJd2MonitorRunning = false;
+    }
   }
 
   /**

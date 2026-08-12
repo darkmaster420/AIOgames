@@ -1,7 +1,6 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import { AutoDownloadJob } from './models';
 import { isTorrentUrl } from './downloadLinks';
+import { addJd2Links, isJd2StatusConfigured } from './jd2Client';
 import { addTorrentToQbit, isQbitConfigured } from './qbittorrent';
 import logger from '../utils/logger';
 
@@ -40,10 +39,9 @@ export type Jd2DispatchResult = {
   linkCount: number;
   selectedHosts: string[];
   hierarchy: string[];
-  outputFile?: string;
 };
 
-type AutoDownloader = 'jd2-folderwatch' | 'qbittorrent' | 'mixed';
+type AutoDownloader = 'jd2-api' | 'qbittorrent' | 'mixed';
 
 type AutoDispatchResult = Jd2DispatchResult & {
   downloader: AutoDownloader;
@@ -87,8 +85,8 @@ function detectHost(link: AutoDownloadLink): string {
 }
 
 /**
- * JD2's folder watch is for direct hoster links only. Magnets are not usable
- * there, and a .torrent URL would just be fetched as a file rather than handed
+ * JD2 dispatch is for direct hoster links only. Magnets are not usable there,
+ * and a .torrent URL would just be fetched as a file rather than handed
  * to a torrent client — both belong in qBittorrent instead (see lib/qbittorrent).
  */
 function isDispatchableUrl(url: string): boolean {
@@ -163,120 +161,18 @@ function selectTorrentLinks(links: AutoDownloadLink[]): AutoDownloadLink[] {
   });
 }
 
-function safeJobFileName(packageName: string): string {
-  const base = sanitizePackagePart(packageName)
-    .replace(/\s+/g, '-')
-    .replace(/[^a-zA-Z0-9._-]/g, '')
-    .slice(0, 100) || 'aiogames-download';
-  return `${Date.now()}-${base}.crawljob`;
-}
-
-async function writeCrawlJob(params: {
-  watchDir: string;
+async function sendJd2Links(params: {
   packageName: string;
   links: Array<AutoDownloadLink & { hostKey: string }>;
-  hierarchy: string[];
-  version?: string;
-  gameLink: string;
-}): Promise<string> {
-  await fs.mkdir(params.watchDir, { recursive: true });
-
-  // This path is resolved by JD2 in its own container. Keep it literal so a
-  // root such as /output does not become /output/<packageName>.
-  const downloadFolder = (process.env.JD2_DOWNLOAD_ROOT || process.env.AUTO_DOWNLOAD_ROOT || '').trim();
-  // JD2 parses enabled/autoConfirm/autoStart/forcedStart as its BooleanStatus
-  // enum, so these are the strings 'TRUE'/'FALSE' rather than JSON booleans.
-  // deepAnalyseEnabled and overwritePackagizerEnabled are real booleans there.
-  const autoStart = envFlag('JD2_AUTO_START', true) ? 'TRUE' : 'FALSE';
-  const autoConfirm = envFlag('JD2_AUTO_CONFIRM', true) ? 'TRUE' : 'FALSE';
-  // JD2 uses this only to decide whether the job's downloadFolder overrides a
-  // matching Packagizer rule. Default false keeps the Packagizer authoritative.
-  const overwritePackagizer = envFlag('JD2_OVERWRITE_PACKAGIZER', false);
-  const job = [{
-    text: params.links.map(link => link.url).join('\n'),
+}): Promise<void> {
+  await addJd2Links({
+    links: params.links.map(link => link.url),
     packageName: params.packageName,
-    comment: [
-      'AIOgames auto-download',
-      params.version ? `Version: ${params.version}` : '',
-      `Hierarchy: ${params.hierarchy.join(' > ')}`,
-      `Source: ${params.gameLink}`,
-    ].filter(Boolean).join(' | '),
-    enabled: 'TRUE',
-    autoConfirm,
-    autoStart,
-    forcedStart: autoStart,
-    deepAnalyseEnabled: true,
-    overwritePackagizerEnabled: overwritePackagizer,
-    ...(downloadFolder ? { downloadFolder } : {}),
-  }];
-
-  // Write to `.tmp` then rename, so JD2's folder watch never picks up a
-  // half-written .crawljob. Clean the temp file up if the rename fails,
-  // otherwise a failed dispatch leaves litter in the watched folder.
-  const finalPath = path.join(params.watchDir, safeJobFileName(params.packageName));
-  const tempPath = `${finalPath}.tmp`;
-  await fs.writeFile(tempPath, JSON.stringify(job, null, 2), 'utf8');
-
-  // The watched folder is shared with a separate JD2 process that must both
-  // read the job and delete it once handled. Whoever JD2 runs as rarely matches
-  // this process, and an inherited ACL or a restrictive umask (notably on
-  // ZFS/TrueNAS) can leave the file unreadable to it — which looks exactly like
-  // JD2 ignoring the job. Widen the mode so ownership stops mattering.
-  // Failure here is not fatal: the default mode still works when the two
-  // processes share a user.
-  const mode = parseCrawlJobMode();
-  await fs.chmod(tempPath, mode).catch(error => {
-    logger.debug(`Could not chmod crawljob to ${mode.toString(8)}:`, error);
+    destinationFolder: (process.env.JD2_DOWNLOAD_ROOT || process.env.AUTO_DOWNLOAD_ROOT || '').trim() || undefined,
+    autostart: envFlag('JD2_AUTO_START', true),
+    overwritePackagizerRules: envFlag('JD2_OVERWRITE_PACKAGIZER', false),
   });
 
-  try {
-    await fs.rename(tempPath, finalPath);
-  } catch (error) {
-    await fs.unlink(tempPath).catch(() => {});
-    throw error;
-  }
-  return finalPath;
-}
-
-/** File mode for written crawljobs. Octal string, e.g. "666" (the default). */
-function parseCrawlJobMode(): number {
-  const raw = (process.env.JD2_CRAWLJOB_MODE || '').trim();
-  if (!raw) return 0o666;
-  const parsed = parseInt(raw, 8);
-  if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 0o777) {
-    logger.warn(`Ignoring invalid JD2_CRAWLJOB_MODE "${raw}"; using 666.`);
-    return 0o666;
-  }
-  return parsed;
-}
-
-/**
- * Turns a filesystem errno into something the operator can act on. The watch
- * directory is almost always a bind mount, so failures here are permission or
- * mount problems rather than bugs, and the raw errno doesn't say which.
- */
-function describeWatchDirError(error: unknown, watchDir: string): string {
-  const code = error && typeof error === 'object' && 'code' in error
-    ? String((error as { code?: string }).code)
-    : '';
-
-  switch (code) {
-    case 'EACCES':
-    case 'EPERM':
-      return `Cannot write to the JD2 watch folder (${watchDir}): permission denied. `
-        + 'The container runs as uid 1001, so the mounted folder must be writable by it '
-        + '(e.g. chown -R 1001:1001 on the host path backing this mount).';
-    case 'ENOENT':
-      return `The JD2 watch folder (${watchDir}) does not exist and could not be created. `
-        + 'Check that the volume is mounted and JD2_FOLDERWATCH_DIR points at it.';
-    case 'EROFS':
-      return `The JD2 watch folder (${watchDir}) is mounted read-only. `
-        + 'Remove the :ro flag from that volume so crawljobs can be written.';
-    case 'ENOSPC':
-      return `No space left on the device holding the JD2 watch folder (${watchDir}).`;
-    default:
-      return error instanceof Error ? error.message : 'Failed to write JD2 crawljob';
-  }
 }
 
 /** True when the scheduled update-check pipeline is allowed to dispatch on its own. */
@@ -284,15 +180,11 @@ export function isJd2AutoDispatchEnabled(): boolean {
   return envFlag('JD2_AUTO_DOWNLOADS_ENABLED') || envFlag('AUTO_DOWNLOADS_ENABLED');
 }
 
-export function getJd2WatchDir(): string {
-  return (process.env.JD2_FOLDERWATCH_DIR || process.env.JDOWNLOADER_FOLDERWATCH_DIR || '').trim();
-}
-
 /**
- * Link selection + crawljob write, with no database side effects.
+ * Link selection + JD2 API dispatch, with no database side effects.
  *
  * Shared by the automatic pipeline and the manual "Send to JD2" action so the
- * two can never drift on host priority, package naming or crawljob format.
+ * two can never drift on host priority or package naming.
  */
 export async function performJd2Dispatch(
   params: Pick<DispatchParams, 'gameTitle' | 'version' | 'gameLink' | 'downloadLinks'> & {
@@ -319,39 +211,33 @@ export async function performJd2Dispatch(
     };
   }
 
-  const watchDir = getJd2WatchDir();
-  if (!watchDir) {
+  if (!isJd2StatusConfigured()) {
     return {
       ...base,
       ok: false,
       outcome: 'failed',
-      message: 'Set JD2_FOLDERWATCH_DIR to enable JD2 Folder Watch dispatch.',
+      message: 'Configure MYJD_EMAIL and MYJD_PASSWORD, or JD2_API_URL as a fallback.',
     };
   }
 
   try {
-    const outputFile = await writeCrawlJob({
-      watchDir,
+    await sendJd2Links({
       packageName,
       links: sortedLinks,
-      hierarchy,
-      version: params.version,
-      gameLink: params.gameLink,
     });
 
     return {
       ...base,
       ok: true,
       outcome: 'sent',
-      outputFile,
-      message: `Sent ${sortedLinks.length} link(s) to JD2 Folder Watch.`,
+      message: `Sent ${sortedLinks.length} link(s) to JDownloader.`,
     };
   } catch (error) {
     return {
       ...base,
       ok: false,
       outcome: 'failed',
-      message: describeWatchDirError(error, watchDir),
+      message: error instanceof Error ? error.message : 'Failed to send links to JDownloader.',
     };
   }
 }
@@ -433,7 +319,7 @@ function combineAutoDispatchResults(
   const downloader: AutoDownloader =
     sentJd2 && sentQbit ? 'mixed'
     : sentQbit ? 'qbittorrent'
-    : 'jd2-folderwatch';
+    : 'jd2-api';
   const failures = [jd2, qbit].filter(result => result.outcome === 'failed');
   const outcome: Jd2DispatchOutcome =
     sentJd2 || sentQbit ? 'sent'
@@ -449,7 +335,6 @@ function combineAutoDispatchResults(
     linkCount: jd2.linkCount + qbit.linkCount,
     selectedHosts: [...new Set([...jd2.selectedHosts, ...qbit.selectedHosts])],
     hierarchy: [...new Set([...jd2.hierarchy, ...qbit.hierarchy])],
-    outputFile: jd2.outputFile,
     downloader,
   };
 }
@@ -459,6 +344,8 @@ async function recordAutoDownloadJob(
   params: DispatchParams,
   result: AutoDispatchResult,
 ): Promise<void> {
+  const candidateLinks = sortDownloadLinksByJd2Hierarchy(params.downloadLinks || []);
+  const currentHost = result.selectedHosts[0] || '';
   await AutoDownloadJob.findOneAndUpdate(
     { trackedGameId: params.trackedGameId, gameLink: params.gameLink },
     {
@@ -473,9 +360,13 @@ async function recordAutoDownloadJob(
         linkCount: result.linkCount,
         selectedHosts: result.selectedHosts,
         hierarchy: result.hierarchy,
+        downloadLinks: candidateLinks,
+        currentHost,
+        attemptedHosts: currentHost ? [currentHost] : [],
         status: result.outcome === 'sent' ? 'sent' : result.outcome === 'skipped' ? 'skipped' : 'failed',
         message: result.message,
-        ...(result.outputFile ? { outputFile: result.outputFile } : {}),
+        lastStatusAt: new Date(),
+        ...(result.outcome === 'sent' ? { lastProgressAt: new Date() } : {}),
         ...(result.outcome === 'sent' ? { sentAt: new Date() } : {}),
       },
     },
@@ -497,13 +388,19 @@ export async function dispatchAutoDownloadToJd2(params: DispatchParams): Promise
     gameLink: params.gameLink,
   }).lean<ExistingAutoDownloadJob | null>();
 
-  if (existing?.status && ['queued', 'sent'].includes(existing.status)) {
+  if (existing?.status && !['failed', 'skipped'].includes(existing.status)) {
     logger.info(`JD2 auto-download already dispatched for ${params.gameTitle}: ${params.gameLink}`);
     return false;
   }
 
+  const sortedJd2Links = sortDownloadLinksByJd2Hierarchy(params.downloadLinks || []);
+  const firstHost = sortedJd2Links[0]?.hostKey;
+  const firstHostLinks = firstHost
+    ? sortedJd2Links.filter(link => link.hostKey === firstHost)
+    : [];
+
   const [jd2Result, qbitResult] = await Promise.all([
-    performJd2Dispatch(params),
+    performJd2Dispatch({ ...params, downloadLinks: firstHostLinks, ignoreHostPriority: true }),
     performQbitDispatch(params),
   ]);
   const result = combineAutoDispatchResults(jd2Result, qbitResult);
@@ -547,10 +444,10 @@ export async function dispatchManualDownloadToJd2(
     try {
       await recordAutoDownloadJob(
         { ...params, trackedGameId: params.trackedGameId },
-        { ...result, downloader: 'jd2-folderwatch' },
+        { ...result, downloader: 'jd2-api' },
       );
     } catch (error) {
-      // Bookkeeping must not mask a crawljob that was written successfully.
+      // Bookkeeping must not mask links that were accepted successfully.
       logger.warn(`Could not record manual JD2 job for ${params.gameTitle}:`, error);
     }
   }

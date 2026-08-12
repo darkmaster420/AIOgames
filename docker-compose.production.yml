@@ -13,20 +13,25 @@ services:
       - FLARESOLVERR_URL=http://flaresolverr:8191/v1
       - LIBRARY_ROOT=/library/games
       - JD2_AUTO_DOWNLOADS_ENABLED=true
-      - JD2_FOLDERWATCH_DIR=/jd2/folderwatch
-      # A path inside the JDOWNLOADER container, not this one: it is copied into
-      # the crawljob exactly and resolved by JD2. Package names do not create
-      # subdirectories; /output is the jlesage image default.
+      # A path inside the JDownloader container, passed through its API.
+      # Package names do not create subdirectories; /output is the jlesage default.
       - JD2_DOWNLOAD_ROOT=/output
-      # Stated explicitly rather than relying on the code defaults.
-      # autoConfirm moves links from the LinkGrabber into the download list;
-      # autoStart begins the download once they are there.
-      - JD2_AUTO_CONFIRM=true
       - JD2_AUTO_START=true
       # When true, JD2_DOWNLOAD_ROOT wins over any Packagizer folder rule.
       # Left false to preserve existing behaviour - set it if downloads are not
       # landing under JD2_DOWNLOAD_ROOT.
       - JD2_OVERWRITE_PACKAGIZER=false
+      # MyJDownloader credentials are primary. The local API is used only when
+      # the credential connection is unavailable.
+      - MYJD_EMAIL=${MYJD_EMAIL:-}
+      - MYJD_PASSWORD=${MYJD_PASSWORD:-}
+      - JD2_API_URL=${JD2_API_URL:-}
+      - JD2_DEVICE_ID=${JD2_DEVICE_ID:-}
+      - JD2_DEVICE_NAME=${JD2_DEVICE_NAME:-}
+      - JD2_MONITOR_INTERVAL_MS=60000
+      - JD2_STALL_MINUTES=15
+      - JD2_MISSING_JOB_MINUTES=10
+      - JD2_FALLBACK_ON_CAPTCHA=false
       # Magnet / .torrent links are handed to qBittorrent instead of JD2.
       # Reachable by service name when both share a docker network, same as
       # FlareSolverr. Credentials go in stack.env, not here.
@@ -39,15 +44,6 @@ services:
     volumes:
       - /mnt/main/games:/library/games:ro
       - /mnt/main/downloads:/downloads/games
-      # The JDownloader container must mount this same host path and have it in
-      # its Folder Watch folder list, otherwise crawljobs are written here and
-      # nothing ever consumes them. JD2 usually runs from a separate stack, e.g.
-      #   jdownloader-2:
-      #     volumes:
-      #       - /mnt/main/downloads/watch:/watch
-      # then add /watch under Settings -> Extensions -> Folder Watch in JD2.
-      # scripts/diagnose-jd2.sh reports whether that mount exists.
-      - /mnt/main/downloads/watch:/jd2/folderwatch
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]

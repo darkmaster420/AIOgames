@@ -49,6 +49,15 @@ interface TrackedGamePosterCardProps {
     fileSizeBytes?: number | null;
   } | null;
   updateHistory?: UpdateHistoryItem[];
+  downloadStatus?: {
+    status: string;
+    message?: string;
+    currentHost?: string;
+    progressBytes: number;
+    totalBytes: number;
+    speedBytesPerSecond: number;
+    retryCount: number;
+  };
   onUntrack: () => void;
   onCheckUpdate: () => void;
   onRefresh?: () => void;
@@ -67,12 +76,29 @@ export function TrackedGamePosterCard(props: TrackedGamePosterCardProps) {
     steamVerified,
     steamName,
     libraryMatch,
+    downloadStatus,
     onUntrack,
     onCheckUpdate,
     isCheckingUpdate = false,
     className = '',
   } = props;
   const router = useRouter();
+  const statusColors: Record<string, string> = {
+    completed: 'bg-emerald-500',
+    downloading: 'bg-blue-500',
+    waiting: 'bg-slate-500',
+    sent: 'bg-slate-500',
+    queued: 'bg-slate-500',
+    retrying: 'bg-cyan-500',
+    captcha: 'bg-amber-500',
+    stalled: 'bg-orange-500',
+    offline: 'bg-red-500',
+    error: 'bg-red-500',
+    failed: 'bg-red-600',
+  };
+  const downloadPercent = downloadStatus?.totalBytes
+    ? Math.min(100, Math.round((downloadStatus.progressBytes / downloadStatus.totalBytes) * 100))
+    : 0;
 
   const handleOpenDetails = () => {
     if (appid) {
@@ -142,7 +168,7 @@ export function TrackedGamePosterCard(props: TrackedGamePosterCardProps) {
         </div>
         
         {/* Status Badges */}
-        <div className="absolute top-12 left-2 right-2 flex justify-end items-start z-30">
+        <div className="absolute top-12 left-2 right-2 flex flex-wrap justify-end items-start gap-1 z-30">
           {hasUpdate && (
             <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded animate-pulse">
               UPDATE
@@ -156,6 +182,16 @@ export function TrackedGamePosterCard(props: TrackedGamePosterCardProps) {
           {libraryMatch && (
             <span className="bg-emerald-500 text-white text-xs font-bold px-2 py-1 rounded ml-2">
               ON NAS
+            </span>
+          )}
+          {downloadStatus && (
+            <span
+              className={`${statusColors[downloadStatus.status] || 'bg-slate-500'} text-white text-xs font-bold px-2 py-1 rounded max-w-full truncate`}
+              title={downloadStatus.message || downloadStatus.status}
+            >
+              JD2 {downloadStatus.status.toUpperCase()}
+              {downloadStatus.currentHost ? ` - ${downloadStatus.currentHost}` : ''}
+              {downloadStatus.status === 'downloading' && downloadPercent > 0 ? ` ${downloadPercent}%` : ''}
             </span>
           )}
         </div>

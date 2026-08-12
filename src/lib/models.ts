@@ -832,12 +832,12 @@ const autoDownloadJobSchema = new mongoose.Schema({
   },
   downloader: {
     type: String,
-    enum: ['jd2-folderwatch', 'qbittorrent', 'mixed'],
-    default: 'jd2-folderwatch'
+    enum: ['jd2-api', 'qbittorrent', 'mixed'],
+    default: 'jd2-api'
   },
   status: {
     type: String,
-    enum: ['queued', 'sent', 'skipped', 'failed'],
+    enum: ['queued', 'sent', 'waiting', 'downloading', 'stalled', 'captcha', 'offline', 'error', 'retrying', 'completed', 'skipped', 'failed'],
     default: 'queued',
     index: true
   },
@@ -851,9 +851,51 @@ const autoDownloadJobSchema = new mongoose.Schema({
   hierarchy: [{
     type: String
   }],
-  outputFile: {
+  downloadLinks: [{
+    service: String,
+    url: String,
+    type: String,
+    hostKey: String
+  }],
+  currentHost: {
     type: String,
     default: ''
+  },
+  attemptedHosts: [{
+    type: String
+  }],
+  jdPackageId: {
+    type: String,
+    default: ''
+  },
+  jdLinkIds: [{
+    type: String
+  }],
+  progressBytes: {
+    type: Number,
+    default: 0
+  },
+  totalBytes: {
+    type: Number,
+    default: 0
+  },
+  speedBytesPerSecond: {
+    type: Number,
+    default: 0
+  },
+  etaSeconds: {
+    type: Number,
+    default: 0
+  },
+  lastProgressAt: {
+    type: Date
+  },
+  lastStatusAt: {
+    type: Date
+  },
+  retryCount: {
+    type: Number,
+    default: 0
   },
   message: {
     type: String,

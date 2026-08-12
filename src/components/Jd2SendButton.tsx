@@ -9,7 +9,7 @@ interface Jd2SendButtonProps {
   postId?: string;
   siteType?: string;
   title: string;
-  /** Original post URL, recorded on the crawljob. */
+  /** Original post URL used to identify the dispatch. */
   gameLink?: string;
   version?: string;
   /** Links already on the result, saving a round-trip to the source site. */

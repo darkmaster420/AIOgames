@@ -8,8 +8,8 @@ import { getCurrentUser } from '../../../../lib/auth';
 import { getPostDetails } from '../../../../lib/gameapi';
 import {
   dispatchManualDownloadToJd2,
-  getJd2WatchDir,
 } from '../../../../lib/jd2AutoDownloads';
+import { isJd2StatusConfigured } from '../../../../lib/jd2Client';
 import { isTorrentUrl, normalizeDownloadLinks, type DownloadLinkLike } from '../../../../lib/downloadLinks';
 import {
   buildFollowPostDownloadResponse,
@@ -25,7 +25,7 @@ type Jd2SendBody = {
   postId?: string;
   siteType?: string;
   title?: string;
-  /** Original post URL — recorded on the crawljob so JD2 shows where it came from. */
+  /** Original post URL used to identify and record the dispatch. */
   gameLink?: string;
   version?: string;
   /** Links the caller already has, saving a round-trip to the source site. */
@@ -65,11 +65,11 @@ export async function POST(req: NextRequest) {
 
     // Fail fast with an actionable message rather than writing nothing and
     // reporting a vague failure.
-    if (!getJd2WatchDir()) {
+    if (!isJd2StatusConfigured()) {
       return NextResponse.json(
         {
-          error: 'JD2 Folder Watch is not configured on this server.',
-          hint: 'Set JD2_FOLDERWATCH_DIR to the JDownloader folderwatch directory.',
+          error: 'JDownloader is not configured on this server.',
+          hint: 'Set MYJD_EMAIL and MYJD_PASSWORD, or JD2_API_URL as a fallback.',
         },
         { status: 503 },
       );
