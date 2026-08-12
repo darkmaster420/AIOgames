@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Stats } from 'node:fs';
 import connectDB from './db';
-import { LibraryGame, LibraryScanJob, LibraryTrackingExclusion, TrackedGame } from './models';
+import { AutoDownloadJob, LibraryGame, LibraryScanJob, LibraryTrackingExclusion, TrackedGame } from './models';
 import { getLibraryRoots } from './libraryConfig';
 import {
   ARCHIVE_EXTENSIONS,
@@ -24,10 +24,23 @@ type ExistingLibraryGame = {
 
 type ExistingTrackedGame = {
   _id: unknown;
+  gameId?: string;
+  source?: string;
+  gameLink?: string;
   currentVersionNumber?: string;
   currentBuildNumber?: string;
   lastKnownVersion?: string;
   isDateVersion?: boolean;
+  latestApprovedUpdate?: {
+    dateFound?: string | Date;
+    gameLink?: string;
+    siteType?: string;
+  };
+  updateHistory?: Array<{
+    dateFound?: string | Date;
+    gameLink?: string;
+    siteType?: string;
+  }>;
 };
 
 const ARCHIVE_EXTENSION_SET = new Set<string>(ARCHIVE_EXTENSIONS);
@@ -150,6 +163,73 @@ function isCandidateReleaseNewer(existing: ExistingTrackedGame, candidate: Libra
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function displaySource(siteType?: string): string | null {
+  const sources: Record<string, string> = {
+    freegog: 'Free GOG PC Games',
+    fitgirl: 'FitGirl Repacks',
+    onlinefix: 'Online-Fix',
+    reloadedsteam: 'Reloaded Steam',
+    skidrow: 'Skidrow Reloaded',
+    steamrip: 'SteamRip',
+    steamunderground: 'Steam Underground',
+  };
+  return sources[String(siteType || '').toLowerCase()] || null;
+}
+
+/** Repair rows affected by the old scanner without replacing remote identity. */
+function remoteSourceRepairFields(game: ExistingTrackedGame): Record<string, string> {
+  if (String(game.gameId || '').startsWith('library:')) return {};
+  const sourceWasOverwritten = game.source === 'Local Library' || String(game.gameLink || '').startsWith('library://');
+  if (!sourceWasOverwritten) return {};
+
+  const latestRemote = [
+    ...(game.latestApprovedUpdate ? [game.latestApprovedUpdate] : []),
+    ...(game.updateHistory || []),
+  ]
+    .filter(row => /^https?:\/\//i.test(String(row.gameLink || '')))
+    .sort((a, b) => new Date(b.dateFound || 0).getTime() - new Date(a.dateFound || 0).getTime())[0];
+
+  if (!latestRemote?.gameLink) return {};
+  const siteType = latestRemote.siteType || String(game.gameId || '').split('_')[0];
+  return {
+    gameLink: latestRemote.gameLink,
+    ...(displaySource(siteType) ? { source: displaySource(siteType)! } : {}),
+  };
+}
+
+function normalizedReleaseToken(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+async function reconcileLocalDownload(
+  trackedGameId: unknown,
+  release: LibraryReleaseInfo,
+  fileName: string,
+): Promise<void> {
+  const tokens = [release.version, release.build]
+    .map(normalizedReleaseToken)
+    .filter(token => token.length >= 2);
+  if (!tokens.length) return;
+
+  const jobs = await AutoDownloadJob.find({
+    trackedGameId,
+    status: { $nin: ['completed', 'skipped'] },
+  }).sort({ updatedAt: -1 }).limit(5);
+
+  const matchingJob = jobs.find(job => {
+    const haystack = normalizedReleaseToken(`${job.version || ''} ${job.packageName || ''}`);
+    return tokens.some(token => haystack.includes(token));
+  });
+  if (!matchingJob) return;
+
+  matchingJob.status = 'completed';
+  matchingJob.message = `Found downloaded release in shared library: ${fileName}`;
+  matchingJob.lastStatusAt = new Date();
+  matchingJob.speedBytesPerSecond = 0;
+  matchingJob.etaSeconds = 0;
+  await matchingJob.save();
 }
 
 /**
@@ -317,23 +397,27 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
               { gameId },
               { gameLink: `library://${libraryGameIdString}` },
             ],
-          }).select('_id currentVersionNumber currentBuildNumber lastKnownVersion isDateVersion').lean<ExistingTrackedGame | null>();
+          }).select('_id gameId source gameLink currentVersionNumber currentBuildNumber lastKnownVersion isDateVersion latestApprovedUpdate updateHistory').lean<ExistingTrackedGame | null>();
 
           if (existingTrackedByIdentity) {
+            const isLocalOnly = String(existingTrackedByIdentity.gameId || '').startsWith('library:');
             await TrackedGame.updateOne(
               { _id: existingTrackedByIdentity._id },
               {
                 $set: {
-                  title,
-                  originalTitle: title,
-                  source: 'Local Library',
-                  gameLink: `library://${libraryGameIdString}`,
+                  ...(isLocalOnly ? {
+                    title,
+                    originalTitle: title,
+                    source: 'Local Library',
+                    gameLink: `library://${libraryGameIdString}`,
+                  } : remoteSourceRepairFields(existingTrackedByIdentity)),
                   ...buildTrackedReleaseFields(release, stat, relativePath),
                   lastChecked: new Date(),
                   isActive: true,
                 },
               },
             );
+            await reconcileLocalDownload(existingTrackedByIdentity._id, release, fileName);
             stats.trackedExisting += 1;
             continue;
           }
@@ -350,25 +434,25 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
               { cleanedTitle: cleanedTitle },
               { originalTitle: fileName },
             ],
-          }).select('_id currentVersionNumber currentBuildNumber lastKnownVersion isDateVersion').lean<ExistingTrackedGame | null>();
+          }).select('_id gameId source gameLink currentVersionNumber currentBuildNumber lastKnownVersion isDateVersion latestApprovedUpdate updateHistory').lean<ExistingTrackedGame | null>();
 
           if (existingTrackedByTitle) {
-            if (isCandidateReleaseNewer(existingTrackedByTitle, release)) {
+            const sourceRepair = remoteSourceRepairFields(existingTrackedByTitle);
+            const isNewer = isCandidateReleaseNewer(existingTrackedByTitle, release);
+            if (isNewer || Object.keys(sourceRepair).length > 0) {
               await TrackedGame.updateOne(
                 { _id: existingTrackedByTitle._id },
                 {
                   $set: {
-                    title,
-                    originalTitle: title,
-                    source: 'Local Library',
-                    gameLink: `library://${libraryGameIdString}`,
-                    ...buildTrackedReleaseFields(release, stat, relativePath),
+                    ...sourceRepair,
+                    ...(isNewer ? buildTrackedReleaseFields(release, stat, relativePath) : {}),
                     lastChecked: new Date(),
                     isActive: true,
                   },
                 },
               );
             }
+            await reconcileLocalDownload(existingTrackedByTitle._id, release, fileName);
             stats.trackedExisting += 1;
           } else {
             if (excludedTitles.has(normalizedTitle) || excludedLibraryIds.has(libraryGameIdString)) {
@@ -400,8 +484,9 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
             }
           }
         }
-      } catch {
+      } catch (error) {
         stats.errors += 1;
+        logger.warn(`Could not import library entry ${filePath}:`, error);
       }
     }
 

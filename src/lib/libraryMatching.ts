@@ -48,6 +48,7 @@ export async function buildLibraryMatchMap(
     normalizedTitle: { $in: [...titleKeys] },
   })
     .select('_id title fileName relativePath fileSizeBytes updatedAt normalizedTitle')
+    .sort({ mtimeMs: -1 })
     .lean();
 
   const byTitle = new Map<string, typeof libraryGames[number]>();

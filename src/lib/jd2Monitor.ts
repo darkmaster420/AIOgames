@@ -2,6 +2,8 @@ import connectDB from './db';
 import { AutoDownloadJob } from './models';
 import { isJd2StatusConfigured, queryJd2Downloads, removeJd2Links, type Jd2Link, type Jd2Package } from './jd2Client';
 import { performJd2Dispatch, type AutoDownloadLink } from './jd2AutoDownloads';
+import { getLocalProfile } from './localProfile';
+import { runLibraryScan } from './libraryScanner';
 import logger from '../utils/logger';
 
 type MonitoredJob = {
@@ -37,7 +39,14 @@ function envMinutes(name: string, fallback: number): number {
 
 function classifyDownload(pkg: Jd2Package, links: Jd2Link[], stalled: boolean): DownloadState {
   const statusText = [pkg.status, ...links.map(link => link.status)].join(' ').toLowerCase();
-  if (pkg.finished || (links.length > 0 && links.every(link => link.finished))) return 'completed';
+  const loadedBytes = Math.max(Number(pkg.bytesLoaded || 0), links.reduce((sum, link) => sum + Number(link.bytesLoaded || 0), 0));
+  const totalBytes = Math.max(Number(pkg.bytesTotal || 0), links.reduce((sum, link) => sum + Number(link.bytesTotal || 0), 0));
+  if (
+    pkg.finished
+    || (links.length > 0 && links.every(link => link.finished))
+    || (totalBytes > 0 && loadedBytes >= totalBytes)
+    || /\b(finished|complete|completed|downloaded)\b/.test(statusText)
+  ) return 'completed';
   if (/captcha|recaptcha|hcaptcha|cutcaptcha/.test(statusText)) return 'captcha';
   if (/offline|file not found|not found|does not exist|404/.test(statusText)) return 'offline';
   if (/too many retries|plugin defect|invalid destination|disk full|no account|account is missing|fatal|failed|error/.test(statusText)) return 'error';
@@ -135,7 +144,12 @@ export async function monitorJd2Downloads(): Promise<void> {
         (job.jdPackageId && String(pkg.uuid) === String(job.jdPackageId)) ||
         (!job.jdPackageId && pkg.name === job.packageName)
       );
-      const pkg = candidates.find(candidate => candidate.running)
+      const completedCandidate = candidates.find(candidate =>
+        classifyDownload(candidate, packageLinks(links, String(candidate.uuid)), false) === 'completed'
+      );
+      const pkg = (job.jdPackageId ? candidates.find(candidate => String(candidate.uuid) === String(job.jdPackageId)) : null)
+        || completedCandidate
+        || candidates.find(candidate => candidate.running)
         || candidates.find(candidate => !candidate.finished)
         || candidates[0];
 
@@ -190,6 +204,11 @@ export async function monitorJd2Downloads(): Promise<void> {
         if (statusAge > 0 && now - statusAge >= captchaMs) {
           await failOver(job, currentLinks, 'JD2 is still waiting for a captcha.');
         }
+      } else if (state === 'completed') {
+        const profile = await getLocalProfile();
+        await runLibraryScan(profile.id).catch(error => {
+          logger.warn(`Post-download library scan failed for ${job.gameTitle}:`, error);
+        });
       }
     } catch (error) {
       logger.error(`JD2 monitor failed for ${job.gameTitle}:`, error);
