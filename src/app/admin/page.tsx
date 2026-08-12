@@ -85,17 +85,15 @@ export default function AdminDashboard() {
     source: '',
     steamVerified: ''
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'games'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'games'>('games');
   const [editingGameId, setEditingGameId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [editingField, setEditingField] = useState<'title' | 'originalTitle'>('title');
 
   useEffect(() => {
     if (status === 'authenticated') {
-      loadAdminData();
-      loadUsers();
       if (activeTab === 'games') {
         // loadTrackedGames will be called via the second useEffect
       }
@@ -309,32 +307,12 @@ export default function AdminDashboard() {
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="text-center sm:text-left mb-6 sm:mb-8">
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">Admin Dashboard</h1>
-            <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mt-1">System management and user oversight</p>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">Maintenance</h1>
+            <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mt-1">Inspect and repair shared library metadata</p>
           </div>
 
         {/* Navigation Tabs */}
         <div className="flex flex-wrap justify-center sm:justify-start border-b border-gray-200 dark:border-gray-700 mb-6">
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'overview' 
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400' 
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-            }`}
-          >
-            📊 Overview
-          </button>
-          <button
-            onClick={() => setActiveTab('users')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'users' 
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400' 
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-            }`}
-          >
-            👥 Users
-          </button>
           <button
             onClick={() => setActiveTab('games')}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${

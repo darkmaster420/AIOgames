@@ -2,45 +2,28 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useSession, signOut } from 'next-auth/react';
 import { ThemeToggle } from './ThemeToggle';
+
+const navItems = [
+  { href: '/', label: 'Home', description: 'Game discovery' },
+  { href: '/tracking', label: 'Library', description: 'NAS game library' },
+  { href: '/updates', label: 'Updates', description: 'Game updates' },
+  { href: '/user/manage', label: 'Settings', description: 'Library preferences and notifications' },
+  { href: '/admin', label: 'Maintenance', description: 'Application maintenance' },
+];
 
 export function Navigation() {
   const pathname = usePathname();
-  const { data: session } = useSession();
-  const role = session?.user && typeof session.user === 'object' && 'role' in session.user
-    ? (session.user as { role?: string }).role
-    : undefined;
-  const isAdmin = role === 'admin' || role === 'owner';
-
-  const handleLogout = () => {
-    // Clear custom cookies before signing out
-    document.cookie = 'showRecentGames=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-    signOut({ callbackUrl: '/' });
-  };
-
-  const navItems = [
-    { href: '/', label: '🏠 Home', description: 'Main Dashboard' },
-    { href: '/tracking', label: '📊 Tracking', description: 'Your Games' },
-    ...(session ? [{ href: '/updates', label: '🔄 Updates', description: 'Game Updates' }] : []),
-    ...(isAdmin ? [{ href: '/admin', label: '⚙️ Admin', description: 'Admin Panel' }] : []),
-    ...(session ? [{ href: '/user/manage', label: '👤 Account', description: 'Manage your account' }] : []),
-  ];
 
   return (
     <nav className="nav-glass shadow-xl sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-8">
-            <div className="flex-shrink-0">
-              <h1 className="text-xl font-bold text-gradient">
-                🎮 AIO Games
-              </h1>
-            </div>
-            
+            <h1 className="text-xl font-bold text-gradient">AIO Games</h1>
             <div className="hidden md:block">
-              <div className="ml-10 flex items-baseline space-x-4">
-                {navItems.map((item) => (
+              <div className="flex items-baseline space-x-4">
+                {navItems.map(item => (
                   <Link
                     key={item.href}
                     href={item.href}
@@ -57,44 +40,12 @@ export function Navigation() {
               </div>
             </div>
           </div>
-
-          <div className="flex items-center space-x-4">
-            <ThemeToggle />
-            {session && (
-              <>
-                <Link
-                  href="/user/manage"
-                  className="text-sm text-slate-700 dark:text-slate-300 bg-white/20 dark:bg-white/10 px-3 py-1 rounded-lg backdrop-blur-sm border border-white/30 dark:border-white/20 hover:bg-white/30 dark:hover:bg-white/20 transition flex items-center gap-2"
-                  title="Manage Account"
-                >
-                  👋 {('username' in session.user ? (session.user as { username?: string }).username : undefined) || session.user?.name}
-                  {role === 'owner' && <span className="ml-1 status-badge status-admin">OWNER</span>}
-                  {role === 'admin' && <span className="ml-1 status-badge status-admin">ADMIN</span>}
-                </Link>
-                <button
-                  onClick={handleLogout}
-                  className="px-4 py-2 text-sm font-medium bg-gradient-to-r from-red-500/20 to-pink-500/20 text-red-600 dark:text-red-400 hover:from-red-500/30 hover:to-pink-500/30 hover:text-red-700 dark:hover:text-red-300 rounded-lg transition-all duration-200 backdrop-blur-sm border border-red-300/30 hover:scale-105"
-                  title="Sign out"
-                >
-                  🚪 Logout
-                </button>
-              </>
-            )}
-            {!session && (
-              <Link
-                href="/auth/signin"
-                className="px-4 py-2 text-sm font-medium bg-gradient-to-r from-primary-500/20 to-accent-500/20 text-primary-600 dark:text-primary-400 hover:from-primary-500/30 hover:to-accent-500/30 hover:text-primary-700 dark:hover:text-primary-300 rounded-lg transition-all duration-200 backdrop-blur-sm border border-primary-300/30 hover:scale-105"
-              >
-                🔑 Sign In
-              </Link>
-            )}
-          </div>
+          <ThemeToggle />
         </div>
 
-        {/* Mobile menu */}
         <div className="md:hidden pb-3 pt-2">
           <div className="flex flex-wrap gap-2">
-            {navItems.map((item) => (
+            {navItems.map(item => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -107,14 +58,6 @@ export function Navigation() {
                 {item.label}
               </Link>
             ))}
-            {!session && (
-              <Link
-                href="/auth/signin"
-                className="px-3 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-primary-500/20 to-accent-500/20 text-primary-600 dark:text-primary-400 hover:from-primary-500/30 hover:to-accent-500/30 transition-all duration-200 backdrop-blur-sm border border-primary-300/30"
-              >
-                🔑 Sign In
-              </Link>
-            )}
           </div>
         </div>
       </div>

@@ -10,8 +10,7 @@ if (!isBuildPhase) {
     console.error('Failed to load scheduler:', error);
   });
 
-  // Owner/admin seeding runs in src/instrumentation.ts register() so it executes
-  // at Node server boot (reliable in next dev). Do not duplicate here.
+  // The shared local profile is initialized by src/instrumentation.ts.
 
   // Telegram bot: polling-based (no webhook required). Works on localhost
   // or any host without needing a public URL. The poller itself calls

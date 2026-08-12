@@ -1,6 +1,11 @@
-import NextAuth from 'next-auth';
-import { authOptions } from '../../../../lib/auth-options';
+import { NextResponse } from 'next/server';
 
-const handler = NextAuth(authOptions);
+function accountsDisabled() {
+  return NextResponse.json(
+    { error: 'Accounts are disabled in shared-library mode.' },
+    { status: 410 },
+  );
+}
 
-export { handler as GET, handler as POST };
+export const GET = accountsDisabled;
+export const POST = accountsDisabled;

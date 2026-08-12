@@ -1,10 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
-export async function POST(_request: NextRequest) {
-  // Public user registration is disabled
-  // Only admins can create new users via /api/admin/users/create
+export async function POST() {
   return NextResponse.json(
-    { error: 'Public registration is disabled. Please contact an administrator to create an account.' },
-    { status: 403 }
+    { error: 'Accounts are disabled in shared-library mode.' },
+    { status: 410 },
   );
 }

@@ -1,21 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '../../../../lib/auth-options';
+import { getCurrentUser } from '../../../../lib/auth';
 import connectDB from '../../../../lib/db';
 import { TrackedGame } from '../../../../lib/models';
 
 export async function POST(request: NextRequest) {
   try {
-    // Check for session or user ID header for Telegram bot requests
-    const session = await getServerSession(authOptions);
+    const profile = await getCurrentUser();
     const userIdHeader = request.headers.get('X-User-ID');
-    
-    let userId = session?.user?.id;
-    
-    // If no session but user ID header is present (for Telegram bot), use that
-    if (!userId && userIdHeader) {
-      userId = userIdHeader;
-    }
+    const userId = userIdHeader || profile?.id;
     
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

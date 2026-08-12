@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { Stats } from 'node:fs';
 import connectDB from './db';
 import { LibraryGame, LibraryScanJob, LibraryTrackingExclusion, TrackedGame } from './models';
-import { getLibraryRoot } from './libraryConfig';
+import { getLibraryRoots } from './libraryConfig';
 import {
   ARCHIVE_EXTENSIONS,
   compareLibraryReleaseInfo,
@@ -222,8 +222,8 @@ export async function runLibraryScan(userId?: string): Promise<LibraryScanStats>
 async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats> {
   await connectDB();
 
-  const root = getLibraryRoot();
-  if (!root) {
+  const roots = getLibraryRoots();
+  if (!roots.length) {
     throw new Error('Set LIBRARY_ROOT or GAME_LIBRARY_ROOT to enable NAS library scans.');
   }
 
@@ -242,8 +242,10 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
   };
 
   try {
-    await assertLibraryRootReadable(root);
-    const files = await collectRootArchives(root);
+    await Promise.all(roots.map(assertLibraryRootReadable));
+    const files = (await Promise.all(roots.map(async root =>
+      (await collectRootArchives(root)).map(filePath => ({ filePath, sourceRoot: root }))
+    ))).flat();
     const exclusions = userId
       ? await LibraryTrackingExclusion.find({ userId })
           .select('normalizedTitle libraryGameId')
@@ -254,13 +256,13 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
       exclusions.map(exclusion => String(exclusion.libraryGameId || '')).filter(Boolean),
     );
     stats.filesSeen = files.length;
-    logger.info(`Library scan started: ${root} (${files.length} release(s))`);
+    logger.info(`Library scan started: ${roots.join(', ')} (${files.length} release(s))`);
 
-    for (const filePath of files) {
+    for (const { filePath, sourceRoot } of files) {
       try {
         const stat = await fs.stat(filePath);
         const fileName = path.basename(filePath);
-        const relativePath = path.relative(root, filePath);
+        const relativePath = path.relative(sourceRoot, filePath);
         const key = contentKey(stat);
         const existing = await LibraryGame.findOne({ filePath })
           .select('_id contentKey')

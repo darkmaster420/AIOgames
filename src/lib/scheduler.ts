@@ -4,7 +4,9 @@
 // All games are checked uniformly (hourly) - individual notification preferences are handled per-game
 
 import connectDB from '../lib/db';
-import { TrackedGame, User } from '../lib/models';
+import { TrackedGame } from '../lib/models';
+import { libraryWatcher } from '../lib/libraryWatcher';
+import { getLocalProfile } from '../lib/localProfile';
 import logger from '../utils/logger';
 
 interface ScheduledCheck {
@@ -101,6 +103,7 @@ class UpdateScheduler {
 
     // Let JD2 ingest startup API jobs before the first status query.
     setTimeout(() => void this.monitorJd2(), 45_000);
+    void libraryWatcher.start();
     
     logger.info('✅ Update scheduler started successfully');
   }
@@ -132,6 +135,7 @@ class UpdateScheduler {
       clearInterval(this.jd2MonitorInterval);
       this.jd2MonitorInterval = null;
     }
+    libraryWatcher.stop();
     logger.info('⏹️ Update scheduler stopped');
   }
 
@@ -161,55 +165,17 @@ class UpdateScheduler {
 
       await connectDB();
 
-      // Get all users with tracked games (all active games are checked uniformly)
-      const usersWithGames = await User.aggregate([
-        {
-          $lookup: {
-            from: 'trackedgames',
-            localField: '_id',
-            foreignField: 'userId',
-            as: 'trackedGames'
-          }
-        },
-        {
-          $match: {
-            'trackedGames': { $exists: true, $ne: [] }
-          }
-        },
-        {
-          $project: {
-            _id: 1,
-            preferences: 1,
-            trackedGames: {
-              $filter: {
-                input: '$trackedGames',
-                cond: { $eq: ['$$this.isActive', true] }
-              }
-            }
-          }
-        },
-        {
-          $match: {
-            'trackedGames': { $exists: true, $ne: [] }
-          }
-        }
-      ]);
-
-      logger.info(`📊 Found ${usersWithGames.length} users with tracked games`);
-
-      for (const user of usersWithGames) {
-        // All users get the same check frequency (hourly)
+      const profile = await getLocalProfile();
+      const hasSharedGames = await TrackedGame.exists({ userId: profile.id, isActive: true });
+      if (hasSharedGames) {
         const lastCheck = new Date();
-        const nextCheck = this.calculateNextCheck(lastCheck);
-
-        this.scheduledChecks.set(user._id.toString(), {
-          userId: user._id.toString(),
+        this.scheduledChecks.set(profile.id, {
+          userId: profile.id,
           lastCheck,
-          nextCheck
+          nextCheck: this.calculateNextCheck(lastCheck),
         });
       }
-
-      logger.info(`✅ Loaded ${this.scheduledChecks.size} scheduled checks (all hourly)`);
+      logger.info(`Loaded ${this.scheduledChecks.size} shared library schedule`);
     } catch (error) {
       logger.error('❌ Error loading scheduled checks:', error);
     }
@@ -469,9 +435,10 @@ class UpdateScheduler {
   /**
    * Add or update a user's scheduled check
    */
-  public async updateUserSchedule(userId: string): Promise<void> {
+  public async updateUserSchedule(_userId: string): Promise<void> {
     try {
       await connectDB();
+      const { id: userId } = await getLocalProfile();
 
       // Get user's tracked games
       const trackedGames = await TrackedGame.find({ 
@@ -496,9 +463,9 @@ class UpdateScheduler {
         nextCheck
       });
 
-      logger.info(`📅 Updated schedule for user ${userId}: hourly checks, next at ${nextCheck.toISOString()}`);
+      logger.info(`Updated shared library schedule: hourly checks, next at ${nextCheck.toISOString()}`);
     } catch (error) {
-      logger.error(`❌ Error updating user schedule for ${userId}:`, error);
+      logger.error('Error updating shared library schedule:', error);
     }
   }
 

@@ -9,20 +9,15 @@ export async function register(): Promise<void> {
   }
   await import('./lib/gameapi/net');
 
-  // Root layout `import './init'` is not guaranteed to run at process boot in dev;
-  // seed owner/admin here so Mongo users are created reliably and logs appear in this terminal.
   if (process.env.NEXT_PHASE === 'phase-production-build') {
     return;
   }
 
   try {
-    console.log('[AIOgames] Startup: running owner/admin DB seed (if env is configured)...');
-    const { seedOwner } = await import('./lib/seedOwner');
-    const { ensureAdminExists } = await import('./lib/seedAdmin');
-    await seedOwner();
-    await ensureAdminExists();
-    console.log('[AIOgames] Startup: owner/admin seed step finished.');
+    const { getLocalProfile } = await import('./lib/localProfile');
+    await getLocalProfile();
+    console.log('[AIOgames] Startup: shared local profile ready.');
   } catch (e) {
-    console.error('[AIOgames] Startup: owner/admin seed failed:', e);
+    console.error('[AIOgames] Startup: shared local profile initialization failed:', e);
   }
 }

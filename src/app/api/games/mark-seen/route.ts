@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth-options';
+import { getCurrentUser } from '@/lib/auth';
 import { TrackedGame } from '@/lib/models';
 import connectDB from '@/lib/db';
 
@@ -10,13 +9,8 @@ import connectDB from '@/lib/db';
  */
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Authentication required' },
-        { status: 401 }
-      );
-    }
+    const profile = await getCurrentUser();
+    if (!profile) return NextResponse.json({ error: 'Local profile unavailable' }, { status: 503 });
 
     const { gameId } = await req.json();
     
@@ -33,7 +27,7 @@ export async function POST(req: NextRequest) {
     const updatedGame = await TrackedGame.findOneAndUpdate(
       { 
         _id: gameId, 
-        userId: session.user.id,
+        userId: profile.id,
         hasNewUpdate: true 
       },
       { 

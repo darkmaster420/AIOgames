@@ -1,12 +1,10 @@
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from './auth-options';
+import { getLocalProfile } from './localProfile';
 
 export async function getCurrentUser() {
   try {
-    const session = await getServerSession(authOptions);
-    return session?.user || null;
+    return await getLocalProfile();
   } catch (error) {
-    console.error('Error getting current user:', error);
+    console.error('Error loading local library profile:', error);
     return null;
   }
 }

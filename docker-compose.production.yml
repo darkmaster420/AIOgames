@@ -12,6 +12,11 @@ services:
       - NODE_ENV=production
       - FLARESOLVERR_URL=http://flaresolverr:8191/v1
       - LIBRARY_ROOT=/library/games
+      - LIBRARY_DOWNLOAD_ROOT=/downloads/games
+      - LIBRARY_WATCH_ENABLED=true
+      - LIBRARY_WATCH_SETTLE_MS=30000
+      - LIBRARY_WATCH_POLL_INTERVAL_MS=60000
+      - LIBRARY_WATCH_SCAN_ON_START=true
       - JD2_AUTO_DOWNLOADS_ENABLED=true
       # A path inside the JDownloader container, passed through its API.
       # Package names do not create subdirectories; /output is the jlesage default.

@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth-options';
+import { getCurrentUser } from '@/lib/auth';
 import { User } from '@/lib/models';
 import { getTelegramConfig, testTelegramBot } from '@/utils/telegram';
 import connectDB from '@/lib/db';
@@ -11,18 +10,13 @@ import connectDB from '@/lib/db';
  */
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Authentication required' },
-        { status: 401 }
-      );
-    }
+    const profile = await getCurrentUser();
+    if (!profile) return NextResponse.json({ error: 'Local profile unavailable' }, { status: 503 });
 
     await connectDB();
 
     // Get current user
-    const user = await User.findById(session.user.id);
+    const user = await User.findById(profile.id);
     if (!user) {
       return NextResponse.json(
         { error: 'User not found' },

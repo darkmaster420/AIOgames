@@ -14,6 +14,15 @@ export function getLibraryRoot(): string | null {
   return normalized || null;
 }
 
+export function getLibraryRoots(): string[] {
+  const candidates = [
+    getLibraryRoot(),
+    process.env.LIBRARY_DOWNLOAD_ROOT ? normalizeLibraryRoot(process.env.LIBRARY_DOWNLOAD_ROOT) : null,
+  ].filter((value): value is string => Boolean(value));
+
+  return [...new Set(candidates.map(value => path.resolve(value)))];
+}
+
 export function isFilePathUnderLibraryRoot(filePath: string, libraryRoot: string): boolean {
   const root = path.resolve(libraryRoot);
   const file = path.resolve(filePath);

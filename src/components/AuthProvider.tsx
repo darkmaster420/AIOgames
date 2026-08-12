@@ -1,31 +1,28 @@
 'use client';
 
-import { SessionProvider, signOut, useSession } from 'next-auth/react';
-import { ReactNode, useEffect } from 'react';
+import { SessionProvider } from 'next-auth/react';
+import { ReactNode } from 'react';
 
 interface AuthProviderProps {
   children: ReactNode;
 }
 
-function SessionHealthGuard() {
-  const { data: session, status } = useSession();
-
-  useEffect(() => {
-    if (status === 'authenticated' && session?.user?.accountMissing) {
-      void signOut({ callbackUrl: '/auth/signin' });
-    }
-  }, [session?.user?.accountMissing, status]);
-
-  return null;
-}
-
 export default function AuthProvider({ children }: AuthProviderProps) {
   return (
     <SessionProvider
-      refetchOnWindowFocus={true}
-      refetchInterval={5 * 60} // refresh every 5 minutes to keep role/claims fresh
+      session={{
+        user: {
+          id: 'local',
+          email: 'local@aiogames.invalid',
+          name: 'Local Library',
+          username: 'local',
+          role: 'owner',
+        },
+        expires: '2999-12-31T23:59:59.999Z',
+      }}
+      refetchOnWindowFocus={false}
+      refetchInterval={0}
     >
-      <SessionHealthGuard />
       {children}
     </SessionProvider>
   );
