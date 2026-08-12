@@ -383,16 +383,18 @@ export default function TrackingDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ gameId })
       });
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(result.error || `Update check failed (${response.status})`);
+      }
       
       let totalUpdatesFound = 0;
       let totalSequelsFound = 0;
       let steamdbUpdateFound = false;
       
-      if (response.ok) {
-        const result = await response.json();
-        totalUpdatesFound = result.updatesFound || 0;
-        totalSequelsFound = result.sequelsFound || 0;
-      }
+      totalUpdatesFound = result.updatesFound || 0;
+      totalSequelsFound = result.sequelsFound || 0;
       
       // Check SteamDB for Steam-verified or GOG-verified games with a Steam App ID
       if (game?.steamAppId && (game?.steamVerified || game?.gogVerified)) {
@@ -481,7 +483,8 @@ export default function TrackingDashboard() {
       loadTrackedGames();
     } catch (error) {
       console.error('Failed to check single game updates:', error);
-      showError('Update Check Failed', `Failed to check updates for "${gameTitle}". Please try again.`);
+      const reason = error instanceof Error ? error.message : 'Unknown error';
+      showError('Update Check Failed', `Failed to check updates for "${gameTitle}": ${reason}`);
     } finally {
       setCheckingSingleGame(null);
     }

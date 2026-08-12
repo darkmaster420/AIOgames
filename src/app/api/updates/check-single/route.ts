@@ -10,8 +10,11 @@ import { sendUpdateNotification, createUpdateNotificationData } from '../../../.
 import { searchGames, getRecentUploads } from '../../../../lib/gameapi';
 import { syncRssDownloadLinksCache } from '../../../../lib/trackedGameDownloadLinks';
 import { dispatchAutoDownloadToJd2 } from '../../../../lib/jd2AutoDownloads';
+import { getCachedRecent } from '../../../../lib/recentUploadsState';
 
 import { calculateGameSimilarity } from '../../../../utils/titleMatching';
+
+export const maxDuration = 120;
 
 import {
   compareVersions,
@@ -359,27 +362,51 @@ export async function POST(request: Request) {
     ]);
     const searchVariants = Array.from(allVariantSet);
 
-    logger.debug(`🔍 Searching for variants: ${searchVariants.map(v => `"${v}"`).join(', ')} (steam="${game.steamName || 'none'}", title="${game.title}")`);
+    logger.info(`Searching for single-game update variants: ${searchVariants.map(v => `"${v}"`).join(', ')}`);
 
     // Use the integrated gameapi module for search
     const mergedResults: GameSearchResult[] = [];
 
-    // Fetch title-based search results AND the recent-uploads feed in parallel.
+    // The discovery page already maintains a recent-post cache. Prefer matching
+    // entries from it so clicking check on a visibly available update does not
+    // wait for every source site to be scraped again.
+    const cachedRecent = getCachedRecent();
+    if (cachedRecent) {
+      for (const cachedPost of cachedRecent.results) {
+        const rawTitle = String(cachedPost.originalTitle || cachedPost.title || '');
+        const postClean = cleanGameTitle(decodeHtmlEntities(rawTitle));
+        const similarity = Math.max(
+          calculateGameSimilarity(cleanTitle, postClean),
+          cleanSteamTitle ? calculateGameSimilarity(cleanSteamTitle, postClean) : 0
+        );
+        if (similarity >= 0.70) {
+          mergedResults.push({ ...cachedPost, title: rawTitle } as unknown as GameSearchResult);
+        }
+      }
+    }
+
+    // If discovery has no matching cached posts, fetch title-based search
+    // results AND the recent-uploads feed in parallel.
     // The search endpoint has an in-memory cache: if a post was published after
     // the cache was last populated, it won't appear in search results. The recent-uploads
     // feed catches new posts that haven't yet made it into the search cache.
-    const [searchResponses, recentResponse] = await Promise.allSettled([
-      Promise.all(
-        searchVariants.map(variant =>
-          searchGames(variant)
+    const [searchResponses, recentResponse] = mergedResults.length > 0
+      ? [
+          { status: 'fulfilled', value: [] } as PromiseFulfilledResult<Array<GameSearchResult[] | null>>,
+          { status: 'fulfilled', value: null } as PromiseFulfilledResult<GameSearchResult[] | null>,
+        ]
+      : await Promise.allSettled([
+          Promise.all(
+            searchVariants.map(variant =>
+              searchGames(variant)
+                .then(d => (d.success && Array.isArray(d.results)) ? d.results as GameSearchResult[] : null)
+                .catch(e => { logger.warn(`Search error for "${variant}":`, e); return null; })
+            )
+          ),
+          getRecentUploads()
             .then(d => (d.success && Array.isArray(d.results)) ? d.results as GameSearchResult[] : null)
-            .catch(e => { logger.warn(`Search error for "${variant}":`, e); return null; })
-        )
-      ),
-      getRecentUploads()
-        .then(d => (d.success && Array.isArray(d.results)) ? d.results as GameSearchResult[] : null)
-        .catch(e => { logger.warn('Recent-uploads fetch error:', e); return null; })
-    ]);
+            .catch(e => { logger.warn('Recent-uploads fetch error:', e); return null; })
+        ]);
 
     if (searchResponses.status === 'fulfilled') {
       for (const batch of searchResponses.value) {
@@ -413,7 +440,7 @@ export async function POST(request: Request) {
       throw new Error('Search API request returned no results for all title variants');
     }
     
-    logger.debug(`📊 Search returned ${games.length} results`);
+    logger.info(`Single-game search returned ${games.length} results for ${game.title}`);
 
     // Remove duplicate posts by link (same post can appear multiple times)
     try {
@@ -887,14 +914,18 @@ export async function POST(request: Request) {
                 }
               }
 
-              await dispatchAutoDownloadToJd2({
-                userId: game.userId.toString(),
-                trackedGameId: String(game._id),
-                gameTitle: game.title,
-                version: decodedTitle,
-                gameLink: result.link,
-                downloadLinks: fullDownloadLinks,
-              });
+              try {
+                await dispatchAutoDownloadToJd2({
+                  userId: game.userId.toString(),
+                  trackedGameId: String(game._id),
+                  gameTitle: game.title,
+                  version: decodedTitle,
+                  gameLink: result.link,
+                  downloadLinks: fullDownloadLinks,
+                });
+              } catch (autoDownloadError) {
+                logger.error(`Auto-download dispatch failed for ${game.title}:`, autoDownloadError);
+              }
 
               if (!hasEmbeddedLinks && !rssFilledFromAutoDownloadFetch) {
                 void syncRssDownloadLinksCache(String(game._id)).catch(() => {});
@@ -1021,7 +1052,11 @@ export async function POST(request: Request) {
   } catch (error) {
     logger.error('Single game check error:', error);
     return NextResponse.json(
-      { error: 'Failed to check game for updates' },
+      {
+        error: error instanceof Error
+          ? `Failed to check game for updates: ${error.message}`
+          : 'Failed to check game for updates'
+      },
       { status: 500 }
     );
   }
