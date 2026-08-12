@@ -249,6 +249,8 @@ export default function AppIdDetailPage() {
           gameLink: result.link || '',
           title: version,
           source: result.source || '',
+          siteType: result.siteType || '',
+          originalId: result.originalId ? String(result.originalId) : '',
           image: result.image || '',
         }),
       });

@@ -1,8 +1,9 @@
 import mongoose from 'mongoose';
 import connectDB from './db';
-import { getPostDetails } from './gameapi';
+import { getPostDetails, searchGames } from './gameapi';
 import { TrackedGame } from './models';
 import { isFollowPostTrackedGame, isFollowPostSiteType } from './downloadSitePolicy';
+import { cleanGameTitle } from '../utils/steamApi';
 
 export type TrackedDownloadLink = {
   service: string;
@@ -176,11 +177,22 @@ export function mergeDownloadLinksForRss(
 
 type GameapiGameShape = {
   gameId?: string;
+  title?: string;
+  originalTitle?: string;
+  lastKnownVersion?: string;
   source?: string;
   gameLink?: string;
+  latestApprovedUpdate?: {
+    dateFound?: string | Date;
+    gameLink?: string;
+    siteType?: string;
+    originalId?: string | number;
+  };
   updateHistory?: Array<{
     dateFound?: string | Date;
     gameLink?: string;
+    siteType?: string;
+    originalId?: string | number;
     downloadLinks?: TrackedDownloadLink[];
   }>;
 };
@@ -195,60 +207,75 @@ const GAMEAPI_SITE_TYPES = new Set([
   'steamunderground',
 ]);
 
-function resolveGameapiPostSource(game: GameapiGameShape): { postId: string; siteType: string } | null {
+function normalizeSiteType(value?: string | null): string | null {
+  const normalized = String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const aliases: Record<string, string> = {
+    freegogpcgames: 'freegog',
+    fitgirlrepacks: 'fitgirl',
+    onlinefix: 'onlinefix',
+    reloadedsteam: 'reloadedsteam',
+    skidrowreloaded: 'skidrow',
+    steamrip: 'steamrip',
+    steamunderground: 'steamunderground',
+  };
+  const siteType = aliases[normalized] || normalized;
+  return GAMEAPI_SITE_TYPES.has(siteType) ? siteType : null;
+}
+
+function siteTypeFromUrl(targetUrl?: string | null): string | null {
+  if (!targetUrl) return null;
+  const domain = targetUrl.match(/https?:\/\/([^/]+)/)?.[1]?.toLowerCase() || '';
+  if (domain.includes('skidrowreloaded')) return 'skidrow';
+  if (domain.includes('online-fix') || domain.includes('onlinefix')) return 'onlinefix';
+  if (domain.includes('freegogpcgames')) return 'freegog';
+  if (domain.includes('steamrip')) return 'steamrip';
+  if (domain.includes('reloadedsteam')) return 'reloadedsteam';
+  if (domain.includes('steamunderground')) return 'steamunderground';
+  if (domain.includes('fitgirl-repacks')) return 'fitgirl';
+  return null;
+}
+
+function postIdFromUrl(targetUrl?: string | null): string | null {
+  if (!targetUrl) return null;
+  return targetUrl.match(/\/wp-json\/wp\/v2\/posts\/(\d+)/)?.[1]
+    || targetUrl.match(/[?&]p=(\d+)/)?.[1]
+    || targetUrl.match(/\/(\d+)\/?$/)?.[1]
+    || null;
+}
+
+function latestSourceRow(game: GameapiGameShape) {
+  const rows = [
+    ...(game.latestApprovedUpdate ? [game.latestApprovedUpdate] : []),
+    ...(game.updateHistory || []),
+  ];
+  return rows.sort((a, b) =>
+    new Date(b.dateFound || 0).getTime() - new Date(a.dateFound || 0).getTime()
+  )[0];
+}
+
+function resolveGameapiPostSource(game: GameapiGameShape): { postId: string | null; siteType: string; targetUrl: string | null } | null {
   let postId: string | null = null;
   let siteType: string | null = null;
+  const latest = latestSourceRow(game);
+  const targetUrl = latest?.gameLink || game.gameLink || null;
 
-  if (game.gameId) {
+  siteType = normalizeSiteType(latest?.siteType) || siteTypeFromUrl(targetUrl);
+  postId = latest?.originalId ? String(latest.originalId) : postIdFromUrl(targetUrl);
+
+  if ((!postId || !siteType) && game.gameId) {
     const gameIdMatch = game.gameId.match(/^([a-z]+)_(.+)$/);
-    if (gameIdMatch && GAMEAPI_SITE_TYPES.has(gameIdMatch[1])) {
-      [, siteType, postId] = gameIdMatch;
+    const gameIdSite = normalizeSiteType(gameIdMatch?.[1]);
+    if (gameIdMatch && gameIdSite && (!siteType || siteType === gameIdSite)) {
+      siteType ||= gameIdSite;
+      // A slug URL can point at a newer post while gameId still references
+      // the previously tracked post. Slug URLs are resolved by search below.
+      if (!targetUrl) postId ||= gameIdMatch[2];
     }
   }
 
-  if (!postId || !siteType) {
-    let targetUrl: string | null = null;
-    if (game.updateHistory && game.updateHistory.length > 0) {
-      const latestUpdate = [...game.updateHistory].sort(
-        (a, b) =>
-          new Date(b.dateFound || 0).getTime() - new Date(a.dateFound || 0).getTime()
-      )[0];
-      if (latestUpdate.gameLink) targetUrl = latestUpdate.gameLink;
-    }
-    if (!targetUrl && game.gameLink) {
-      targetUrl = game.gameLink;
-    }
-
-    if (targetUrl) {
-      const apiMatch = targetUrl.match(/\/wp-json\/wp\/v2\/posts\/(\d+)/);
-      if (apiMatch) {
-        postId = apiMatch[1];
-      }
-      if (!postId) {
-        const queryMatch = targetUrl.match(/[?&]p=(\d+)/);
-        if (queryMatch) postId = queryMatch[1];
-      }
-      if (!postId) {
-        const pathMatch = targetUrl.match(/\/(\d+)\/?$/);
-        if (pathMatch) postId = pathMatch[1];
-      }
-
-      const domainMatch = targetUrl.match(/https?:\/\/([^/]+)/);
-      if (domainMatch) {
-        const domain = domainMatch[1];
-        if (domain.includes('skidrowreloaded')) siteType = 'skidrow';
-        else if (domain.includes('online-fix') || domain.includes('onlinefix')) siteType = 'onlinefix';
-        else if (domain.includes('freegogpcgames')) siteType = 'freegog';
-        else if (domain.includes('steamrip')) siteType = 'steamrip';
-        else if (domain.includes('reloadedsteam')) siteType = 'reloadedsteam';
-        else if (domain.includes('steamunderground')) siteType = 'steamunderground';
-        else if (domain.includes('fitgirl-repacks')) siteType = 'fitgirl';
-      }
-    }
-  }
-
-  if (!postId || !siteType || !GAMEAPI_SITE_TYPES.has(siteType)) return null;
-  return { postId, siteType };
+  siteType ||= normalizeSiteType(game.source);
+  if (!siteType) return null;
+  return { postId, siteType, targetUrl };
 }
 
 export function canFetchDownloadLinksViaGameapi(game: GameapiGameShape): boolean {
@@ -269,7 +296,26 @@ export async function fetchDownloadLinksViaGameapi(
   }
 
   try {
-    const gameapiData = await getPostDetails(source.postId, source.siteType);
+    let postId = source.postId;
+
+    if (!postId && source.targetUrl) {
+      const searchTitle = cleanGameTitle(
+        game.originalTitle || game.lastKnownVersion || game.title || ''
+      ).trim();
+      if (searchTitle) {
+        const searchResult = await searchGames(searchTitle, source.siteType);
+        const normalizedTarget = source.targetUrl.replace(/\/+$/, '').toLowerCase();
+        const exactPost = searchResult.results?.find(result =>
+          String(result.link || '').replace(/\/+$/, '').toLowerCase() === normalizedTarget
+        );
+        postId = exactPost?.originalId
+          ? String(exactPost.originalId)
+          : String(exactPost?.id || '').split('_')[1] || null;
+      }
+    }
+
+    if (!postId) return [];
+    const gameapiData = await getPostDetails(postId, source.siteType);
     if (gameapiData.success && gameapiData.post?.downloadLinks?.length) {
       return gameapiData.post.downloadLinks.map(
         (link: { service: string; url: string; type: string }) => ({

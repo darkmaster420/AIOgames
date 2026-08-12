@@ -1178,6 +1178,8 @@ export async function POST(request: Request) {
               newTitle: cleanedDecodedTitle, // Cleaned game title without version
               newLink: result.link,
               gameLink: result.link,
+              siteType: result.siteType,
+              originalId: result.originalId ? String(result.originalId) : undefined,
               build: newVersionInfo.build,
               releaseType: newVersionInfo.releaseType,
               updateType: newVersionInfo.updateType,
@@ -1236,6 +1238,8 @@ export async function POST(request: Request) {
                   version: decodedTitle,
                   dateFound: new Date().toISOString(),
                   gameLink: result.link,
+                  siteType: result.siteType,
+                  originalId: result.originalId ? String(result.originalId) : undefined,
                   downloadLinks: result.downloadLinks || []
                 },
                 ...(hasEmbeddedLinks

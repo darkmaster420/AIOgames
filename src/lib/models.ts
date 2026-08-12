@@ -431,6 +431,8 @@ const trackedGameSchema = new mongoose.Schema({
       default: Date.now
     },
     gameLink: String,
+    siteType: String,
+    originalId: String,
     previousVersion: String,
     confirmedByUser: Boolean,
     originalReason: String,
@@ -480,6 +482,8 @@ const trackedGameSchema = new mongoose.Schema({
       default: Date.now
     },
     gameLink: String,
+    siteType: String,
+    originalId: String,
     downloadLinks: [{
       service: {
         type: String,
