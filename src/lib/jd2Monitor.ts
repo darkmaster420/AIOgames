@@ -19,6 +19,7 @@ type MonitoredJob = {
   jdPackageId?: string;
   jdLinkIds?: string[];
   progressBytes?: number;
+  totalBytes?: number;
   lastProgressAt?: Date;
   sentAt?: Date;
   retryCount?: number;
@@ -154,6 +155,33 @@ export async function monitorJd2Downloads(): Promise<void> {
         || candidates[0];
 
       if (!pkg) {
+        const wasObservedDownloading = Boolean(job.jdPackageId) && Number(job.progressBytes || 0) > 0;
+        if (envFlag('JD2_REMOVES_FINISHED') && wasObservedDownloading) {
+          const profile = await getLocalProfile();
+          await runLibraryScan(profile.id).catch(error => {
+            logger.warn(`Post-removal library scan failed for ${job.gameTitle}:`, error);
+          });
+
+          const refreshed = await AutoDownloadJob.findById(job._id)
+            .select('status')
+            .lean<{ status?: string } | null>();
+          if (refreshed?.status !== 'completed') {
+            await AutoDownloadJob.updateOne(
+              { _id: job._id },
+              {
+                $set: {
+                  status: 'completed',
+                  message: 'JD2 removed the observed package after download; completion inferred from JD2 auto-remove settings.',
+                  speedBytesPerSecond: 0,
+                  etaSeconds: 0,
+                  lastStatusAt: new Date(),
+                },
+              },
+            );
+          }
+          continue;
+        }
+
         const sentAt = new Date(job.sentAt || 0).getTime();
         if (sentAt > 0 && now - sentAt >= missingMs) {
           if ((job.retryCount || 0) < 1 && job.currentHost) {

@@ -31,6 +31,8 @@ services:
       # are loaded from stack.env so empty Compose defaults cannot override them.
       - JD2_DEVICE_NAME=JDownloader@Docker
       - JD2_MONITOR_INTERVAL_MS=60000
+      # This JD2 instance removes successful entries from its download list.
+      - JD2_REMOVES_FINISHED=true
       - JD2_STALL_MINUTES=15
       - JD2_MISSING_JOB_MINUTES=10
       - JD2_FALLBACK_ON_CAPTCHA=false
