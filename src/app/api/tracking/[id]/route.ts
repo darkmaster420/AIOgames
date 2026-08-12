@@ -52,7 +52,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     }
 
     const body = await request.json();
-    const { version, gameLink, title, source, image } = body;
+    const { version, gameLink, title, source, siteType, originalId, image } = body;
 
     if (!version || typeof version !== 'string' || !version.trim()) {
       return NextResponse.json({ error: 'version is required' }, { status: 400 });
@@ -78,6 +78,8 @@ export async function PATCH(request: Request, context: RouteContext) {
       version: newVersion,
       dateFound: now,
       gameLink: newLink,
+      siteType: typeof siteType === 'string' ? siteType.trim().toLowerCase() : '',
+      originalId: typeof originalId === 'string' ? originalId.trim() : '',
       isLatest: true,
       confirmedByUser: true,
       originalReason: title ? `Manually marked as latest from appid page: ${title}` : 'Manually marked as latest from appid page',
@@ -87,8 +89,20 @@ export async function PATCH(request: Request, context: RouteContext) {
     game.originalTitle = newVersion;
     if (newLink) game.gameLink = newLink;
     if (source && typeof source === 'string') game.source = source.trim();
+    if (
+      typeof siteType === 'string' && siteType.trim() &&
+      typeof originalId === 'string' && originalId.trim()
+    ) {
+      game.gameId = `${siteType.trim().toLowerCase()}_${originalId.trim()}`;
+    }
     if (image && typeof image === 'string') game.image = image.trim();
-    game.latestApprovedUpdate = { version: newVersion, dateFound: now, gameLink: newLink };
+    game.latestApprovedUpdate = {
+      version: newVersion,
+      dateFound: now,
+      gameLink: newLink,
+      siteType: typeof siteType === 'string' ? siteType.trim().toLowerCase() : '',
+      originalId: typeof originalId === 'string' ? originalId.trim() : '',
+    };
     game.hasNewUpdate = false;
     game.newUpdateSeen = true;
 

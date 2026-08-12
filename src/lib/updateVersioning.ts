@@ -16,6 +16,8 @@ import logger from '../utils/logger';
 
 export interface GameSearchResult {
   id: string;
+  originalId?: number | string;
+  siteType?: string;
   title: string;
   link: string;
   date?: string;
@@ -62,9 +64,9 @@ export type VersionComparison = {
 
 export async function fetchDownloadLinks(game: GameSearchResult): Promise<Array<{ service: string; url: string; type: string }>> {
   try {
-    // Extract the original ID and site type from the composite ID
-    // Format: "siteType_originalId" (e.g., "skidrow_518912")
-    const [siteType, originalId] = game.id.split('_');
+    const [compositeSiteType, compositeOriginalId] = game.id.split('_');
+    const siteType = game.siteType || compositeSiteType;
+    const originalId = String(game.originalId || compositeOriginalId || '');
     
     if (!siteType || !originalId) {
       logger.warn(`Invalid game ID format: ${game.id}`);

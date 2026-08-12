@@ -937,6 +937,8 @@ export async function POST(request: Request) {
                   significance: 5,
                   dateFound: new Date(),
                   gameLink: bestMatch.link,
+                  siteType: bestMatch.siteType,
+                  originalId: bestMatch.originalId ? String(bestMatch.originalId) : undefined,
                   previousVersion: game.lastKnownVersion || game.title,
                   downloadLinks: bestMatch.downloadLinks || [],
                   autoApproved: true,
@@ -963,6 +965,8 @@ export async function POST(request: Request) {
                     version: versionString,
                     dateFound: bestMatch.date || new Date().toISOString(),
                     gameLink: bestMatch.link,
+                    siteType: bestMatch.siteType,
+                    originalId: bestMatch.originalId ? String(bestMatch.originalId) : undefined,
                     downloadLinks: bestMatch.downloadLinks || []
                   },
                   ...(hasEmbeddedLinks
