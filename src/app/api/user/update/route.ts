@@ -25,6 +25,7 @@ export async function PATCH(req: Request) {
     telegramChatId,
     telegramBotManagementEnabled,
     prioritize0xdeadcode,
+    avoidOnlineFixes,
     avoidRepacks,
     preferRepacks,
     showRecentUploads
@@ -127,6 +128,17 @@ export async function PATCH(req: Request) {
       user.preferences = user.preferences || {};
       user.preferences.releaseGroups = user.preferences.releaseGroups || {};
       user.preferences.releaseGroups.prioritize0xdeadcode = prioritize0xdeadcode;
+      user.preferences.releaseGroups.prefer0xdeadcodeForOnlineFixes = prioritize0xdeadcode;
+    }
+
+    if (typeof avoidOnlineFixes === 'boolean') {
+      user.preferences = user.preferences || {};
+      user.preferences.releaseGroups = user.preferences.releaseGroups || {};
+      user.preferences.releaseGroups.avoidOnlineFixes = avoidOnlineFixes;
+      if (avoidOnlineFixes) {
+        user.preferences.releaseGroups.prioritize0xdeadcode = false;
+        user.preferences.releaseGroups.prefer0xdeadcodeForOnlineFixes = false;
+      }
     }
 
     if (typeof avoidRepacks === 'boolean') {

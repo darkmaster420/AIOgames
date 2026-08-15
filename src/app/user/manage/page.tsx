@@ -29,6 +29,7 @@ export default function UserManagePage() {
     telegramBotManagementEnabled: false,
     // release group preferences
     prioritize0xdeadcode: false,
+    avoidOnlineFixes: false,
     avoidRepacks: false,
     preferRepacks: false,
     // homepage preferences
@@ -64,6 +65,7 @@ export default function UserManagePage() {
           setForm((f) => ({
             ...f,
             prioritize0xdeadcode: data.preferences.releaseGroups.prioritize0xdeadcode || false,
+            avoidOnlineFixes: data.preferences.releaseGroups.avoidOnlineFixes || false,
             avoidRepacks: data.preferences.releaseGroups.avoidRepacks || false,
             preferRepacks: data.preferences.releaseGroups.preferRepacks || false
           }));
@@ -133,6 +135,7 @@ export default function UserManagePage() {
         telegramChatId?: string;
         telegramBotManagementEnabled?: boolean;
         prioritize0xdeadcode?: boolean;
+        avoidOnlineFixes?: boolean;
         avoidRepacks?: boolean;
         preferRepacks?: boolean;
         showRecentUploads?: boolean;
@@ -156,6 +159,7 @@ export default function UserManagePage() {
       
       // Release group preferences
       payload.prioritize0xdeadcode = form.prioritize0xdeadcode;
+      payload.avoidOnlineFixes = form.avoidOnlineFixes;
       payload.avoidRepacks = form.avoidRepacks;
       payload.preferRepacks = form.preferRepacks;
       // Homepage preferences
@@ -392,10 +396,33 @@ export default function UserManagePage() {
               <div className="flex items-start space-x-3">
                 <input
                   type="checkbox"
+                  name="avoidOnlineFixes"
+                  checked={form.avoidOnlineFixes}
+                  onChange={(event) => setForm(current => ({
+                    ...current,
+                    avoidOnlineFixes: event.target.checked,
+                    prioritize0xdeadcode: event.target.checked ? false : current.prioritize0xdeadcode
+                  }))}
+                  className="mt-1 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <div>
+                  <label className="text-sm font-medium text-gray-900 dark:text-white">
+                    Avoid online fixes
+                  </label>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                    Filter online-fix, co-op, and multiplayer releases from search and update results.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start space-x-3">
+                <input
+                  type="checkbox"
                   name="prioritize0xdeadcode"
                   checked={form.prioritize0xdeadcode}
                   onChange={handleChange}
                   className="mt-1 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  disabled={form.avoidOnlineFixes}
                 />
                 <div>
                   <label className="text-sm font-medium text-gray-900 dark:text-white">
