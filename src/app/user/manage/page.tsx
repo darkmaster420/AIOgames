@@ -11,6 +11,7 @@ type SettingsForm = {
   telegramChatId: string;
   telegramBotManagementEnabled: boolean;
   prioritize0xdeadcode: boolean;
+  avoidOnlineFixes: boolean;
   avoidRepacks: boolean;
   preferRepacks: boolean;
   showRecentUploads: boolean;
@@ -22,6 +23,7 @@ const initialForm: SettingsForm = {
   telegramChatId: '',
   telegramBotManagementEnabled: false,
   prioritize0xdeadcode: false,
+  avoidOnlineFixes: false,
   avoidRepacks: false,
   preferRepacks: false,
   showRecentUploads: false,
@@ -51,6 +53,7 @@ export default function SettingsPage() {
         telegramChatId: notifications.telegramChatId || '',
         telegramBotManagementEnabled: notifications.telegramBotManagementEnabled || false,
         prioritize0xdeadcode: releaseGroups.prioritize0xdeadcode || false,
+        avoidOnlineFixes: releaseGroups.avoidOnlineFixes || false,
         avoidRepacks: releaseGroups.avoidRepacks || false,
         preferRepacks: releaseGroups.preferRepacks || false,
         showRecentUploads: homepage.showRecentUploads || false,
@@ -136,7 +139,8 @@ export default function SettingsPage() {
         <section className="space-y-4 border-t border-slate-200 dark:border-slate-700 pt-6">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Discovery</h2>
           <Toggle label="Always show recent uploads" checked={form.showRecentUploads} onChange={value => setBoolean('showRecentUploads', value)} />
-          <Toggle label="Prefer 0xdeadcode releases for online fixes" checked={form.prioritize0xdeadcode} onChange={value => setBoolean('prioritize0xdeadcode', value)} />
+          <Toggle label="Avoid online fixes" checked={form.avoidOnlineFixes} onChange={value => setForm(current => ({ ...current, avoidOnlineFixes: value, prioritize0xdeadcode: value ? false : current.prioritize0xdeadcode }))} />
+          <Toggle label="Prefer 0xdeadcode releases for online fixes" checked={form.prioritize0xdeadcode} disabled={form.avoidOnlineFixes} onChange={value => setBoolean('prioritize0xdeadcode', value)} />
           <Toggle label="Avoid repacks" checked={form.avoidRepacks} disabled={form.preferRepacks} onChange={value => setBoolean('avoidRepacks', value)} />
           <Toggle label="Prefer repacks only" checked={form.preferRepacks} onChange={value => setForm(current => ({ ...current, preferRepacks: value, avoidRepacks: value ? false : current.avoidRepacks }))} />
         </section>

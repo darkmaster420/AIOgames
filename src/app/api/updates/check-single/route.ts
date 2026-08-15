@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import connectDB from '../../../../lib/db';
-import { TrackedGame } from '../../../../lib/models';
+import { TrackedGame, User } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
 import { detectSequel } from '../../../../utils/sequelDetection';
 import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities, resolvePubTimestampFromBuild, resolvePubTimestampFromVersion } from '../../../../utils/steamApi';
@@ -11,6 +11,7 @@ import { searchGames, getRecentUploads } from '../../../../lib/gameapi';
 import { syncRssDownloadLinksCache } from '../../../../lib/trackedGameDownloadLinks';
 import { dispatchAutoDownloadToJd2 } from '../../../../lib/jd2AutoDownloads';
 import { getCachedRecent } from '../../../../lib/recentUploadsState';
+import { isOnlineFixPost } from '../../../../lib/onlineFixFilter';
 
 import { calculateGameSimilarity } from '../../../../utils/titleMatching';
 
@@ -336,6 +337,11 @@ export async function POST(request: Request) {
       );
     }
 
+    const fullUser = await User.findById(user.id)
+      .select('preferences.releaseGroups')
+      .lean<{ preferences?: { releaseGroups?: { avoidOnlineFixes?: boolean } } } | null>();
+    const avoidOnlineFixes = Boolean(fullUser?.preferences?.releaseGroups?.avoidOnlineFixes);
+
     logger.info(`🎮 Checking updates for single game: ${game.title}`);
 
     let updatesFound = 0;
@@ -438,6 +444,24 @@ export async function POST(request: Request) {
       games = mergedResults;
     } else {
       throw new Error('Search API request returned no results for all title variants');
+    }
+
+    if (avoidOnlineFixes) {
+      const originalCount = games.length;
+      games = games.filter(result => !isOnlineFixPost(result, true));
+      const filtered = originalCount - games.length;
+      if (filtered > 0) {
+        logger.info(`Filtered out ${filtered} online-fix release(s) from single-game check`);
+      }
+      if (!games.length) {
+        return NextResponse.json({
+          success: true,
+          message: 'No eligible updates found after applying the online-fix filter.',
+          updatesFound: 0,
+          sequelsFound: 0,
+          results: [],
+        });
+      }
     }
     
     logger.info(`Single-game search returned ${games.length} results for ${game.title}`);

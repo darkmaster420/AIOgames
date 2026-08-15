@@ -24,8 +24,18 @@ export async function PATCH(req: Request) {
     if (typeof body.telegramUsername === 'string') user.preferences.notifications.telegramUsername = body.telegramUsername.trim();
     if (typeof body.telegramChatId === 'string') user.preferences.notifications.telegramChatId = body.telegramChatId.trim();
     if (typeof body.telegramBotManagementEnabled === 'boolean') user.preferences.notifications.telegramBotManagementEnabled = body.telegramBotManagementEnabled;
-    if (typeof body.prioritize0xdeadcode === 'boolean') user.preferences.releaseGroups.prioritize0xdeadcode = body.prioritize0xdeadcode;
+    if (typeof body.prioritize0xdeadcode === 'boolean') {
+      user.preferences.releaseGroups.prioritize0xdeadcode = body.prioritize0xdeadcode;
+      user.preferences.releaseGroups.prefer0xdeadcodeForOnlineFixes = body.prioritize0xdeadcode;
+    }
     if (typeof body.avoidRepacks === 'boolean') user.preferences.releaseGroups.avoidRepacks = body.avoidRepacks;
+    if (typeof body.avoidOnlineFixes === 'boolean') {
+      user.preferences.releaseGroups.avoidOnlineFixes = body.avoidOnlineFixes;
+      if (body.avoidOnlineFixes) {
+        user.preferences.releaseGroups.prioritize0xdeadcode = false;
+        user.preferences.releaseGroups.prefer0xdeadcodeForOnlineFixes = false;
+      }
+    }
     if (typeof body.preferRepacks === 'boolean') user.preferences.releaseGroups.preferRepacks = body.preferRepacks;
     if (typeof body.showRecentUploads === 'boolean') user.preferences.homepage.showRecentUploads = body.showRecentUploads;
 

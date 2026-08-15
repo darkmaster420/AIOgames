@@ -199,6 +199,10 @@ const userSchema = new mongoose.Schema({
       avoidRepacks: {
         type: Boolean,
         default: false
+      },
+      avoidOnlineFixes: {
+        type: Boolean,
+        default: false
       }
     }
   },

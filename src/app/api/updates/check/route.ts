@@ -9,6 +9,7 @@ import { cleanGameTitle, decodeHtmlEntities, extractReleaseGroup, is0xdeadcodeRe
 import logger from '../../../../utils/logger';
 import { getRecentUploads, clearGameApiCache } from '../../../../lib/gameapi';
 import { isRepackPost } from '../../../../lib/repackFilter';
+import { isOnlineFixPost } from '../../../../lib/onlineFixFilter';
 import { syncRssDownloadLinksCache } from '../../../../lib/trackedGameDownloadLinks';
 import { dispatchAutoDownloadToJd2 } from '../../../../lib/jd2AutoDownloads';
 
@@ -85,12 +86,13 @@ export async function POST(request: Request) {
     const releaseGroupPreferences = fullUser.preferences?.releaseGroups || {
       prioritize0xdeadcode: false,
       prefer0xdeadcodeForOnlineFixes: true,
-      avoidRepacks: false
+      avoidRepacks: false,
+      avoidOnlineFixes: false
     };
 
     logger.debug(`AI Detection preferences: enabled=${aiPreferences.enabled}, threshold=${aiPreferences.autoApprovalThreshold}`);
     logger.debug(`Sequel Detection preferences: enabled=${sequelPreferences.enabled}, sensitivity=${sequelPreferences.sensitivity}`);
-    logger.debug(`Release Group preferences: prioritize0xdeadcode=${releaseGroupPreferences.prioritize0xdeadcode}, prefer0xdeadcodeForOnlineFixes=${releaseGroupPreferences.prefer0xdeadcodeForOnlineFixes}, avoidRepacks=${releaseGroupPreferences.avoidRepacks}`);
+    logger.debug(`Release Group preferences: prioritize0xdeadcode=${releaseGroupPreferences.prioritize0xdeadcode}, prefer0xdeadcodeForOnlineFixes=${releaseGroupPreferences.prefer0xdeadcodeForOnlineFixes}, avoidRepacks=${releaseGroupPreferences.avoidRepacks}, avoidOnlineFixes=${releaseGroupPreferences.avoidOnlineFixes}`);
 
     // Get all active tracked games for this user
     const trackedGames = await TrackedGame.find({ 
@@ -134,6 +136,17 @@ export async function POST(request: Request) {
         const filtered = originalCount - recentGames.length;
         if (filtered > 0) {
           logger.info(`Filtered out ${filtered} repack(s) based on user preference`);
+        }
+      }
+
+      if (releaseGroupPreferences.avoidOnlineFixes) {
+        const originalCount = recentGames.length;
+        recentGames = recentGames.filter(
+          (game: GameSearchResult) => !isOnlineFixPost(game, true),
+        );
+        const filtered = originalCount - recentGames.length;
+        if (filtered > 0) {
+          logger.info(`Filtered out ${filtered} online-fix release(s) based on user preference`);
         }
       }
         

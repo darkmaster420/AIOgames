@@ -9,6 +9,7 @@ import { syncRssDownloadLinksCache } from '../../../../lib/trackedGameDownloadLi
 import { analyzeGameTitle } from '../../../../utils/versionDetection';
 import { searchIGDB, type IGDBSearchResult } from '../../../../utils/igdb';
 import { isRepackPost } from '../../../../lib/repackFilter';
+import { isOnlineFixPost } from '../../../../lib/onlineFixFilter';
 import logger from '../../../../utils/logger';
 import { rateLimit, validateInput, schemas } from '../../../../utils/validation';
 import { searchGames } from '../../../../lib/gameapi';
@@ -113,7 +114,8 @@ export async function POST(req: NextRequest) {
 
     const releaseGroupPreferences = fullUser.preferences?.releaseGroups || {
       prioritize0xdeadcode: false,
-      avoidRepacks: false
+      avoidRepacks: false,
+      avoidOnlineFixes: false
     };
 
     logger.debug(`Custom game add - avoidRepacks: ${releaseGroupPreferences.avoidRepacks}`);
@@ -140,6 +142,17 @@ export async function POST(req: NextRequest) {
           const filteredCount = originalCount - filteredResults.length;
           if (filteredCount > 0) {
             logger.info(`Filtered out ${filteredCount} repack(s) from custom game search for "${trimmedGameName}"`);
+          }
+        }
+
+        if (releaseGroupPreferences.avoidOnlineFixes) {
+          const originalCount = filteredResults.length;
+          filteredResults = filteredResults.filter(
+            (game: { title: string; originalTitle?: string; source?: string; siteType?: string }) => !isOnlineFixPost(game, true),
+          );
+          const filteredCount = originalCount - filteredResults.length;
+          if (filteredCount > 0) {
+            logger.info(`Filtered out ${filteredCount} online-fix release(s) from custom game search for "${trimmedGameName}"`);
           }
         }
 
