@@ -8,7 +8,10 @@ function textLooksLikeOnlineFix(value: string | null | undefined): boolean {
   if (!value) return false;
   return /\b0xdeadcode\b/i.test(value)
     || /\b(?:online[-\s]?fix|onlinefix)\b/i.test(value)
-    || /online-fix\.me/i.test(value);
+    || /online-fix\.me/i.test(value)
+    // Release titles commonly advertise the bundled fix without naming its
+    // provider, e.g. "+ Co-op", "CO_OP", or "Multi.Player".
+    || /\b(?:co[\s._-]?op|co[\s._-]?operative|multi[\s._-]?player)\b/i.test(value);
 }
 
 /** Shared filter for releases that bundle or target online fixes. */
@@ -27,4 +30,3 @@ export function isOnlineFixPost(
     || textLooksLikeOnlineFix(post.originalTitle)
     || textLooksLikeOnlineFix(post.source);
 }
-
