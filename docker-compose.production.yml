@@ -1,8 +1,6 @@
 services:
   aiogames:
-    build:
-      context: .
-      dockerfile: Dockerfile.production
+    image: ${AIOGAMES_IMAGE:-ghcr.io/lukewarmsodas/aiogames:public}
     #ports: #recommend using a reverse proxy like Nginx or Traefik instead of exposing ports directly
     #  - "${PORT:-3000}:3000"
     environment:
