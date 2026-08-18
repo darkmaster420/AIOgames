@@ -91,6 +91,31 @@ let freegogCookie = {
   expires_at: 0
 };
 
+function hasFreshClearanceCookie(cookie) {
+  return Boolean(
+    cookie &&
+    Array.isArray(cookie.cookies) &&
+    cookie.cookies.length > 0 &&
+    Date.now() < cookie.expires_at - 60_000
+  );
+}
+
+function protectedSiteHeaders(userAgent, cookie, referer, origin) {
+  const headers = {
+    'User-Agent': cookie?.userAgent || userAgent,
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9'
+  };
+
+  if (cookie?.cookies?.length) {
+    headers.Cookie = cookie.cookies.join('; ');
+    headers.Referer = referer;
+    headers.Origin = origin;
+  }
+
+  return headers;
+}
+
 // Circuit breakers. Previously a single network hiccup would open the circuit
 // for a long cooldown. With `siteFetch` end-to-end timeouts at 60s by default,
 // we require two consecutive failures before opening and default the cooldown
@@ -476,17 +501,21 @@ export async function fetchSteamrip(url, isPageRequest = false) {
   try {
     const userAgent = isPageRequest ? 'GameSearch-API-v2-PageFetch/2.0' : 'GameSearch-API-v2/2.0';
 
-    // Try direct fetch first — avoids FlareSolverr delay when CF is not active
+    const cachedCookie = hasFreshClearanceCookie(steamripCookie) ? steamripCookie : null;
+
+    // Reuse clearance on the first request. If no jar has been solved yet,
+    // this remains an ordinary direct fetch with no FlareSolverr delay.
     let response = await siteFetch(url, {
-      headers: {
-        'User-Agent': userAgent,
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-US,en;q=0.9'
-      }
+      headers: protectedSiteHeaders(
+        userAgent,
+        cachedCookie,
+        'https://steamrip.com/',
+        'https://steamrip.com'
+      )
     });
 
     let isCloudflare = hasCloudflareProtection(response);
-    console.log(`Initial SteamRip fetch of ${url}: status=${response.status}, CF detected=${isCloudflare}`);
+    console.log(`Initial SteamRip fetch of ${url}: status=${response.status}, CF detected=${isCloudflare}, cached clearance=${Boolean(cachedCookie)}`);
 
     if (!isCloudflare && response.ok && response.headers.get('content-type')?.includes('text/html')) {
       const text = await response.text();
@@ -503,77 +532,11 @@ export async function fetchSteamrip(url, isPageRequest = false) {
     }
 
     if (isCloudflare) {
-      console.log('Cloudflare protection detected on SteamRip, trying FlareSolverr direct fetch');
+      if (cachedCookie) steamripCookie.expires_at = 0;
+      console.log('SteamRip clearance missing or rejected, falling back to FlareSolverr');
       const flareResponse = await fetchViaFlaresolverr(url, 'steamrip');
       if (flareResponse && flareResponse.ok) {
         return flareResponse;
-      }
-
-      console.log('FlareSolverr direct fetch failed for SteamRip, falling back to cookie approach');
-      const cookie = await getValidSteamripCookie();
-
-      if (cookie.cf_clearance !== 'none' || cookie.cookies.length > 0) {
-        const cookieUserAgent = cookie.userAgent || userAgent;
-        const cookieString = cookie.cookies.join('; ');
-
-        response = await siteFetch(url, {
-          headers: {
-            'User-Agent': cookieUserAgent,
-            'Cookie': cookieString,
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://steamrip.com/',
-            'Origin': 'https://steamrip.com'
-          }
-        });
-
-        let stillBlocked = hasCloudflareProtection(response);
-        if (!stillBlocked && response.ok && response.headers.get('content-type')?.includes('text/html')) {
-          const text = await response.text();
-          stillBlocked = hasCloudflareProtection(response, text);
-          if (!stillBlocked) {
-            return new Response(text, {
-              status: response.status,
-              statusText: response.statusText,
-              headers: response.headers
-            });
-          }
-        } else if (!stillBlocked && response.ok) {
-          return response;
-        }
-
-        if (stillBlocked || response.status === 403) {
-          console.log('SteamRip cookie stale, refreshing via FlareSolverr');
-          const freshCookie = await getFreshSteamripCookie();
-          const freshUserAgent = freshCookie.userAgent || userAgent;
-          const freshCookieString = freshCookie.cookies.join('; ');
-
-          const retryResponse = await siteFetch(url, {
-            headers: {
-              'User-Agent': freshUserAgent,
-              'Cookie': freshCookieString,
-              'Accept': 'application/json, text/plain, */*',
-              'Accept-Language': 'en-US,en;q=0.9',
-              'Referer': 'https://steamrip.com/',
-              'Origin': 'https://steamrip.com'
-            }
-          });
-
-          let retryBlocked = hasCloudflareProtection(retryResponse);
-          if (!retryBlocked && retryResponse.ok && retryResponse.headers.get('content-type')?.includes('text/html')) {
-            const text = await retryResponse.text();
-            retryBlocked = hasCloudflareProtection(retryResponse, text);
-            if (!retryBlocked) {
-              return new Response(text, {
-                status: retryResponse.status,
-                statusText: retryResponse.statusText,
-                headers: retryResponse.headers
-              });
-            }
-          } else if (!retryBlocked && retryResponse.ok) {
-            return retryResponse;
-          }
-        }
       }
 
       if (isPageRequest) {
@@ -1022,8 +985,27 @@ function hasCloudflareProtection(response, htmlContent = null) {
 export async function fetchSkidrow(url, isPageRequest = false) {
   if (isSkidrowCircuitOpen()) {
     const remainingMs = skidrowCircuit.cooldownUntil - Date.now();
-    console.warn(`Skidrow circuit open (${Math.max(0, Math.ceil(remainingMs / 1000))}s remaining), trying FlareSolverr direct`);
-    // Circuit is open but FlareSolverr can still bypass CF
+    console.warn(`Skidrow circuit open (${Math.max(0, Math.ceil(remainingMs / 1000))}s remaining)`);
+    if (hasFreshClearanceCookie(skidrowCookie)) {
+      try {
+        const cookieResponse = await siteFetch(url, {
+          headers: protectedSiteHeaders(
+            'GameSearch-API-v2/2.0',
+            skidrowCookie,
+            'https://www.skidrowreloaded.com/',
+            'https://www.skidrowreloaded.com'
+          )
+        });
+        if (!hasCloudflareProtection(cookieResponse) && cookieResponse.ok) {
+          resetSkidrowCircuit();
+          return cookieResponse;
+        }
+        skidrowCookie.expires_at = 0;
+      } catch (error) {
+        console.warn('Skidrow cached-clearance fetch failed:', error?.message || error);
+      }
+    }
+    console.log('Skidrow cached clearance unavailable or rejected, falling back to FlareSolverr');
     const flareResponse = await fetchViaFlaresolverr(url, 'skidrowreloaded');
     if (flareResponse && flareResponse.ok) {
       resetSkidrowCircuit();
@@ -1038,18 +1020,21 @@ export async function fetchSkidrow(url, isPageRequest = false) {
   try {
     const userAgent = isPageRequest ? 'GameSearch-API-v2-PageFetch/2.0' : 'GameSearch-API-v2/2.0';
 
-    // Try direct fetch first
+    const cachedCookie = hasFreshClearanceCookie(skidrowCookie) ? skidrowCookie : null;
+
+    // Attach cached clearance to the first request whenever possible.
     let response = await siteFetch(url, {
-      headers: {
-        'User-Agent': userAgent,
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-US,en;q=0.9'
-      }
+      headers: protectedSiteHeaders(
+        userAgent,
+        cachedCookie,
+        'https://www.skidrowreloaded.com/',
+        'https://www.skidrowreloaded.com'
+      )
     });
 
     // Check for Cloudflare protection - even if status is 200!
     let isCloudflare = hasCloudflareProtection(response);
-    console.log(`Initial fetch of ${url}: status=${response.status}, CF detected=${isCloudflare}`);
+    console.log(`Initial fetch of ${url}: status=${response.status}, CF detected=${isCloudflare}, cached clearance=${Boolean(cachedCookie)}`);
 
     // If response looks OK but is HTML, check the content for CF protection
     if (!isCloudflare && response.ok && response.headers.get('content-type')?.includes('text/html')) {
@@ -1070,54 +1055,15 @@ export async function fetchSkidrow(url, isPageRequest = false) {
       return response;
     }
 
-    // Cloudflare protection detected â€” use FlareSolverr to fetch directly first
+    // Cloudflare protection detected after the cached-cookie/direct attempt.
     if (isCloudflare) {
-      console.log('Cloudflare protection detected on Skidrow, trying FlareSolverr direct fetch');
+      if (cachedCookie) skidrowCookie.expires_at = 0;
+      console.log('Skidrow clearance missing or rejected, falling back to FlareSolverr');
 
-      // Primary strategy: let FlareSolverr fetch the URL directly
       const flareResponse = await fetchViaFlaresolverr(url, 'skidrowreloaded');
       if (flareResponse && flareResponse.ok) {
         resetSkidrowCircuit();
         return flareResponse;
-      }
-
-      // Fallback: try cookie-based fetch
-      console.log('FlareSolverr direct fetch failed, falling back to cookie approach');
-      const cookie = await getValidSkidrowCookie();
-      
-      if (cookie.cf_clearance !== 'none' || cookie.cookies.length > 0) {
-        const cookieUserAgent = cookie.userAgent || userAgent;
-        const cookieString = cookie.cookies.join('; ');
-        
-        response = await siteFetch(url, {
-          headers: {
-            'User-Agent': cookieUserAgent,
-            'Cookie': cookieString,
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://www.skidrowreloaded.com/',
-            'Origin': 'https://www.skidrowreloaded.com'
-          }
-        });
-
-        let stillBlocked = hasCloudflareProtection(response);
-        console.log(`After cookie fetch: status=${response.status}, stillBlocked=${stillBlocked}, cookies used=${cookie.cookies.length}`);
-        
-        if (!stillBlocked && response.ok && response.headers.get('content-type')?.includes('text/html')) {
-          const text = await response.text();
-          stillBlocked = hasCloudflareProtection(response, text);
-          if (!stillBlocked) {
-            resetSkidrowCircuit();
-            return new Response(text, {
-              status: response.status,
-              statusText: response.statusText,
-              headers: response.headers
-            });
-          }
-        } else if (!stillBlocked && response.ok) {
-          resetSkidrowCircuit();
-          return response;
-        }
       }
 
       // Everything failed
@@ -1155,22 +1101,25 @@ export async function fetchSkidrow(url, isPageRequest = false) {
 
 /**
  * FreeGOGPCGames fetcher - site recently started using Cloudflare protection.
- * Tries direct first (cheapest), then FlareSolverr direct, then cookie fallback.
+ * Reuses cached clearance on the first request, then falls back to FlareSolverr.
  */
 export async function fetchFreegog(url, isPageRequest = false) {
   try {
     const userAgent = isPageRequest ? 'GameSearch-API-v2-PageFetch/2.0' : 'GameSearch-API-v2/2.0';
 
+    const cachedCookie = hasFreshClearanceCookie(freegogCookie) ? freegogCookie : null;
+
     let response = await siteFetch(url, {
-      headers: {
-        'User-Agent': userAgent,
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-US,en;q=0.9'
-      }
+      headers: protectedSiteHeaders(
+        userAgent,
+        cachedCookie,
+        'https://freegogpcgames.com/',
+        'https://freegogpcgames.com'
+      )
     });
 
     let isCloudflare = hasCloudflareProtection(response);
-    console.log(`Initial fetch of ${url}: status=${response.status}, CF detected=${isCloudflare}`);
+    console.log(`Initial fetch of ${url}: status=${response.status}, CF detected=${isCloudflare}, cached clearance=${Boolean(cachedCookie)}`);
 
     if (!isCloudflare && response.ok && response.headers.get('content-type')?.includes('text/html')) {
       const text = await response.text();
@@ -1187,52 +1136,10 @@ export async function fetchFreegog(url, isPageRequest = false) {
     }
 
     if (isCloudflare) {
-      console.log('Cloudflare protection detected on FreeGOG');
+      if (cachedCookie) freegogCookie.expires_at = 0;
+      console.log('FreeGOG clearance missing or rejected, falling back to FlareSolverr');
 
-      // 1) Try a cached cookie first if we have a fresh one - far cheaper than
-      // re-solving via FlareSolverr (single direct round-trip vs full browser
-      // automation). Skip if no cached cookie exists; we'd just be calling
-      // FlareSolverr twice in that case.
-      const hasFreshCookie =
-        freegogCookie.expires_at > Date.now() &&
-        (freegogCookie.cf_clearance && freegogCookie.cf_clearance !== 'none' || freegogCookie.cookies.length > 0);
-
-      if (hasFreshCookie) {
-        console.log('Trying cached FreeGOG cookies before falling back to FlareSolverr');
-        const cookieUserAgent = freegogCookie.userAgent || userAgent;
-        const cookieString = freegogCookie.cookies.join('; ');
-
-        response = await siteFetch(url, {
-          headers: {
-            'User-Agent': cookieUserAgent,
-            'Cookie': cookieString,
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://freegogpcgames.com/',
-            'Origin': 'https://freegogpcgames.com'
-          }
-        });
-
-        let stillBlocked = hasCloudflareProtection(response);
-        if (!stillBlocked && response.ok && response.headers.get('content-type')?.includes('text/html')) {
-          const text = await response.text();
-          stillBlocked = hasCloudflareProtection(response, text);
-          if (!stillBlocked) {
-            return new Response(text, {
-              status: response.status,
-              statusText: response.statusText,
-              headers: response.headers
-            });
-          }
-        } else if (!stillBlocked && response.ok) {
-          return response;
-        }
-        console.log('Cached FreeGOG cookies rejected by Cloudflare, falling through to FlareSolverr');
-      }
-
-      // 2) FlareSolverr direct - solves the challenge and returns the response
-      // body in one round-trip. As a side-effect this also refreshes our
-      // cached cookie via fetchViaFlaresolverr.
+      // FlareSolverr refreshes the cached cookie as a side effect.
       const flareResponse = await fetchViaFlaresolverr(url, 'freegog');
       if (flareResponse && flareResponse.ok) {
         return flareResponse;
@@ -1265,43 +1172,45 @@ export async function fetchFreegog(url, isPageRequest = false) {
 export async function fetchDodi(url, isPageRequest = false) {
   if (isDodiCircuitOpen()) {
     const remainingMs = dodiCircuit.cooldownUntil - Date.now();
-    console.warn(`DODI circuit open (${Math.max(0, Math.ceil(remainingMs / 1000))}s remaining), trying FlareSolverr direct`);
+    console.warn(`DODI circuit open (${Math.max(0, Math.ceil(remainingMs / 1000))}s remaining)`);
+    const fallbackUrl = url.replace('dodi-repacks.download', 'dodi-repacks.site');
+
+    if (hasFreshClearanceCookie(dodiCookie)) {
+      const cookieUrls = fallbackUrl === url ? [url] : [url, fallbackUrl];
+      for (const cookieUrl of cookieUrls) {
+        try {
+          const cookieResponse = await siteFetch(cookieUrl, {
+            headers: protectedSiteHeaders(
+              'GameSearch-API-v2/2.0',
+              dodiCookie,
+              'https://dodi-repacks.site/',
+              'https://dodi-repacks.site'
+            )
+          });
+          if (!hasCloudflareProtection(cookieResponse) && cookieResponse.ok) {
+            resetDodiCircuit();
+            return cookieResponse;
+          }
+        } catch (error) {
+          console.warn('DODI cached-clearance fetch failed:', error?.message || error);
+        }
+      }
+      dodiCookie.expires_at = 0;
+    }
+
+    console.log('DODI cached clearance unavailable or rejected, falling back to FlareSolverr');
     const flareResponse = await fetchViaFlaresolverr(url, 'dodirepacks');
     if (flareResponse && flareResponse.ok) {
       resetDodiCircuit();
       return flareResponse;
     }
     // Try fallback domain
-    const fallbackUrl = url.replace('dodi-repacks.download', 'dodi-repacks.site');
     if (fallbackUrl !== url) {
       console.log('Trying DODI fallback domain...');
       const fallbackResponse = await fetchViaFlaresolverr(fallbackUrl, 'dodirepacks-fallback');
       if (fallbackResponse && fallbackResponse.ok) {
         resetDodiCircuit();
         return fallbackResponse;
-      }
-    }
-    // Try cookie-based fetch as last resort
-    if (dodiCookie.cf_clearance && Date.now() < dodiCookie.expires_at) {
-      const cookieString = dodiCookie.cookies.join('; ');
-      const cookieUserAgent = dodiCookie.userAgent || 'GameSearch-API-v2/2.0';
-      try {
-        const cookieResponse = await siteFetch(url, {
-          headers: {
-            'User-Agent': cookieUserAgent,
-            'Cookie': cookieString,
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://dodi-repacks.site/',
-            'Origin': 'https://dodi-repacks.site'
-          }
-        });
-        if (!hasCloudflareProtection(cookieResponse) && cookieResponse.ok) {
-          resetDodiCircuit();
-          return cookieResponse;
-        }
-      } catch (e) {
-        console.warn('DODI cookie fetch in circuit-open path failed:', e.message);
       }
     }
     return isPageRequest ? null : new Response('[]', {
@@ -1313,17 +1222,20 @@ export async function fetchDodi(url, isPageRequest = false) {
   try {
     const userAgent = isPageRequest ? 'GameSearch-API-v2-PageFetch/2.0' : 'GameSearch-API-v2/2.0';
 
-    // Try direct fetch first
+    const cachedCookie = hasFreshClearanceCookie(dodiCookie) ? dodiCookie : null;
+
+    // Attach cached clearance to the first request whenever possible.
     let response = await siteFetch(url, {
-      headers: {
-        'User-Agent': userAgent,
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-US,en;q=0.9'
-      }
+      headers: protectedSiteHeaders(
+        userAgent,
+        cachedCookie,
+        'https://dodi-repacks.site/',
+        'https://dodi-repacks.site'
+      )
     });
 
     let isCloudflare = hasCloudflareProtection(response);
-    console.log(`Initial DODI fetch of ${url}: status=${response.status}, CF detected=${isCloudflare}`);
+    console.log(`Initial DODI fetch of ${url}: status=${response.status}, CF detected=${isCloudflare}, cached clearance=${Boolean(cachedCookie)}`);
 
     if (!isCloudflare && response.ok && response.headers.get('content-type')?.includes('text/html')) {
       const text = await response.text();
@@ -1340,9 +1252,9 @@ export async function fetchDodi(url, isPageRequest = false) {
     }
 
     if (isCloudflare) {
-      console.log('Cloudflare protection detected on DODI, trying FlareSolverr direct fetch');
+      if (cachedCookie) dodiCookie.expires_at = 0;
+      console.log('DODI clearance missing or rejected, falling back to FlareSolverr');
 
-      // Primary: FlareSolverr on primary domain
       const flareResponse = await fetchViaFlaresolverr(url, 'dodirepacks');
       if (flareResponse && flareResponse.ok) {
         // Store DODI cookies from FlareSolverr response
@@ -1350,7 +1262,7 @@ export async function fetchDodi(url, isPageRequest = false) {
         return flareResponse;
       }
 
-      // Fallback 1: try the alternate domain via FlareSolverr
+      // Try the alternate domain via FlareSolverr.
       const fallbackUrl = url.replace('dodi-repacks.download', 'dodi-repacks.site');
       if (fallbackUrl !== url) {
         console.log('Primary DODI domain failed, trying fallback domain via FlareSolverr...');
@@ -1359,81 +1271,6 @@ export async function fetchDodi(url, isPageRequest = false) {
           resetDodiCircuit();
           return fallbackResponse;
         }
-      }
-
-      // Fallback 2: try cookie-based fetch (like skidrow)
-      console.log('FlareSolverr direct fetch failed for DODI, falling back to cookie approach');
-      try {
-        const cookie = await getValidDodiCookie();
-
-        if (cookie.cf_clearance !== 'none' || cookie.cookies.length > 0) {
-          const cookieUserAgent = cookie.userAgent || userAgent;
-          const cookieString = cookie.cookies.join('; ');
-
-          // Try primary domain with cookies
-          let cookieResponse = await siteFetch(url, {
-            headers: {
-              'User-Agent': cookieUserAgent,
-              'Cookie': cookieString,
-              'Accept': 'application/json, text/plain, */*',
-              'Accept-Language': 'en-US,en;q=0.9',
-              'Referer': 'https://dodi-repacks.site/',
-              'Origin': 'https://dodi-repacks.site'
-            }
-          });
-
-          let stillBlocked = hasCloudflareProtection(cookieResponse);
-          console.log(`After DODI cookie fetch: status=${cookieResponse.status}, stillBlocked=${stillBlocked}, cookies used=${cookie.cookies.length}`);
-
-          if (!stillBlocked && cookieResponse.ok && cookieResponse.headers.get('content-type')?.includes('text/html')) {
-            const text = await cookieResponse.text();
-            stillBlocked = hasCloudflareProtection(cookieResponse, text);
-            if (!stillBlocked) {
-              resetDodiCircuit();
-              return new Response(text, {
-                status: cookieResponse.status,
-                statusText: cookieResponse.statusText,
-                headers: cookieResponse.headers
-              });
-            }
-          } else if (!stillBlocked && cookieResponse.ok) {
-            resetDodiCircuit();
-            return cookieResponse;
-          }
-
-          // Try fallback domain with cookies
-          if (fallbackUrl !== url) {
-            cookieResponse = await siteFetch(fallbackUrl, {
-              headers: {
-                'User-Agent': cookieUserAgent,
-                'Cookie': cookieString,
-                'Accept': 'application/json, text/plain, */*',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Referer': 'https://dodi-repacks.site/',
-                'Origin': 'https://dodi-repacks.site'
-              }
-            });
-
-            stillBlocked = hasCloudflareProtection(cookieResponse);
-            if (!stillBlocked && cookieResponse.ok && cookieResponse.headers.get('content-type')?.includes('text/html')) {
-              const text = await cookieResponse.text();
-              stillBlocked = hasCloudflareProtection(cookieResponse, text);
-              if (!stillBlocked) {
-                resetDodiCircuit();
-                return new Response(text, {
-                  status: cookieResponse.status,
-                  statusText: cookieResponse.statusText,
-                  headers: cookieResponse.headers
-                });
-              }
-            } else if (!stillBlocked && cookieResponse.ok) {
-              resetDodiCircuit();
-              return cookieResponse;
-            }
-          }
-        }
-      } catch (cookieError) {
-        console.warn('DODI cookie-based fetch failed:', cookieError.message);
       }
 
       // Everything failed

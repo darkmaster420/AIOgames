@@ -308,9 +308,9 @@ export async function searchGames(
         .filter(([k]) => !DEFAULT_EXCLUDED_FROM_ALL.has(k))
         .map(([, v]) => v);
 
-  // Single-site search keeps the dedicated retry+cache path (it has slightly
-  // different semantics than the parallel path - it serves from cache on
-  // total failure rather than just for the affected site).
+  // Single-site search serves a recent cached result when the provider is
+  // empty or unavailable. Site fetchers already perform their own network and
+  // Cloudflare fallbacks, so repeating the whole scrape only adds latency.
   if (targets.length === 1) {
     const siteConfig = targets[0];
     const site = siteConfig.type;
@@ -320,12 +320,6 @@ export async function searchGames(
     if (results.length > 0) {
       searchCache.set(cacheKey, { results, timestamp: Date.now() });
     } else {
-      console.warn(`Single-site search for ${site} returned empty, retrying`);
-      const retryResults = applySearchTermFilter(await searchSite(siteConfig, query), query);
-      if (retryResults.length > 0) {
-        searchCache.set(cacheKey, { results: retryResults, timestamp: Date.now() });
-        return { success: true, results: retryResults, count: retryResults.length, site };
-      }
       const cached = searchCache.get(cacheKey);
       if (cached && (Date.now() - cached.timestamp) < SEARCH_CACHE_TTL) {
         console.log(`Using cached results for ${site}`);
@@ -343,7 +337,6 @@ export async function searchGames(
   const settledResults = await Promise.allSettled(searchPromises);
 
   const combinedResults: TransformedPost[] = [];
-  const failedSites: { site: SiteConfig; cacheKey: string }[] = [];
 
   settledResults.forEach((result, index) => {
     const s = allSites[index];
@@ -355,33 +348,15 @@ export async function searchGames(
     } else {
       const reason = result.status === 'rejected' ? result.reason : 'empty results';
       console.warn(`Search returned nothing for ${s.name}: ${reason}`);
-      failedSites.push({ site: s, cacheKey });
+      const cached = searchCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp) < SEARCH_CACHE_TTL) {
+        console.log(`Using cached results for ${s.name} (${cached.results.length} results, age ${Math.round((Date.now() - cached.timestamp) / 1000)}s)`);
+        combinedResults.push(...cached.results);
+      } else {
+        console.warn(`No cached results available for ${s.name}`);
+      }
     }
   });
-
-  // Retry failed/empty sites once
-  if (failedSites.length > 0) {
-    const retryPromises = failedSites.map(({ site: s }) => searchSite(s, query));
-    const retryResults = await Promise.allSettled(retryPromises);
-
-    retryResults.forEach((result, index) => {
-      const { site: s, cacheKey } = failedSites[index];
-
-      if (result.status === 'fulfilled' && result.value.length > 0) {
-        console.log(`Retry succeeded for ${s.name}: ${result.value.length} results`);
-        searchCache.set(cacheKey, { results: result.value, timestamp: Date.now() });
-        combinedResults.push(...result.value);
-      } else {
-        const cached = searchCache.get(cacheKey);
-        if (cached && (Date.now() - cached.timestamp) < SEARCH_CACHE_TTL) {
-          console.log(`Using cached results for ${s.name} (${cached.results.length} results, age ${Math.round((Date.now() - cached.timestamp) / 1000)}s)`);
-          combinedResults.push(...cached.results);
-        } else {
-          console.warn(`No cached results available for ${s.name}`);
-        }
-      }
-    });
-  }
 
   const filteredCombined = applySearchTermFilter(combinedResults, query);
   return { success: true, results: filteredCombined, count: filteredCombined.length };
