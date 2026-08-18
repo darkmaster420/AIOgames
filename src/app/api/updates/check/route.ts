@@ -16,6 +16,8 @@ import { calculateGameSimilarity } from '../../../../utils/titleMatching';
 
 interface GameSearchResult {
   id: string;
+  originalId?: number | string;
+  siteType?: string;
   title: string;
   link: string;
   date?: string;
