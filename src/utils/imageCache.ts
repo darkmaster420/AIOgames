@@ -5,10 +5,10 @@
  * in `lib/gameapi/helpers.js` (`fetchSkidrow`, `fetchSteamrip`, etc.) and still
  * use FlareSolverr / cf_clearance when Cloudflare blocks JSON or pages.
  *
- * Here we only cache **poster image bytes**. Skidrow media hosts are fetched
- * with plain HTTPS (plus a site Referer for hotlink rules), not FlareSolverr.
- * SteamRip / DODI image URLs may still use cookie jars below when their CDNs
- * require it.
+ * Here we only cache **poster image bytes**. Every image is fetched with plain
+ * HTTPS. When SteamRip, Skidrow, FreeGOG or DODI responds with a Cloudflare
+ * challenge, FlareSolverr is used only to obtain cookies and a matching
+ * User-Agent; the app then retries the image directly with that clearance.
  *
  * Caches the raw bytes of images fetched through the proxy so that:
  *   1) Repeat requests for the same image are served from memory instantly,
@@ -22,12 +22,7 @@
  * LRU-ish eviction. That's fine for our scale.
  */
 
-import {
-  getValidSteamripCookie,
-  getValidDodiCookie,
-  getFreshSteamripCookie,
-  getFreshDodiCookie,
-} from '../lib/gameapi/helpers.js';
+import { getFlaresolverrClearance } from '../lib/gameapi/helpers.js';
 
 interface CookieJar {
   cf_clearance: string | null;
@@ -36,29 +31,86 @@ interface CookieJar {
   expires_at: number;
 }
 
-type SiteKey = 'steamrip' | 'dodi';
+type SiteKey = 'steamrip' | 'skidrow' | 'freegog' | 'dodi';
 
-const HOST_MATCHERS: Array<{
+type ProtectedImageSite = {
   match: (host: string) => boolean;
   key: SiteKey;
-  getValid: () => Promise<CookieJar>;
-  getFresh: () => Promise<CookieJar>;
-}> = [
-  // Skidrow is intentionally omitted: wp-json + HTML use FlareSolverr via
-  // `fetchSkidrow` in helpers.js; only poster URLs hit imageCache / proxy-image.
+  referer: string;
+  clearanceUrl: string;
+  session: string;
+};
+
+const HOST_MATCHERS: ProtectedImageSite[] = [
   {
     match: h => h.includes('steamrip.com'),
     key: 'steamrip',
-    getValid: getValidSteamripCookie as () => Promise<CookieJar>,
-    getFresh: getFreshSteamripCookie as () => Promise<CookieJar>,
+    referer: 'https://steamrip.com/',
+    clearanceUrl: 'https://steamrip.com/',
+    session: 'image-steamrip',
+  },
+  {
+    match: h => h.includes('skidrowreloaded.com'),
+    key: 'skidrow',
+    referer: 'https://www.skidrowreloaded.com/',
+    clearanceUrl: 'https://www.skidrowreloaded.com/',
+    session: 'image-skidrow',
+  },
+  {
+    match: h => h.includes('freegogpcgames.com'),
+    key: 'freegog',
+    referer: 'https://freegogpcgames.com/',
+    clearanceUrl: 'https://freegogpcgames.com/',
+    session: 'image-freegog',
   },
   {
     match: h => h.includes('dodi-repacks.download') || h.includes('dodi-repacks.site') || h.includes('dodi-repacks.com'),
     key: 'dodi',
-    getValid: getValidDodiCookie as () => Promise<CookieJar>,
-    getFresh: getFreshDodiCookie as () => Promise<CookieJar>,
+    referer: 'https://dodi-repacks.site/',
+    clearanceUrl: 'https://dodi-repacks.site/',
+    session: 'image-dodi',
   },
 ];
+
+// A discovery page can request dozens of posters at once. Without this guard,
+// every challenged image can launch its own browser solve before the first one
+// has populated the shared cookie jar.
+const clearanceCache = new Map<SiteKey, CookieJar>();
+const clearanceInflight = new Map<SiteKey, Promise<CookieJar | null>>();
+
+function getCachedClearance(site: ProtectedImageSite): CookieJar | null {
+  const cached = clearanceCache.get(site.key);
+  if (
+    cached?.cookies.length &&
+    Date.now() < cached.expires_at - 60_000
+  ) {
+    return cached;
+  }
+  clearanceCache.delete(site.key);
+  return null;
+}
+
+async function getClearanceJar(site: ProtectedImageSite, forceFresh: boolean): Promise<CookieJar | null> {
+  const cached = getCachedClearance(site);
+  if (!forceFresh && cached) return cached;
+
+  const existing = clearanceInflight.get(site.key);
+  if (existing) return existing;
+
+  const pending = (getFlaresolverrClearance(site.clearanceUrl, site.session) as Promise<CookieJar>)
+    .then(jar => {
+      clearanceCache.set(site.key, jar);
+      return jar;
+    })
+    .catch(error => {
+      console.warn(`[imageCache] Failed to obtain ${site.key} clearance:`, error);
+      return null;
+    })
+    .finally(() => clearanceInflight.delete(site.key));
+
+  clearanceInflight.set(site.key, pending);
+  return pending;
+}
 
 interface CachedImage {
   buffer: ArrayBuffer;
@@ -184,77 +236,51 @@ async function fetchImage(url: string): Promise<CachedImage | null> {
   const host = validUrl.hostname.toLowerCase();
   const matcher = HOST_MATCHERS.find(m => m.match(host));
 
-  let response: Response | null = null;
-
-  if (matcher) {
+  const requestImage = async (jar: CookieJar | null): Promise<Response | null> => {
     try {
-      let jar: CookieJar | null = null;
-      try {
-        jar = await matcher.getValid();
-      } catch (err) {
-        console.warn(`[imageCache] Failed to get ${matcher.key} cookie:`, err);
-      }
-      if (jar) {
-        try {
-          response = await fetch(url, {
-            headers: buildHeaders(jar, validUrl.origin, true),
-            signal: AbortSignal.timeout(15000),
-          });
-        } catch (err) {
-          console.warn(`[imageCache] Cookie fetch threw for ${host}:`, err);
-        }
-        if (response && looksLikeChallenge(response)) {
-          try {
-            const fresh = await matcher.getFresh();
-            response = await fetch(url, {
-              headers: buildHeaders(fresh, validUrl.origin, true),
-              signal: AbortSignal.timeout(15000),
-            });
-          } catch (err) {
-            console.warn(`[imageCache] Failed to refresh ${matcher.key} cookie:`, err);
-          }
-        }
-      }
-    } catch (err) {
-      console.warn(`[imageCache] Cookie-based fetch failed for ${host}:`, err);
+      return await fetch(url, {
+        headers: buildHeaders(
+          jar,
+          matcher?.referer || validUrl.origin,
+          Boolean(matcher),
+        ),
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch (error) {
+      console.warn(
+        `[imageCache] ${jar ? 'Clearance' : 'Direct'} fetch for ${host} threw:`,
+        error instanceof Error ? `${error.name}: ${error.message}` : error,
+      );
+      return null;
+    }
+  };
+
+  // Image bytes always travel directly from the origin to this app. Start
+  // without FlareSolverr when no clearance is cached because many origins only
+  // challenge intermittently. Once solved, use the cached jar immediately.
+  const initialJar = matcher ? getCachedClearance(matcher) : null;
+  let response = await requestImage(initialJar);
+
+  if (response && looksLikeChallenge(response) && matcher) {
+    await response.body?.cancel().catch(() => {});
+    if (initialJar) clearanceCache.delete(matcher.key);
+    const jar = await getClearanceJar(matcher, Boolean(initialJar));
+    if (jar) {
+      response = await requestImage(jar);
+      if (response && looksLikeChallenge(response)) clearanceCache.delete(matcher.key);
     }
   }
 
-  // Fallback (or default path for hosts like IGDB/RAWG/Steam CDN / Skidrow
-  // media that no longer need cf_clearance). We skip Referer for most CDNs —
-  // IGDB in particular 403s mismatched Referer. Skidrow uploads often expect
-  // a same-site Referer when not using cookies.
-  if (!response || !response.ok || looksLikeChallenge(response)) {
-    const skidrowHost = host.includes('skidrowreloaded.com');
-    // Retry up to 2 times on transient errors. Steam CDN occasionally
-    // returns connection errors or transient 5xx that succeed on an
-    // immediate retry.
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        response = await fetch(url, {
-          headers: buildHeaders(
-            null,
-            skidrowHost ? 'https://www.skidrowreloaded.com/' : validUrl.origin,
-            skidrowHost
-          ),
-          signal: AbortSignal.timeout(15000),
-        });
-        if (response.ok && !looksLikeChallenge(response)) break;
-        console.warn(
-          `[imageCache] Plain fetch attempt ${attempt + 1} for ${host}: status=${response.status} ct=${response.headers.get('content-type')}`
-        );
-      } catch (err) {
-        response = null;
-        console.warn(
-          `[imageCache] Plain fetch attempt ${attempt + 1} for ${host} threw:`,
-          err instanceof Error ? `${err.name}: ${err.message}` : err
-        );
-      }
-      // Small backoff before the second attempt.
-      if (attempt === 0) await new Promise(r => setTimeout(r, 150));
-    }
-    if (!response) return null;
+  // Retry one transient network/server failure without involving FlareSolverr.
+  // Challenges are deliberately excluded: another plain request cannot solve
+  // one and would only add latency.
+  if ((!response || response.status >= 500) && !(response && looksLikeChallenge(response))) {
+    await response?.body?.cancel().catch(() => {});
+    await new Promise(resolve => setTimeout(resolve, 150));
+    response = await requestImage(initialJar);
   }
+
+  if (!response) return null;
 
   if (!response.ok || looksLikeChallenge(response)) {
     console.warn(

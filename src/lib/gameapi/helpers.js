@@ -874,6 +874,78 @@ export async function getValidDodiCookie() {
   return dodiCookie;
 }
 
+/**
+ * Ask FlareSolverr only for a reusable clearance jar.
+ *
+ * Callers fetch the protected resource themselves with the returned cookies
+ * and exact browser User-Agent. Keeping this separate from
+ * `fetchViaFlaresolverr` prevents poster bytes from making a browser round trip.
+ */
+export async function getFlaresolverrClearance(url, session = 'image-clearance') {
+  const flaresolverrUrl = process.env.FLARESOLVERR_URL;
+  if (!flaresolverrUrl) {
+    throw new Error('FLARESOLVERR_URL is required to obtain Cloudflare clearance');
+  }
+
+  const timeoutMs = DEFAULT_FLARE_TIMEOUT_MS;
+  const response = await retryableFetch(flaresolverrUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      cmd: 'request.get',
+      url,
+      session,
+      maxTimeout: timeoutMs,
+    }),
+  }, 1, timeoutMs + 5000);
+
+  if (!response.ok) {
+    throw new Error(`FlareSolverr clearance request failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  if (data.status !== 'ok' || !data.solution) {
+    throw new Error(`FlareSolverr clearance error: ${data.message || 'missing solution'}`);
+  }
+
+  const cookies = [];
+  let cfClearance = null;
+  let expiresAt = Date.now() + (4 * 60 * 60 * 1000);
+
+  for (const cookie of Array.isArray(data.solution.cookies) ? data.solution.cookies : []) {
+    if (!cookie?.name || typeof cookie.value !== 'string') continue;
+    cookies.push(`${cookie.name}=${cookie.value}`);
+    if (cookie.name === 'cf_clearance') {
+      cfClearance = cookie.value;
+      if (cookie.expires) {
+        const numericExpiry = Number(cookie.expires);
+        const parsedExpiry = Number.isFinite(numericExpiry)
+          ? (numericExpiry > 1_000_000_000_000 ? numericExpiry : numericExpiry * 1000)
+          : new Date(cookie.expires).getTime();
+        if (Number.isFinite(parsedExpiry)) expiresAt = parsedExpiry;
+      }
+    }
+  }
+
+  if (cookies.length === 0) {
+    const solutionStatus = Number(data.solution.status || 0);
+    throw new Error(
+      `FlareSolverr returned no clearance cookies${solutionStatus ? ` (status ${solutionStatus})` : ''}`,
+    );
+  }
+
+  console.log(
+    `Obtained image clearance for ${new URL(url).hostname}: cookies=${cookies.length}, cf_clearance=${Boolean(cfClearance)}`,
+  );
+
+  return {
+    cf_clearance: cfClearance,
+    cookies,
+    userAgent: data.solution.userAgent || 'Mozilla/5.0',
+    expires_at: expiresAt,
+  };
+}
+
 // Fetch a URL via FlareSolverr and return the response body directly
 export async function fetchViaFlaresolverr(url, session = 'default') {
   const flaresolverrUrl = process.env.FLARESOLVERR_URL;
