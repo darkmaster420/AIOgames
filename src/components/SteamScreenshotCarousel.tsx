@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import Hls from "hls.js";
 
 interface Screenshot {
   id: number;
@@ -12,8 +13,11 @@ interface Movie {
   id: number;
   name: string;
   thumbnail: string;
-  webm: { 480: string; max: string };
-  mp4: { 480: string; max: string };
+  webm?: { 480?: string; max?: string };
+  mp4?: { 480?: string; max?: string };
+  hls_h264?: string;
+  dash_h264?: string;
+  dash_av1?: string;
 }
 
 interface SteamScreenshotCarouselProps {
@@ -25,6 +29,74 @@ interface SteamScreenshotCarouselProps {
 type MediaItem =
   | { type: "screenshot"; data: Screenshot }
   | { type: "movie"; data: Movie };
+
+function SteamMoviePlayer({ movie }: { movie: Movie }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [playbackError, setPlaybackError] = useState(false);
+  const directSources = [
+    { url: movie.mp4?.max || movie.mp4?.[480], type: "video/mp4" },
+    { url: movie.webm?.max || movie.webm?.[480], type: "video/webm" },
+  ].filter((source): source is { url: string; type: string } => Boolean(source.url));
+  const hlsUrl = movie.hls_h264;
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || directSources.length > 0 || !hlsUrl) return;
+
+    setPlaybackError(false);
+
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = hlsUrl;
+      return () => {
+        video.removeAttribute("src");
+        video.load();
+      };
+    }
+
+    if (!Hls.isSupported()) {
+      setPlaybackError(true);
+      return;
+    }
+
+    const hls = new Hls({ enableWorker: true });
+    hls.loadSource(hlsUrl);
+    hls.attachMedia(video);
+    hls.on(Hls.Events.ERROR, (_event, data) => {
+      if (data.fatal) setPlaybackError(true);
+    });
+
+    return () => hls.destroy();
+  }, [directSources.length, hlsUrl, movie.id]);
+
+  if (directSources.length === 0 && !hlsUrl) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={movie.thumbnail} alt={movie.name} className="h-full w-full object-contain" />;
+  }
+
+  return (
+    <div className="relative h-full w-full">
+      <video
+        ref={videoRef}
+        key={movie.id}
+        poster={movie.thumbnail}
+        controls
+        playsInline
+        preload="metadata"
+        className="h-full w-full object-contain"
+        onError={() => setPlaybackError(true)}
+      >
+        {directSources.map(source => (
+          <source key={source.url} src={source.url} type={source.type} />
+        ))}
+      </video>
+      {playbackError && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-10 text-center text-sm text-white drop-shadow">
+          Trailer unavailable
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function SteamScreenshotCarousel({
   screenshots,
@@ -102,26 +174,7 @@ export function SteamScreenshotCarousel({
               />
             </button>
           ) : (
-            (() => {
-              const videoSrc = current.data.mp4?.max || current.data.mp4?.[480] || current.data.webm?.max || current.data.webm?.[480];
-              return videoSrc ? (
-                <video
-                  key={current.data.id}
-                  src={videoSrc}
-                  poster={current.data.thumbnail}
-                  controls
-                  className="h-full w-full object-contain"
-                  preload="none"
-                />
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={current.data.thumbnail}
-                  alt={current.data.name}
-                  className="h-full w-full object-contain"
-                />
-              );
-            })()
+            <SteamMoviePlayer key={current.data.id} movie={current.data} />
           )}
 
           {/* Prev / Next arrows */}
