@@ -508,7 +508,8 @@ export default function TrackingDashboard() {
         'Library Scan Complete',
         `Found ${data.filesSeen || 0} releases. Added ${data.trackedCreated || 0} to tracking ` +
         `(${data.trackedVerified || 0} matched on Steam, ${data.trackedExisting || 0} already tracked, ` +
-        `${data.trackedExcluded || 0} excluded).`,
+        `${data.trackedExcluded || 0} excluded).` +
+        (data.staleFilesDeleted ? ` Removed ${data.staleFilesDeleted} stale archive(s).` : ''),
       );
       await loadTrackedGames();
     } catch (scanError) {

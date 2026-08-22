@@ -17,6 +17,9 @@ services:
       - LIBRARY_WATCH_SETTLE_MS=30000
       - LIBRARY_WATCH_POLL_INTERVAL_MS=60000
       - LIBRARY_WATCH_SCAN_ON_START=true
+      # Opt in through stack.env. Both library mounts are writable so stale
+      # archives can be removed from either location.
+      # - LIBRARY_STALE_DELETE_ENABLED=true
       - JD2_AUTO_DOWNLOADS_ENABLED=true
       # A path inside the JDownloader container, passed through its API.
       # Package names do not create subdirectories; /output is the jlesage default.
@@ -46,7 +49,7 @@ services:
       - stack.env  # stack.env or .env
       #- .env
     volumes:
-      - /mnt/main/games:/library/games:ro
+      - /mnt/main/games:/library/games
       - /mnt/main/downloads:/downloads/games
     restart: unless-stopped
     healthcheck:

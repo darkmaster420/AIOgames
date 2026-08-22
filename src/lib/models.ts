@@ -780,6 +780,14 @@ const libraryScanJobSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  staleFilesDeleted: {
+    type: Number,
+    default: 0
+  },
+  staleDeleteErrors: {
+    type: Number,
+    default: 0
+  },
   trackedCreated: {
     type: Number,
     default: 0

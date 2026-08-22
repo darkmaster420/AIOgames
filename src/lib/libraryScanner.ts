@@ -4,6 +4,7 @@ import type { Stats } from 'node:fs';
 import connectDB from './db';
 import { AutoDownloadJob, LibraryGame, LibraryScanJob, LibraryTrackingExclusion, TrackedGame } from './models';
 import { getLibraryRoots } from './libraryConfig';
+import { cleanupStaleLibraryArchives, type LibraryFileEntry } from './libraryCleanup';
 import {
   ARCHIVE_EXTENSIONS,
   compareLibraryReleaseInfo,
@@ -280,6 +281,9 @@ export type LibraryScanStats = {
   gamesUpserted: number;
   gamesSkipped: number;
   gamesRemoved: number;
+  /** Old archive versions removed by the opt-in retention policy. */
+  staleFilesDeleted: number;
+  staleDeleteErrors: number;
   trackedCreated: number;
   trackedExisting: number;
   /** Releases the user explicitly chose not to track. */
@@ -314,6 +318,8 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
     gamesUpserted: 0,
     gamesSkipped: 0,
     gamesRemoved: 0,
+    staleFilesDeleted: 0,
+    staleDeleteErrors: 0,
     trackedCreated: 0,
     trackedExisting: 0,
     trackedExcluded: 0,
@@ -323,9 +329,15 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
 
   try {
     await Promise.all(roots.map(assertLibraryRootReadable));
-    const files = (await Promise.all(roots.map(async root =>
+    let files: LibraryFileEntry[] = (await Promise.all(roots.map(async root =>
       (await collectRootArchives(root)).map(filePath => ({ filePath, sourceRoot: root }))
     ))).flat();
+    stats.filesSeen = files.length;
+    const cleanup = await cleanupStaleLibraryArchives(files);
+    files = cleanup.entries;
+    stats.staleFilesDeleted = cleanup.deleted;
+    stats.staleDeleteErrors = cleanup.errors;
+    stats.errors += cleanup.errors;
     const exclusions = userId
       ? await LibraryTrackingExclusion.find({ userId })
           .select('normalizedTitle libraryGameId')
@@ -335,8 +347,10 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
     const excludedLibraryIds = new Set(
       exclusions.map(exclusion => String(exclusion.libraryGameId || '')).filter(Boolean),
     );
-    stats.filesSeen = files.length;
-    logger.info(`Library scan started: ${roots.join(', ')} (${files.length} release(s))`);
+    logger.info(
+      `Library scan started: ${roots.join(', ')} (${stats.filesSeen} release(s) found, ` +
+      `${files.length} retained for indexing)`,
+    );
 
     for (const { filePath, sourceRoot } of files) {
       try {
@@ -506,6 +520,8 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
           gamesUpserted: stats.gamesUpserted,
           gamesSkipped: stats.gamesSkipped,
           gamesRemoved: stats.gamesRemoved,
+          staleFilesDeleted: stats.staleFilesDeleted,
+          staleDeleteErrors: stats.staleDeleteErrors,
           trackedCreated: stats.trackedCreated,
           trackedExisting: stats.trackedExisting,
           trackedExcluded: stats.trackedExcluded,
@@ -517,7 +533,7 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
     logger.info(
       `Library scan completed: ${stats.filesSeen} release(s), ${stats.trackedCreated} tracked created ` +
       `(${stats.trackedVerified} Steam-verified), ${stats.trackedExisting} already tracked, ` +
-      `${stats.trackedExcluded} excluded`,
+      `${stats.trackedExcluded} excluded, ${stats.staleFilesDeleted} stale archive(s) deleted`,
     );
   } catch (error) {
     await LibraryScanJob.updateOne(
@@ -530,6 +546,8 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
           gamesUpserted: stats.gamesUpserted,
           gamesSkipped: stats.gamesSkipped,
           gamesRemoved: stats.gamesRemoved,
+          staleFilesDeleted: stats.staleFilesDeleted,
+          staleDeleteErrors: stats.staleDeleteErrors,
           trackedCreated: stats.trackedCreated,
           trackedExisting: stats.trackedExisting,
           trackedExcluded: stats.trackedExcluded,
