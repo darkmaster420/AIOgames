@@ -82,15 +82,26 @@ const getDefaultBase = () => {
     return `${stripSlash(internal)}/api/steam`;
   }
   if (process.env.VERCEL_URL) {
+    // Serverless: there is no local listener to call back into.
     return `https://${process.env.VERCEL_URL}/api/steam`;
   }
+  // Prefer loopback over any public URL. This is the process calling its own
+  // route, and a public hostname is the wrong way round for that: on a NAS it
+  // depends on hairpin NAT, and behind a tunnel or CDN the request leaves the
+  // host and re-enters through the edge, where it can be challenged or rate
+  // limited. Both present as "Steam suddenly stopped returning anything".
+  const port = process.env.PORT || '3000';
+  if (!process.env.NEXT_PUBLIC_BASE_PATH) {
+    return `http://127.0.0.1:${port}/api/steam`;
+  }
+  // A basePath deployment cannot be reached at the bare loopback root, so fall
+  // back to the configured public origin.
   if (process.env.NEXTAUTH_URL) {
     return `${stripSlash(process.env.NEXTAUTH_URL)}/api/steam`;
   }
   if (process.env.NEXT_PUBLIC_APP_URL) {
     return `${stripSlash(process.env.NEXT_PUBLIC_APP_URL)}/api/steam`;
   }
-  const port = process.env.PORT || '3000';
   return `http://127.0.0.1:${port}/api/steam`;
 };
 
