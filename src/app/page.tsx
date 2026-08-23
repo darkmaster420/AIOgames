@@ -478,10 +478,45 @@ function DashboardInner() {
     const target = pendingScrollRef.current;
     if (target === null || games.length === 0) return;
     pendingScrollRef.current = null;
-    const frame = window.requestAnimationFrame(() => {
-      window.scrollTo({ top: target, behavior: 'instant' as ScrollBehavior });
-    });
-    return () => window.cancelAnimationFrame(frame);
+    if (target <= 0) return;
+
+    // A single frame is not enough: the grid grows for a while after the games
+    // are set as cards mount and their (deferred) posters load, so an early
+    // scrollTo lands against a still-short page and is clamped near the top.
+    // Re-apply the target until the page is tall enough to honour it, capped in
+    // time, and abandon the moment the user scrolls so we never fight them.
+    let cancelled = false;
+    let elapsed = 0;
+    const DEADLINE_MS = 3000;
+    const STEP_MS = 80;
+
+    const stop = () => {
+      cancelled = true;
+      window.removeEventListener('wheel', stop);
+      window.removeEventListener('touchmove', stop);
+      window.removeEventListener('keydown', stop);
+    };
+
+    // Passive listeners: any genuine scroll intent hands control back to the user.
+    window.addEventListener('wheel', stop, { passive: true });
+    window.addEventListener('touchmove', stop, { passive: true });
+    window.addEventListener('keydown', stop);
+
+    const step = () => {
+      if (cancelled) return;
+      window.scrollTo(0, target);
+      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      const settled = maxScroll >= target - 2 && Math.abs(window.scrollY - target) <= 2;
+      if (settled || elapsed >= DEADLINE_MS) {
+        stop();
+        return;
+      }
+      elapsed += STEP_MS;
+      window.setTimeout(step, STEP_MS);
+    };
+    step();
+
+    return stop;
   }, [games]);
 
   // Load tracked games when authentication status changes
