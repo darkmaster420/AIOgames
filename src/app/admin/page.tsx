@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { TrustedPostersSettings } from '../../components/TrustedPostersSettings';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { ImageWithFallback } from '../../utils/imageProxy';
@@ -87,7 +88,7 @@ export default function AdminDashboard() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'games'>('games');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'games' | 'settings'>('games');
   const [editingGameId, setEditingGameId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [editingField, setEditingField] = useState<'title' | 'originalTitle'>('title');
@@ -322,6 +323,16 @@ export default function AdminDashboard() {
             }`}
           >
             🎮 Games
+          </button>
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'settings'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+            }`}
+          >
+            ⚙️ Settings
           </button>
         </div>
 
@@ -883,6 +894,11 @@ export default function AdminDashboard() {
                   )}
                 </div>
               </div>
+            )}
+
+            {/* Settings Tab */}
+            {activeTab === 'settings' && (
+              <TrustedPostersSettings />
             )}
           </>
         )}

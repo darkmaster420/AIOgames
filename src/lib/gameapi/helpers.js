@@ -2193,16 +2193,55 @@ const CSRIN_POST_SCAN_CONCURRENCY = 3;
 
 // Forum members whose releases are known to be clean and well-documented
 // (Steam capsule, depot/manifest, build, date). Their posts are ranked above
-// everything else in the candidate pool. Comma-separated, case-insensitive.
-const CSRIN_RELIABLE_POSTERS = new Set(
+// everything else in the candidate pool.
+//
+// Seeded from CSRIN_RELIABLE_POSTERS (comma-separated) at load, but the live
+// set is replaced at runtime by setCsrinReliablePosters() so the list can be
+// edited from the admin UI without a restart. This module stays free of any
+// database dependency; the caller pushes the merged list in.
+let csrinReliablePosters = new Set(
   (process.env.CSRIN_RELIABLE_POSTERS || '')
     .split(',')
     .map(name => name.trim().toLowerCase())
     .filter(Boolean),
 );
 
+// Members whose releases are known-bad or repeatedly problematic. Their posts
+// sink below everything else. Seeded from CSRIN_UNTRUSTED_POSTERS, replaced at
+// runtime like the trusted set.
+let csrinUntrustedPosters = new Set(
+  (process.env.CSRIN_UNTRUSTED_POSTERS || '')
+    .split(',')
+    .map(name => name.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+export function setCsrinReliablePosters(names) {
+  csrinReliablePosters = new Set(
+    (Array.isArray(names) ? names : [])
+      .map(name => String(name || '').trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+export function setCsrinUntrustedPosters(names) {
+  csrinUntrustedPosters = new Set(
+    (Array.isArray(names) ? names : [])
+      .map(name => String(name || '').trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
 function isReliableCsrinPoster(author) {
-  return Boolean(author) && CSRIN_RELIABLE_POSTERS.has(author.toLowerCase());
+  return Boolean(author) && csrinReliablePosters.has(author.toLowerCase());
+}
+
+// Trusted wins over untrusted if a name is somehow in both, so a trusted poster
+// can never be demoted by a stale untrusted entry.
+function isUntrustedCsrinPoster(author) {
+  if (!author) return false;
+  const key = author.toLowerCase();
+  return csrinUntrustedPosters.has(key) && !csrinReliablePosters.has(key);
 }
 
 const csrinSession = {
@@ -2563,6 +2602,7 @@ export function parseCsrinLinkedPosts(html, thread) {
     const releaseLabel = extractCsrinReleaseLabel(text);
     const author = extractCsrinAuthor(block.html);
     const reliablePoster = isReliableCsrinPoster(author);
+    const untrustedPoster = isUntrustedCsrinPoster(author);
     const postLink = `${thread.link}#p${block.postId}`;
     if (seen.has(postLink)) continue;
     seen.add(postLink);
@@ -2579,12 +2619,14 @@ export function parseCsrinLinkedPosts(html, thread) {
         `${links.length} external link${links.length === 1 ? '' : 's'} in this forum post` +
         (author ? ` by ${author}` : '') +
         (reliablePoster ? ' (trusted uploader)' : '') +
+        (untrustedPoster ? ' (untrusted uploader)' : '') +
         (releaseLabel ? ` (${releaseLabel})` : ''),
       csrinPostId: block.postId,
       csrinLinkCount: links.length,
       csrinHasReleaseMetadata: Boolean(releaseLabel),
       csrinAuthor: author,
       csrinReliablePoster: reliablePoster,
+      csrinUntrustedPoster: untrustedPoster,
     });
   }
 
@@ -2768,8 +2810,10 @@ export async function fetchCsrinSearch(searchQuery) {
         },
       );
       const posts = postGroups.flat().sort((a, b) =>
-        // Trusted uploaders first, then documented releases, then link count.
+        // Trusted uploaders first, untrusted last, then documented releases and
+        // link count in between.
         Number(Boolean(b.csrinReliablePoster)) - Number(Boolean(a.csrinReliablePoster)) ||
+        Number(Boolean(a.csrinUntrustedPoster)) - Number(Boolean(b.csrinUntrustedPoster)) ||
         Number(Boolean(b.csrinHasReleaseMetadata)) - Number(Boolean(a.csrinHasReleaseMetadata)) ||
         b.csrinLinkCount - a.csrinLinkCount ||
         a.title.localeCompare(b.title),

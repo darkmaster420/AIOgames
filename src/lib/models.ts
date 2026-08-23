@@ -926,7 +926,16 @@ const autoDownloadJobSchema = new mongoose.Schema({
 
 autoDownloadJobSchema.index({ trackedGameId: 1, gameLink: 1 }, { unique: true });
 
+// Generic key/value store for runtime-editable server settings, so values that
+// used to require an env change and restart (e.g. the trusted cs.rin.ru
+// uploader list) can be edited from the admin UI instead.
+const appSettingSchema = new mongoose.Schema({
+  key: { type: String, required: true, unique: true, index: true },
+  value: mongoose.Schema.Types.Mixed,
+}, { timestamps: true });
+
 // Create and export models
+export const AppSetting = mongoose.models.AppSetting || mongoose.model('AppSetting', appSettingSchema);
 export const User = mongoose.models.User || mongoose.model('User', userSchema);
 export const TrackedGame = mongoose.models.TrackedGame || mongoose.model('TrackedGame', trackedGameSchema);
 export const GOGVersionCache = mongoose.models.GOGVersionCache || mongoose.model('GOGVersionCache', gogVersionCacheSchema);

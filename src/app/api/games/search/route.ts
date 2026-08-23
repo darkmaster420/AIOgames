@@ -4,6 +4,7 @@ import { filterGamesBySearchQuery } from '../../../../utils/searchQueryFilter';
 import { searchGames } from '../../../../lib/gameapi';
 import { peekCachedSteamAppId, resolveSteamAppIdsBatch } from '../../../../utils/steamAppIdResolver';
 import { isCfProtectedUrl, prefetchImageBatch } from '../../../../utils/imageCache';
+import { refreshTrustedPostersCache } from '../../../../lib/trustedPosters';
 
 interface ApiGame {
   id: string;
@@ -163,6 +164,11 @@ export async function GET(request: NextRequest) {
     } else {
       console.log(`[Search] Cache MISS for "${search}" (sites: ${siteCacheKey}) - fetching from API`);
     }
+
+    // Make sure the scraper has the current trusted-uploader list before a
+    // cs.rin.ru scan ranks its posts. TTL-cached, so this is a no-op on all but
+    // the first search each minute.
+    await refreshTrustedPostersCache();
 
     // Call gameapi directly (integrated module). Empty list = default
     // (gameapi will pick all sites minus DEFAULT_EXCLUDED_FROM_ALL).
