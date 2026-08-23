@@ -53,8 +53,11 @@ interface SteamGameDetails {
         id: number;
         name: string;
         thumbnail: string;
-        webm: { 480: string; max: string };
-        mp4: { 480: string; max: string };
+        webm?: { 480?: string; max?: string };
+        mp4?: { 480?: string; max?: string };
+        hls_h264?: string;
+        dash_h264?: string;
+        dash_av1?: string;
       }>;
       developers?: string[];
       publishers?: string[];
@@ -129,8 +132,11 @@ export async function GET(
         id: number;
         name: string;
         thumbnail: string;
-        webm: { 480: string; max: string };
-        mp4: { 480: string; max: string };
+        webm?: { 480?: string; max?: string };
+        mp4?: { 480?: string; max?: string };
+        hls_h264?: string;
+        dash_h264?: string;
+        dash_av1?: string;
       }>;
       developers?: string[];
       publishers?: string[];

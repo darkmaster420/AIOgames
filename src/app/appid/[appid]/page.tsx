@@ -37,7 +37,16 @@ interface GameDetailsResponse {
     url?: string;
   };
   screenshots?: Array<{ id: number; path_thumbnail: string; path_full: string }>;
-  movies?: Array<{ id: number; name: string; thumbnail: string; webm: { 480: string; max: string }; mp4: { 480: string; max: string } }>;
+  movies?: Array<{
+    id: number;
+    name: string;
+    thumbnail: string;
+    webm?: { 480?: string; max?: string };
+    mp4?: { 480?: string; max?: string };
+    hls_h264?: string;
+    dash_h264?: string;
+    dash_av1?: string;
+  }>;
   genres?: Array<{ id: string; description: string }>;
   categories?: Array<{ id: number; description: string }>;
   drm_notice?: string;
