@@ -51,7 +51,9 @@ type ExistingAutoDownloadJob = {
   status?: string;
 };
 
-const DEFAULT_HOST_HIERARCHY = ['gofile', 'pixeldrain', 'mediafire', 'datanodes'];
+// MultiUp first: it mirrors an upload across several hosts and hands JD2 the
+// working one, so it survives an individual host being down or rate limiting.
+const DEFAULT_HOST_HIERARCHY = ['multiup', 'gofile', 'pixeldrain', 'mediafire', 'datanodes'];
 
 function envFlag(name: string, defaultValue = false): boolean {
   const raw = process.env[name];
@@ -77,6 +79,9 @@ function detectHost(link: AutoDownloadLink): string {
   const service = normalizeHostKey(link.service || '');
   const url = normalizeHostKey(link.url || '');
 
+  // Matched on the bare name so multiup.io / .org / .eu all resolve, since
+  // normalizeHostKey has already stripped the dots.
+  if (service.includes('multiup') || url.includes('multiup')) return 'multiup';
   if (service.includes('gofile') || url.includes('gofileio')) return 'gofile';
   if (service.includes('pixeldrain') || url.includes('pixeldraincom')) return 'pixeldrain';
   if (service.includes('mediafire') || url.includes('mediafirecom')) return 'mediafire';

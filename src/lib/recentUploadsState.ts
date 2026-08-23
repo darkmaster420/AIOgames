@@ -22,7 +22,7 @@ import {
   resolveSteamAppIdsBatch,
   clearNegativeAppIdCache,
 } from '../utils/steamAppIdResolver';
-import { prefetchImageBatch, getCachedImage } from '../utils/imageCache';
+import { prefetchImageBatch, getCachedImage, isImageKnownUnfetchable } from '../utils/imageCache';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -72,6 +72,9 @@ export function getCachedRecent(): CachedRecent | null {
 
 export function setCachedRecent(next: CachedRecent | null): void {
   cachedRecent = next;
+  // A fresh scrape brings new posters, so the one-shot fallback pass is armed
+  // again for this set of results.
+  imageRecoveryAttempted = false;
 }
 
 // ─── Per-title failure cooldowns ───────────────────────────────────────────
@@ -140,6 +143,8 @@ export function hasNativeAppId(game: Game): boolean {
 let enrichmentRunning = false;
 let appIdEnrichmentRunning = false;
 let imagePrefetchRunning = false;
+/** Bounds the fallback re-enrichment to one extra pass per scrape. */
+let imageRecoveryAttempted = false;
 
 export function enrichInBackground(): void {
   if (enrichmentRunning || !cachedRecent) return;
@@ -147,7 +152,13 @@ export function enrichInBackground(): void {
   pruneFailedTitleMap(failedImageTitles);
 
   const gamesNeedingImages = cachedRecent.results.filter((g: Game) => {
-    if (g.image) return false;
+    // A poster URL that cannot actually be fetched is no better than none:
+    // when a site's images are refused (Cloudflare blocking this host's IP,
+    // for instance) the card renders empty. Those games used to be skipped
+    // here purely because the field was non-empty, so the IGDB fallback never
+    // ran and they stayed imageless. The prefetch pass has already tried these
+    // URLs, so this reads its result rather than re-fetching.
+    if (g.image && !isImageKnownUnfetchable(g.image as string)) return false;
     const searchTitle = (g.title as string).trim();
     if (!searchTitle) return false;
     return shouldRetryTitle(failedImageTitles, searchTitle.toLowerCase());
@@ -180,7 +191,9 @@ export function enrichInBackground(): void {
 
       if (imageMap.size > 0 && cachedRecent) {
         cachedRecent.results = cachedRecent.results.map((game: Game) => {
-          if (!game.image) {
+          // Mirrors the selection test above: an unfetchable poster is replaced
+          // too, otherwise a resolved fallback would be looked up and discarded.
+          if (!game.image || isImageKnownUnfetchable(game.image as string)) {
             const searchTitle = (game.title as string).trim();
             const igdbImage = imageMap.get(searchTitle);
             if (igdbImage) return { ...game, image: igdbImage } as Game;
@@ -219,6 +232,19 @@ export function prefetchImageBytesInBackground(): void {
     try {
       const cachedCount = await prefetchImageBatch(urls, 3);
       console.log(`[Recent] Background image-byte prefetch done: ${cachedCount}/${urls.length} cached`);
+
+      // This pass is what discovers unfetchable posters, and it runs after
+      // enrichment, so the first enrichment could not have known about them.
+      // Run it once more so games whose artwork turned out to be unreachable
+      // get an IGDB fallback now rather than on some later scrape. Bounded to
+      // a single extra pass per scrape: enrichment ends by calling this
+      // function, so an unconditional re-run would ping-pong.
+      const failures = urls.length - cachedCount;
+      if (failures > 0 && !imageRecoveryAttempted) {
+        imageRecoveryAttempted = true;
+        console.log(`[Recent] ${failures} poster(s) unreachable, re-running enrichment for fallbacks`);
+        enrichInBackground();
+      }
     } catch (error) {
       console.error('[Recent] Background image-byte prefetch error:', error);
     } finally {

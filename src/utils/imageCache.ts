@@ -162,6 +162,18 @@ export function getCachedImage(url: string): CachedImage | null {
   return entry;
 }
 
+/**
+ * True when a poster could not be fetched recently — Cloudflare refusing the
+ * host's IP, a dead URL, or a timeout.
+ *
+ * Exposed so image enrichment can treat an unfetchable poster the same as a
+ * missing one. A post that carries a URL which always 403s is, to the user,
+ * simply a game with no artwork, and should still get an IGDB fallback.
+ */
+export function isImageKnownUnfetchable(url: string): boolean {
+  return isFailedRecently(url);
+}
+
 function isFailedRecently(url: string): boolean {
   const ts = failedUrls.get(url);
   if (!ts) return false;
