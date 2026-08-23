@@ -12,6 +12,13 @@ import { cleanGameTitle } from '../utils/steamApi';
 import { getProxiedImageUrl } from '../utils/imageProxy';
 import { PageLayoutSettings } from '../components/PageLayoutSettings';
 import { usePersistedHomepagePreferences } from '../hooks/usePersistedPagePreferences';
+import {
+  buildHomeFeedKey,
+  clearHomeFeedCache,
+  readHomeFeed,
+  saveHomeFeedScroll,
+  writeHomeFeed,
+} from '../utils/homeFeedCache';
 import { buildCustomGridStyle } from '../utils/pagePreferences';
 import { analyzeGameTitle, normalizeBuildNumber, normalizeVersionNumber } from '../utils/versionDetection';
 
@@ -82,6 +89,8 @@ function DashboardInner() {
   const { confirm } = useConfirm();
   const router = useRouter();
   const searchParams = useSearchParams();
+  /** Offset to restore once a cached feed has painted; null when not restoring. */
+  const pendingScrollRef = useRef<number | null>(null);
   const [refineText, setRefineText] = useState('');
   const [showRefine, setShowRefine] = useState(false);
   const homepagePrefs = usePersistedHomepagePreferences(status === 'authenticated');
@@ -328,6 +337,20 @@ function DashboardInner() {
   // clobbering the grid with fresh recent-uploads data. The user sees fully
   // enriched data on the next navigation / manual Refresh click.
   const loadRecentGames = useCallback(async (forceRefresh = false) => {
+    // Coming back from a game page: render the previous feed straight away
+    // rather than blanking the grid for the length of a scrape. The scroll
+    // restore below depends on the cards existing, so this has to happen
+    // before any await.
+    if (!forceRefresh) {
+      const cached = readHomeFeed<Game>(buildHomeFeedKey('', selectedSites, refineText));
+      if (cached) {
+        setGames(cached.games);
+        pendingScrollRef.current = cached.scrollY;
+        setLoading(false);
+        return;
+      }
+    }
+
     const signal = getFetchSignal();
     setLoading(true);
     setError(null);
@@ -342,6 +365,7 @@ function DashboardInner() {
       const data = await response.json();
       if (signal.aborted) return;
       setGames(data);
+      writeHomeFeed(buildHomeFeedKey('', selectedSites, refineText), data);
     } catch (err) {
       if ((err as { name?: string })?.name === 'AbortError') return;
       setError(err instanceof Error ? err.message : 'Failed to fetch recent games');
@@ -349,7 +373,7 @@ function DashboardInner() {
     } finally {
       if (!signal.aborted) setLoading(false);
     }
-  }, [getFetchSignal]);
+  }, [getFetchSignal, selectedSites, refineText]);
 
   // Search games handler
   const searchGames = useCallback(async (e?: React.FormEvent) => {
@@ -388,6 +412,7 @@ function DashboardInner() {
       // of them returned anything and we auto-widened to the default set.
       const resultsArr: Game[] = Array.isArray(data) ? data : (data?.results ?? []);
       setGames(resultsArr);
+      writeHomeFeed(buildHomeFeedKey(searchQuery, selectedSites, refineText), resultsArr);
       setFallbackFromSites(
         Array.isArray(data?.fallbackFromSites) && data.fallbackFromSites.length > 0
           ? data.fallbackFromSites
@@ -407,6 +432,44 @@ function DashboardInner() {
   useEffect(() => {
     loadRecentGames();
   }, [loadRecentGames]);
+
+  // Record where the user is, so returning from a game page lands in the same
+  // place. Throttled through rAF because scroll fires far more often than
+  // sessionStorage should be written.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const key = buildHomeFeedKey(searchQuery, selectedSites, refineText);
+    let frame = 0;
+
+    const persist = () => {
+      frame = 0;
+      saveHomeFeedScroll(key, window.scrollY);
+    };
+    const onScroll = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(persist);
+    };
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (frame) window.cancelAnimationFrame(frame);
+      // Catch the final position, including when navigating away mid-scroll.
+      saveHomeFeedScroll(key, window.scrollY);
+    };
+  }, [searchQuery, selectedSites, refineText]);
+
+  // Restore after the restored cards exist; scrolling before they render would
+  // hit a short page and be clamped to the top.
+  useEffect(() => {
+    const target = pendingScrollRef.current;
+    if (target === null || games.length === 0) return;
+    pendingScrollRef.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: target, behavior: 'instant' as ScrollBehavior });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [games]);
 
   // Load tracked games when authentication status changes
   useEffect(() => {
@@ -911,7 +974,7 @@ function DashboardInner() {
               )}
               {!searchQuery && (
                 <button
-                  onClick={() => loadRecentGames(true)}
+                  onClick={() => { clearHomeFeedCache(); loadRecentGames(true); }}
                   disabled={loading}
                   className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 font-medium disabled:opacity-50"
                 >

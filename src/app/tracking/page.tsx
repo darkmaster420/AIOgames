@@ -127,6 +127,14 @@ function dedupeTrackedGames(games: TrackedGame[]): TrackedGame[] {
   );
 }
 
+/** Shared by the collapsed summary chip and the expanded button row. */
+const SORT_OPTIONS = [
+  { key: 'title', label: 'Title', icon: '📝' },
+  { key: 'dateAdded', label: 'Added', icon: '📅' },
+  { key: 'lastChecked', label: 'Checked', icon: '🔍' },
+  { key: 'lastUpdated', label: 'Updated', icon: '⚡' },
+] as const;
+
 export default function TrackingDashboard() {
   const { status } = useSession();
   const { showSuccess, showError, showInfo } = useNotification();
@@ -159,6 +167,8 @@ export default function TrackingDashboard() {
   // Sort functionality
   const [sortBy, setSortBy] = useState<'title' | 'dateAdded' | 'lastChecked' | 'lastUpdated'>('dateAdded');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  /** Sort buttons stay collapsed behind a summary chip; sorting is set rarely. */
+  const [showSortOptions, setShowSortOptions] = useState(false);
   
   // Advanced view for showing original titles
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -1016,14 +1026,23 @@ export default function TrackingDashboard() {
                 {/* Sort Controls */}
                 <div className="card-gradient backdrop-blur-sm border border-white/20 dark:border-white/10 px-4 py-3 rounded-xl shadow-lg">
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                    <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Sort by:</span>
-                    <div className="flex flex-wrap items-center gap-2 flex-1">
-                      {[
-                        { key: 'title', label: 'Title', icon: '📝' },
-                        { key: 'dateAdded', label: 'Added', icon: '📅' },
-                        { key: 'lastChecked', label: 'Checked', icon: '🔍' },
-                        { key: 'lastUpdated', label: 'Updated', icon: '⚡' }
-                      ].map((option) => (
+                    {/* Collapsed by default: the chip names the active sort, so
+                        the four buttons only take space while actually choosing. */}
+                    <button
+                      onClick={() => setShowSortOptions(v => !v)}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/50 dark:bg-gray-700/50 text-gray-700 dark:text-gray-300 hover:bg-white/70 dark:hover:bg-gray-700/70 transition-all shrink-0"
+                      title={showSortOptions ? 'Hide sort options' : 'Change sort order'}
+                      aria-expanded={showSortOptions}
+                    >
+                      <span>⇅</span>
+                      <span>
+                        {SORT_OPTIONS.find(o => o.key === sortBy)?.label || 'Sort'}
+                      </span>
+                      <span className="font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                      <span className={`transition-transform ${showSortOptions ? 'rotate-180' : ''}`}>⌄</span>
+                    </button>
+                    <div className={`${showSortOptions ? 'flex' : 'hidden'} flex-wrap items-center gap-2 flex-1`}>
+                      {SORT_OPTIONS.map((option) => (
                         <button
                           key={option.key}
                           onClick={() => handleSortChange(option.key as typeof sortBy)}
