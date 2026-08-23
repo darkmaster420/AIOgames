@@ -2191,6 +2191,20 @@ const CSRIN_LOGIN_FAIL_COOLDOWN = 5 * 60 * 1000; // 5 minutes - don't hammer on 
 const CSRIN_POST_SCAN_LIMIT = 12;
 const CSRIN_POST_SCAN_CONCURRENCY = 3;
 
+// Forum members whose releases are known to be clean and well-documented
+// (Steam capsule, depot/manifest, build, date). Their posts are ranked above
+// everything else in the candidate pool. Comma-separated, case-insensitive.
+const CSRIN_RELIABLE_POSTERS = new Set(
+  (process.env.CSRIN_RELIABLE_POSTERS || '')
+    .split(',')
+    .map(name => name.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+function isReliableCsrinPoster(author) {
+  return Boolean(author) && CSRIN_RELIABLE_POSTERS.has(author.toLowerCase());
+}
+
 const csrinSession = {
   cookies: '',          // serialised "name=value; name=value" Cookie header
   loggedInAt: 0,        // ms timestamp of last successful login
@@ -2526,6 +2540,17 @@ function extractCsrinReleaseLabel(postText) {
   return '';
 }
 
+// Pulls the post author from the phpBB postprofile. That block leads each post
+// and links the member's profile with a `username`/`username-coloured` class,
+// so the first such anchor in the block is the author (a `username` link later
+// in the body would be a quote or mention).
+function extractCsrinAuthor(postHtml) {
+  const match = postHtml.match(
+    /<a\b[^>]*\bclass="[^"]*\busername(?:-coloured)?\b[^"]*"[^>]*>([^<]+)<\/a>/i,
+  );
+  return match ? decodeEntities(match[1]).trim() : '';
+}
+
 export function parseCsrinLinkedPosts(html, thread) {
   const results = [];
   const seen = new Set();
@@ -2536,6 +2561,8 @@ export function parseCsrinLinkedPosts(html, thread) {
 
     const text = stripCsrinHtml(block.html);
     const releaseLabel = extractCsrinReleaseLabel(text);
+    const author = extractCsrinAuthor(block.html);
+    const reliablePoster = isReliableCsrinPoster(author);
     const postLink = `${thread.link}#p${block.postId}`;
     if (seen.has(postLink)) continue;
     seen.add(postLink);
@@ -2550,10 +2577,14 @@ export function parseCsrinLinkedPosts(html, thread) {
       excerpt: text.slice(0, 360),
       description:
         `${links.length} external link${links.length === 1 ? '' : 's'} in this forum post` +
+        (author ? ` by ${author}` : '') +
+        (reliablePoster ? ' (trusted uploader)' : '') +
         (releaseLabel ? ` (${releaseLabel})` : ''),
       csrinPostId: block.postId,
       csrinLinkCount: links.length,
       csrinHasReleaseMetadata: Boolean(releaseLabel),
+      csrinAuthor: author,
+      csrinReliablePoster: reliablePoster,
     });
   }
 
@@ -2737,6 +2768,8 @@ export async function fetchCsrinSearch(searchQuery) {
         },
       );
       const posts = postGroups.flat().sort((a, b) =>
+        // Trusted uploaders first, then documented releases, then link count.
+        Number(Boolean(b.csrinReliablePoster)) - Number(Boolean(a.csrinReliablePoster)) ||
         Number(Boolean(b.csrinHasReleaseMetadata)) - Number(Boolean(a.csrinHasReleaseMetadata)) ||
         b.csrinLinkCount - a.csrinLinkCount ||
         a.title.localeCompare(b.title),
