@@ -420,8 +420,14 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
               {
                 $set: {
                   ...(isLocalOnly ? {
-                    title,
+                    // `title` holds the cleaned name and `originalTitle` the raw
+                    // one, matching what POST /api/tracking stores. Writing the
+                    // filename-derived name into `title` here undid the cleanup
+                    // on every scan, and the watcher rescans on a timer, so a
+                    // manually corrected title reverted within a minute.
+                    title: cleanedTitle,
                     originalTitle: title,
+                    cleanedTitle,
                     source: 'Local Library',
                     gameLink: `library://${libraryGameIdString}`,
                   } : remoteSourceRepairFields(existingTrackedByIdentity)),
@@ -477,7 +483,9 @@ async function runLibraryScanInternal(userId?: string): Promise<LibraryScanStats
             const created = await TrackedGame.create({
               userId,
               gameId,
-              title,
+              // Cleaned in `title`, raw in `originalTitle` — the same
+              // convention every other write path uses.
+              title: cleanedTitle,
               originalTitle: title,
               cleanedTitle,
               priority: calculateGamePriority(title, false),

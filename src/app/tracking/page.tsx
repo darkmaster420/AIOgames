@@ -185,20 +185,6 @@ export default function TrackingDashboard() {
 
   const customGridStyle = buildCustomGridStyle(layoutMode, customCols, customRows);
   
-  // Title migration state
-  const [migrationStatus, setMigrationStatus] = useState<{
-    checking: boolean;
-    migrating: boolean;
-    needsMigration: number;
-    total: number;
-    lastCheck: number | null;
-  }>({
-    checking: false,
-    migrating: false,
-    needsMigration: 0,
-    total: 0,
-    lastCheck: null
-  });
 
   // Sort games function
   // Helper function to get display title for a game
@@ -782,75 +768,7 @@ export default function TrackingDashboard() {
     }
   };
 
-  // Check migration status
-  const checkMigrationStatus = useCallback(async () => {
-    setMigrationStatus(prev => ({ ...prev, checking: true }));
-    try {
-      const response = await fetch('/api/admin/migrate-titles');
-      if (response.ok) {
-        const data = await response.json();
-        setMigrationStatus(prev => ({
-          ...prev,
-          checking: false,
-          needsMigration: data.needsMigration,
-          total: data.totalGames,
-          lastCheck: Date.now()
-        }));
-      } else {
-        // Silently fail - migration check is non-critical
-        setMigrationStatus(prev => ({ ...prev, checking: false, lastCheck: Date.now() }));
-      }
-    } catch (error) {
-      console.error('Migration check error:', error);
-      setMigrationStatus(prev => ({ ...prev, checking: false, lastCheck: Date.now() }));
-    }
-  }, []);
 
-  // Check migration status when games are loaded
-  useEffect(() => {
-    if (trackedGames.length > 0 && !migrationStatus.lastCheck) {
-      checkMigrationStatus();
-    }
-  }, [trackedGames, migrationStatus.lastCheck, checkMigrationStatus]);
-
-  // Perform title migration
-  const performMigration = async () => {
-    const confirmed = await confirm(
-      'Migrate Game Titles',
-      'This will update the titles of your tracked games to show cleaned versions by default, with original titles available in Advanced mode. Continue?',
-      { confirmText: 'Migrate', cancelText: 'Cancel', type: 'warning' }
-    );
-    
-    if (!confirmed) return;
-
-    setMigrationStatus(prev => ({ ...prev, migrating: true }));
-    try {
-      const response = await fetch('/api/admin/migrate-titles', {
-        method: 'POST'
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        showSuccess(`Successfully migrated ${data.migratedCount} games!`);
-        // Refresh the games list
-        loadTrackedGames();
-        // Reset migration status
-        setMigrationStatus(prev => ({
-          ...prev,
-          migrating: false,
-          needsMigration: 0,
-          lastCheck: Date.now()
-        }));
-      } else {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Migration failed');
-      }
-    } catch (error) {
-      console.error('Migration error:', error);
-      setMigrationStatus(prev => ({ ...prev, migrating: false }));
-      showError(error instanceof Error ? error.message : 'Migration failed');
-    }
-  };
 
   // Show loading spinner while checking auth
 
@@ -1002,25 +920,9 @@ export default function TrackingDashboard() {
                     </div>
                   </div>
                   
-                  {/* Title Migration Button */}
-                  {migrationStatus.needsMigration > 0 && (
-                    <button
-                      onClick={performMigration}
-                      disabled={migrationStatus.migrating}
-                      className="px-4 py-3 rounded-xl font-medium text-sm transition-all duration-200 shadow-lg bg-gradient-to-r from-blue-500 to-purple-500 text-white hover:from-blue-600 hover:to-purple-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                      title={`Fix ${migrationStatus.needsMigration} games with uncleaned titles`}
-                    >
-                      <span className="flex items-center gap-2">
-                        <span>🔄</span>
-                        <span className="hidden sm:inline">
-                          {migrationStatus.migrating ? 'Fixing...' : `Fix Titles (${migrationStatus.needsMigration})`}
-                        </span>
-                        <span className="sm:hidden">
-                          {migrationStatus.migrating ? '...' : migrationStatus.needsMigration}
-                        </span>
-                      </span>
-                    </button>
-                  )}
+                  {/* Titles are cleaned on every write path, so there is nothing
+                      left for a manual fix-up to do. POST /api/admin/migrate-titles
+                      still exists as an admin escape hatch for legacy rows. */}
                 </div>
 
                 {/* Sort Controls */}
