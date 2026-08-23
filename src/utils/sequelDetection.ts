@@ -53,7 +53,24 @@ function extractBaseTitleKeepNumbers(title: string): string {
 }
 
 // Detect if a game is a sequel of another game
+/**
+ * Sequel detection is switched off.
+ *
+ * It never worked the way it was intended to and produced noise rather than
+ * useful notifications, so it is disabled at the single point every caller goes
+ * through instead of being torn out: the feature reaches into the update-check
+ * flow in a few hundred places, and unpicking that is a change worth making on
+ * its own rather than alongside unrelated fixes.
+ *
+ * Every caller already treats `null` as "not a sequel", so returning early here
+ * stops the work and the notifications without touching them. Set this to true
+ * to bring it back for debugging.
+ */
+const SEQUEL_DETECTION_ENABLED = false;
+
 export function detectSequel(originalTitle: string, candidateTitle: string): SequelDetectionResult | null {
+  if (!SEQUEL_DETECTION_ENABLED) return null;
+
   const baseOriginal = extractBaseTitle(originalTitle);
   const baseCandidate = extractBaseTitle(candidateTitle);
 

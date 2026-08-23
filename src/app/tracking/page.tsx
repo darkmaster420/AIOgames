@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { TrackedGamePosterCard } from '../../components/TrackedGamePosterCard';
 
-import { SequelNotifications } from '../../components/SequelNotifications';
 import { AddCustomGame } from '../../components/AddCustomGame';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { cleanGameTitle } from '../../utils/steamApi';
@@ -921,7 +920,8 @@ export default function TrackingDashboard() {
                 </span>
               )}
             </button>
-            <SequelNotifications />
+            {/* Sequel detection is disabled (see utils/sequelDetection.ts), so
+                this panel would only ever be empty. */}
           </div>
 
           {/* Search/Filter Bar */}
