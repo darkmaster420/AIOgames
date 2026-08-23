@@ -92,6 +92,11 @@ function DashboardInner() {
   /** Offset to restore once a cached feed has painted; null when not restoring. */
   const pendingScrollRef = useRef<number | null>(null);
   const [refineText, setRefineText] = useState('');
+  // Mirrors of the filter/refine state, read by the stable loadRecentGames.
+  const selectedSitesRef = useRef<string[]>(selectedSites);
+  const refineTextRef = useRef<string>(refineText);
+  selectedSitesRef.current = selectedSites;
+  refineTextRef.current = refineText;
   const [showRefine, setShowRefine] = useState(false);
   const homepagePrefs = usePersistedHomepagePreferences(status === 'authenticated');
   const {
@@ -337,12 +342,20 @@ function DashboardInner() {
   // clobbering the grid with fresh recent-uploads data. The user sees fully
   // enriched data on the next navigation / manual Refresh click.
   const loadRecentGames = useCallback(async (forceRefresh = false) => {
+    // Read the current filter/refine through refs rather than closing over the
+    // state values. This keeps loadRecentGames stable across filter changes:
+    // the initial-load effect below depends on its identity, and if a filter
+    // change recreated it, that effect would re-fire an unfiltered recent load
+    // that clobbers whatever the just-clicked filter had fetched (the filter's
+    // own handler owns the filtered fetch).
+    const cacheKey = buildHomeFeedKey('', selectedSitesRef.current, refineTextRef.current);
+
     // Coming back from a game page: render the previous feed straight away
     // rather than blanking the grid for the length of a scrape. The scroll
     // restore below depends on the cards existing, so this has to happen
     // before any await.
     if (!forceRefresh) {
-      const cached = readHomeFeed<Game>(buildHomeFeedKey('', selectedSites, refineText));
+      const cached = readHomeFeed<Game>(cacheKey);
       if (cached) {
         setGames(cached.games);
         pendingScrollRef.current = cached.scrollY;
@@ -365,7 +378,7 @@ function DashboardInner() {
       const data = await response.json();
       if (signal.aborted) return;
       setGames(data);
-      writeHomeFeed(buildHomeFeedKey('', selectedSites, refineText), data);
+      writeHomeFeed(cacheKey, data);
     } catch (err) {
       if ((err as { name?: string })?.name === 'AbortError') return;
       setError(err instanceof Error ? err.message : 'Failed to fetch recent games');
@@ -373,7 +386,7 @@ function DashboardInner() {
     } finally {
       if (!signal.aborted) setLoading(false);
     }
-  }, [getFetchSignal, selectedSites, refineText]);
+  }, [getFetchSignal]);
 
   // Search games handler
   const searchGames = useCallback(async (e?: React.FormEvent) => {
