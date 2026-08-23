@@ -12,8 +12,9 @@ leave the rest untouched rather than risk dropping data on write.
 from .user import User
 from .tracked_game import TrackedGame
 from .app_setting import AppSetting
+from .library_game import LibraryGame
 
 # Registered with Beanie at startup.
-DOCUMENT_MODELS = [User, TrackedGame, AppSetting]
+DOCUMENT_MODELS = [User, TrackedGame, AppSetting, LibraryGame]
 
-__all__ = ["User", "TrackedGame", "AppSetting", "DOCUMENT_MODELS"]
+__all__ = ["User", "TrackedGame", "AppSetting", "LibraryGame", "DOCUMENT_MODELS"]

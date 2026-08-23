@@ -14,17 +14,30 @@ import { getToken } from 'next-auth/jwt';
  * headers without re-implementing NextAuth's encrypted-JWT handling. The
  * backend port must stay unpublished so these headers cannot be forged.
  */
-const PORTED_PREFIXES: string[] = [
-  // Nothing adopted yet. First entry lands in M1, e.g. '/api/tracking'.
-  // The diagnostics route is safe to exercise the path end to end:
-  '/api/backend',
+/**
+ * Ported endpoints, method-aware. A path may be served by BOTH backends at once
+ * during migration — e.g. GET /api/tracking is on FastAPI while its POST/DELETE
+ * are still Next routes — so each rule pins the methods that have actually moved.
+ * `methods: '*'` means every method for that prefix is ported.
+ */
+type PortedRule = { prefix: string; methods: string[] | '*' };
+
+const PORTED_RULES: PortedRule[] = [
+  // Diagnostics: proves the proxy + auth handoff end to end.
+  { prefix: '/api/backend', methods: '*' },
+  // M1: only the read path has moved; add/remove stay on Next.
+  { prefix: '/api/tracking', methods: ['GET'] },
 ];
 
 const BACKEND_URL = (process.env.BACKEND_INTERNAL_URL || 'http://backend:8000').replace(/\/+$/, '');
 const INTERNAL_KEY = process.env.INTERNAL_API_SECRET || '';
 
-function isPorted(pathname: string): boolean {
-  return PORTED_PREFIXES.some(prefix => pathname === prefix || pathname.startsWith(prefix + '/'));
+function isPorted(pathname: string, method: string): boolean {
+  return PORTED_RULES.some(rule => {
+    const pathMatches = pathname === rule.prefix || pathname.startsWith(rule.prefix + '/');
+    if (!pathMatches) return false;
+    return rule.methods === '*' || rule.methods.includes(method);
+  });
 }
 
 export async function middleware(request: NextRequest) {
@@ -35,7 +48,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname.startsWith('/api/') && isPorted(pathname)) {
+  if (pathname.startsWith('/api/') && isPorted(pathname, request.method)) {
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
     if (!token?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
