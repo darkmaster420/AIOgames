@@ -1,0 +1,10 @@
+# FastAPI backend for AIOgames. Pinned to majors that are current as of the
+# rewrite; bump deliberately.
+fastapi==0.115.*
+uvicorn[standard]==0.34.*
+motor==3.6.*                 # async MongoDB driver (same data as the Node app)
+beanie==1.27.*              # ODM over motor; models mirror the mongoose schemas
+pydantic==2.*
+pydantic-settings==2.*
+httpx==0.28.*              # outbound scraping / FlareSolverr / integrations
+selectolax==0.3.*          # fast HTML parsing for phpBB (cs.rin.ru) + WP fallbacks

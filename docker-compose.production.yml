@@ -45,7 +45,10 @@ services:
       - QBITTORRENT_URL=http://qbitvpn:8080
       - QBIT_CATEGORY=games
       - QBIT_TAGS=aiogames
-    env_file: 
+      # Python backend (rewrite). The Next middleware proxies ported /api paths
+      # to this address and signs them with INTERNAL_API_SECRET (in stack.env).
+      - BACKEND_INTERNAL_URL=http://backend:8000
+    env_file:
       - stack.env  # stack.env or .env
       #- .env
     volumes:
@@ -58,3 +61,21 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+
+  # Python (FastAPI) backend for the rewrite. Deliberately has NO published
+  # ports: it is reachable only from the aiogames container over the compose
+  # network, which is what lets it trust the x-aio-user-* headers the Next
+  # middleware injects. Shares stack.env for MONGODB_URI + INTERNAL_API_SECRET.
+  backend:
+    image: ${AIOGAMES_BACKEND_IMAGE:-ghcr.io/lukewarmsodas/aiogames-backend:latest}
+    build:
+      context: ./backend
+    env_file:
+      - stack.env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
