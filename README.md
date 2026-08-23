@@ -132,7 +132,7 @@ VAPID_PRIVATE_KEY=your-vapid-private-key
 | ReloadedSteam | WordPress API | ✅ | ✅ | ✅ | — |
 | Online-Fix | Custom scraper | ✅ | ✅ | ✅ | HTML scraping, no WP API |
 | DODI-Repacks | WordPress API | ✅ | ✅ | "Open post" | Downloads aren't scraped; UI links straight to the DODI post |
-| CS.RIN.RU | phpBB forum | ✅ (opt-in) | — | "Open thread" | Bot login required (`CSRIN_USERNAME`/`CSRIN_PASSWORD`); excluded from default-all search; search results jump straight to the latest page of each thread |
+| CS.RIN.RU | phpBB forum | ✅ (opt-in) | — | "Open forum post" | Bot login required (`CSRIN_USERNAME`/`CSRIN_PASSWORD`); excluded from default-all search; scans matching threads for latest-page posts containing external links and returns the individual forum-post permalink with release metadata when present |
 
 ---
 

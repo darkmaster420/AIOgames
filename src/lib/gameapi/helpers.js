@@ -2179,14 +2179,17 @@ export async function fetchOnlineFixSearch(searchQuery) {
 // cs.rin.ru is a phpBB forum that requires login to search/view threads.
 // We log in once per server lifetime with a dedicated bot account
 // (CSRIN_USERNAME / CSRIN_PASSWORD env vars), cache the session cookies in
-// memory, and re-login on expiry or session loss. We DO NOT scrape download
-// links from threads - search results return the thread URL and the user
-// clicks through to the forum themselves.
+// memory, and re-login on expiry or session loss. Search results inspect the
+// latest page of matching threads and return only individual forum posts that
+// contain external links. The app still sends users to the forum post itself;
+// it does not expose hoster URLs as automatic-download inputs.
 
 const CSRIN_BASE = 'https://cs.rin.ru/forum';
 const CSRIN_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 const CSRIN_SESSION_TTL = 60 * 60 * 1000; // 1 hour - phpBB sessions usually last longer but be conservative
 const CSRIN_LOGIN_FAIL_COOLDOWN = 5 * 60 * 1000; // 5 minutes - don't hammer on bad creds
+const CSRIN_POST_SCAN_LIMIT = 12;
+const CSRIN_POST_SCAN_CONCURRENCY = 3;
 
 const csrinSession = {
   cookies: '',          // serialised "name=value; name=value" Cookie header
@@ -2447,6 +2450,116 @@ function buildCsrinPost({ threadId, title, link }) {
   };
 }
 
+function stripCsrinHtml(value) {
+  return decodeEntities(
+    value
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' '),
+  ).trim();
+}
+
+function getCsrinPostBlocks(html) {
+  const starts = [...html.matchAll(/<div\b[^>]*\bid="p(\d+)"[^>]*>/gi)];
+  const blocks = [];
+
+  for (let index = 0; index < starts.length; index += 1) {
+    const match = starts[index];
+    const start = match.index || 0;
+    const end = index + 1 < starts.length ? starts[index + 1].index : html.length;
+    blocks.push({ postId: match[1], html: html.slice(start, end) });
+  }
+
+  return blocks;
+}
+
+// Narrows a post block to just the message body. phpBB keeps the actual post
+// text in `<div class="content">`, with the user's signature in a sibling
+// `<div class="signature">` and page chrome outside every post. Signatures
+// routinely carry unrelated external links (referrals, personal sites), and
+// the final post's block runs to the end of the document and so would otherwise
+// swallow footer links. Scoping to the content region keeps the extracted
+// candidates to links the poster actually put in the release.
+function getCsrinPostContent(postHtml) {
+  const open = postHtml.search(/<div\b[^>]*\bclass="[^"]*\bcontent\b[^"]*"[^>]*>/i);
+  if (open === -1) {
+    // No recognisable content div: strip a trailing signature if present so we
+    // at least don't count signature links, and use what remains.
+    return postHtml.replace(/<div\b[^>]*\bclass="[^"]*\bsignature\b[^"]*"[^>]*>[\s\S]*/i, '');
+  }
+  // Take from the content div to the start of the signature (or end of block).
+  const afterOpen = postHtml.slice(open);
+  const sig = afterOpen.search(/<div\b[^>]*\bclass="[^"]*\bsignature\b[^"]*"[^>]*>/i);
+  return sig === -1 ? afterOpen : afterOpen.slice(0, sig);
+}
+
+function getExternalCsrinLinks(postHtml) {
+  const urls = new Set();
+  const hrefRe = /<a\b[^>]*\bhref="([^"]+)"[^>]*>/gi;
+
+  for (const match of getCsrinPostContent(postHtml).matchAll(hrefRe)) {
+    const href = decodeEntities(match[1]).trim();
+    if (!/^https?:\/\//i.test(href)) continue;
+    try {
+      const url = new URL(href);
+      if (url.hostname === 'cs.rin.ru' || url.hostname.endsWith('.cs.rin.ru')) continue;
+      urls.add(url.toString());
+    } catch {
+      // Ignore malformed links instead of letting one post fail the thread.
+    }
+  }
+
+  return [...urls];
+}
+
+function extractCsrinReleaseLabel(postText) {
+  const patterns = [
+    /\b(?:version|ver\.?|v)\s*[:#-]?\s*(\d+(?:[._-]\d+){1,5}(?:[a-z]\d*)?\b)/i,
+    /\b(?:build|buildid)\s*[:#-]?\s*(\d{4,})\b/i,
+    /\b(\d{4}[._-]\d{2}[._-]\d{2})\b/,
+  ];
+  for (const pattern of patterns) {
+    const match = postText.match(pattern);
+    if (match) return match[0].replace(/\s+/g, ' ').trim();
+  }
+  return '';
+}
+
+export function parseCsrinLinkedPosts(html, thread) {
+  const results = [];
+  const seen = new Set();
+
+  for (const block of getCsrinPostBlocks(html)) {
+    const links = getExternalCsrinLinks(block.html);
+    if (links.length === 0) continue;
+
+    const text = stripCsrinHtml(block.html);
+    const releaseLabel = extractCsrinReleaseLabel(text);
+    const postLink = `${thread.link}#p${block.postId}`;
+    if (seen.has(postLink)) continue;
+    seen.add(postLink);
+
+    results.push({
+      ...buildCsrinPost({
+        threadId: thread.threadId,
+        title: releaseLabel ? `${thread.title} - ${releaseLabel}` : thread.title,
+        link: postLink,
+      }),
+      id: `csrin-${thread.threadId}-${block.postId}`,
+      excerpt: text.slice(0, 360),
+      description:
+        `${links.length} external link${links.length === 1 ? '' : 's'} in this forum post` +
+        (releaseLabel ? ` (${releaseLabel})` : ''),
+      csrinPostId: block.postId,
+      csrinLinkCount: links.length,
+      csrinHasReleaseMetadata: Boolean(releaseLabel),
+    });
+  }
+
+  return results;
+}
+
 function parseCsrinSearchResults(html) {
   // First pass: scan every viewtopic href that carries `start=N` and record
   // the largest start per thread. phpBB puts these inside the
@@ -2512,10 +2625,49 @@ function parseCsrinSearchResults(html) {
       const lastStart = lastStartByThread.get(threadId);
       if (lastStart !== undefined) linkParams.set('start', String(lastStart));
       const link = `${CSRIN_BASE}/viewtopic.php?${linkParams.toString()}`;
-      results.push(buildCsrinPost({ threadId, title, link }));
+      results.push({ ...buildCsrinPost({ threadId, title, link }), threadId, forumId: f || '', start: lastStart || 0 });
     }
   }
 
+  return results;
+}
+
+async function fetchCsrinThreadLinkedPosts(thread) {
+  const doFetch = () => csrinFetch(thread.link, {
+    headers: { Referer: `${CSRIN_BASE}/search.php` },
+  });
+
+  let response = await doFetch();
+  if (!response || !response.ok) {
+    console.warn(`cs.rin.ru thread ${thread.threadId} returned ${response?.status || 'no response'}`);
+    return [];
+  }
+
+  let html = await response.text();
+  if (looksLikeLoginPage(html)) {
+    csrinSession.cookies = '';
+    csrinSession.loggedInAt = 0;
+    if (!await ensureCsrinSession()) return [];
+    response = await doFetch();
+    if (!response || !response.ok) return [];
+    html = await response.text();
+    if (looksLikeLoginPage(html)) return [];
+  }
+
+  return parseCsrinLinkedPosts(html, thread);
+}
+
+async function mapWithConcurrency(items, limit, mapper) {
+  const results = [];
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index]);
+    }
+  });
+  await Promise.all(workers);
   return results;
 }
 
@@ -2568,7 +2720,33 @@ export async function fetchCsrinSearch(searchQuery) {
       if (looksLikeLoginPage(html)) return [];
     }
 
-    return parseCsrinSearchResults(html);
+    const threads = parseCsrinSearchResults(html).slice(0, CSRIN_POST_SCAN_LIMIT);
+    if (threads.length === 0) return [];
+
+    try {
+      const postGroups = await mapWithConcurrency(
+        threads,
+        CSRIN_POST_SCAN_CONCURRENCY,
+        async thread => {
+          try {
+            return await fetchCsrinThreadLinkedPosts(thread);
+          } catch (error) {
+            console.warn(`cs.rin.ru post scan failed for thread ${thread.threadId}:`, error?.message || error);
+            return [];
+          }
+        },
+      );
+      const posts = postGroups.flat().sort((a, b) =>
+        Number(Boolean(b.csrinHasReleaseMetadata)) - Number(Boolean(a.csrinHasReleaseMetadata)) ||
+        b.csrinLinkCount - a.csrinLinkCount ||
+        a.title.localeCompare(b.title),
+      );
+      console.log(`cs.rin.ru scanned ${threads.length} thread(s), found ${posts.length} linked post(s)`);
+      return posts;
+    } catch (error) {
+      console.warn('cs.rin.ru post scan failed:', error?.message || error);
+      return [];
+    }
   } catch (err) {
     console.error('cs.rin.ru search error:', err?.message || err);
     return [];
