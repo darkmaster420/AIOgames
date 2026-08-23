@@ -348,9 +348,21 @@ function combineAutoDispatchResults(
 async function recordAutoDownloadJob(
   params: DispatchParams,
   result: AutoDispatchResult,
+  /**
+   * The host JD2 was actually handed links for.
+   *
+   * This seeds `attemptedHosts`, which is what failover subtracts from the
+   * hierarchy to choose a replacement. It must not be read from the combined
+   * result: `selectedHosts` there is the union of the JD2 and qBittorrent
+   * dispatches, so the first entry is frequently not the host JD2 is using. A
+   * wrong value makes failover pick the host already in use, remove its links
+   * and re-send the very same ones, which looks like a failed download never
+   * being replaced.
+   */
+  jd2Host?: string,
 ): Promise<void> {
   const candidateLinks = sortDownloadLinksByJd2Hierarchy(params.downloadLinks || []);
-  const currentHost = result.selectedHosts[0] || '';
+  const currentHost = jd2Host || result.selectedHosts[0] || '';
   await AutoDownloadJob.findOneAndUpdate(
     { trackedGameId: params.trackedGameId, gameLink: params.gameLink },
     {
@@ -409,7 +421,9 @@ export async function dispatchAutoDownloadToJd2(params: DispatchParams): Promise
     performQbitDispatch(params),
   ]);
   const result = combineAutoDispatchResults(jd2Result, qbitResult);
-  await recordAutoDownloadJob(params, result);
+  // `firstHost` is the host JD2 was given links for, so it is what failover
+  // must treat as already attempted.
+  await recordAutoDownloadJob(params, result, firstHost);
 
   if (jd2Result.ok) {
     logger.info(`Sent ${jd2Result.linkCount} auto-download link(s) to JD2 for ${params.gameTitle}`);
