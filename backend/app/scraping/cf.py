@@ -125,6 +125,29 @@ _PERSIST_COOKIE_SESSIONS = {
 }
 
 
+async def solve_with_fallback(url: str, session: str = "default") -> FetchResult | None:
+    """Try each configured solver until one returns a usable (non-challenge)
+    response. FlareSolverr is tried first (it handles our API/RSS endpoints, e.g.
+    SteamDB, that the browser-based Byparr times out on); Byparr is the fallback
+    for sites FlareSolverr can't get past. Returns the last attempt if all fail."""
+    bases: list[str] = []
+    for candidate in (flaresolverr_url(), byparr_url(), solver_url()):
+        candidate = (candidate or "").strip()
+        if candidate and candidate not in bases:
+            bases.append(candidate)
+    last: FetchResult | None = None
+    for base in bases:
+        resp = await solve_via_flaresolverr(url, session=session, base_url=base)
+        if (
+            resp is not None
+            and resp.ok
+            and not has_cloudflare_protection(resp.status, resp.content_type, resp.text)
+        ):
+            return resp
+        last = resp
+    return last
+
+
 async def solve_via_flaresolverr(url: str, session: str = "default", base_url: str | None = None) -> FetchResult | None:
     base = (base_url or solver_url()).strip()
     if not base:

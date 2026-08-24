@@ -17,14 +17,7 @@ import re
 import time
 from email.utils import parsedate_to_datetime
 
-from .cf import (
-    FetchResult,
-    byparr_url,
-    flaresolverr_url,
-    has_cloudflare_protection,
-    solve_via_flaresolverr,
-    solver_url,
-)
+from .cf import FetchResult, solve_with_fallback
 
 STEAMDB_RSS = "https://steamdb.info/api/PatchnotesRSS/?appid={appid}"
 _TTL_MS = 30 * 60 * 1000  # builds change often; keep it short
@@ -61,25 +54,9 @@ def _epoch_ms(pubdate: str) -> int | None:
 
 
 async def _solve_rss(appid: str) -> FetchResult | None:
-    url = STEAMDB_RSS.format(appid=appid)
-    # FlareSolverr first (or the generic CF_SOLVER_URL), Byparr as fallback.
-    bases: list[str] = []
-    for candidate in (flaresolverr_url() or solver_url(), byparr_url()):
-        candidate = (candidate or "").strip()
-        if candidate and candidate not in bases:
-            bases.append(candidate)
-    last: FetchResult | None = None
-    for base in bases:
-        resp = await solve_via_flaresolverr(url, session="steamdb", base_url=base)
-        if (
-            resp is not None
-            and resp.ok
-            and not has_cloudflare_protection(resp.status, resp.content_type, resp.text)
-        ):
-            return resp
-        last = resp
-        print(f"steamdb: solver {base} did not return usable RSS for appid {appid}")
-    return last
+    # FlareSolverr handles the RSS/XML endpoint; Byparr (browser-based) times out
+    # on it, so the shared fallback tries FlareSolverr first.
+    return await solve_with_fallback(STEAMDB_RSS.format(appid=appid), session="steamdb")
 
 
 def _parse_rss(text: str) -> list[dict]:

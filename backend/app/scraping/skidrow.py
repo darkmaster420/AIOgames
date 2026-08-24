@@ -16,7 +16,7 @@ from .cf import (
     has_fresh_clearance,
     protected_site_headers,
     site_fetch,
-    solve_via_flaresolverr,
+    solve_with_fallback,
     _jar,
 )
 
@@ -47,7 +47,7 @@ async def fetch_skidrow(url: str, is_page_request: bool = False) -> FetchResult 
         if is_cf and cached:
             jar.expires_at = 0  # cached clearance rejected; force a re-solve
 
-    solved = await solve_via_flaresolverr(url, SKIDROW_SESSION)
+    solved = await solve_with_fallback(url, SKIDROW_SESSION)
     if solved is not None and solved.ok:
         return solved
 
