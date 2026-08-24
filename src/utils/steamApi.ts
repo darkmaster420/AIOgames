@@ -263,6 +263,30 @@ export function normalizeVersionString(version: string): string {
 }
 
 /**
+ * SteamDB build history, now sourced from the Python backend (steamdb.info
+ * PatchnotesRSS via the CF solver) instead of the flaky external Worker. Server-
+ * side only — the build resolvers below are all called from API routes, and this
+ * uses the internal key against the unpublished backend port.
+ */
+async function getSteamDbBuilds(appId: string | number): Promise<SteamDbBuildItem[]> {
+  const key = (process.env.INTERNAL_API_SECRET || '').trim();
+  const base = (process.env.BACKEND_INTERNAL_URL || 'http://aiogames-backend:8000').replace(/\/+$/, '');
+  const id = String(appId ?? '').trim();
+  if (!key || !id) return [];
+  try {
+    const res = await fetch(`${base}/api/steamdb/builds?appid=${encodeURIComponent(id)}`, {
+      headers: { 'x-aio-internal-key': key },
+      cache: 'no-store',
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data?.builds) ? (data.builds as SteamDbBuildItem[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Resolve a SteamDB build ID for a given version string using the Worker's aggregated builds
  */
 export async function resolveBuildFromVersion(appId: string | number, version: string): Promise<string | null> {
@@ -276,8 +300,7 @@ export async function resolveBuildFromVersion(appId: string | number, version: s
   }
 
   try {
-    const details = await getSteamAppDetails(appId);
-    const builds = details.builds || [];
+    const builds = await getSteamDbBuilds(appId);
     // 1) Prefer explicit version field match
     let byField = builds.find(b => (b.version || '').toLowerCase() === normalized.toLowerCase());
     if (byField?.build_id) return byField.build_id;
@@ -314,8 +337,7 @@ export async function resolveVersionFromBuild(appId: string | number, buildId: s
   const target = String(buildId).trim();
   if (!target) return null;
   try {
-    const details = await getSteamAppDetails(appId);
-    const builds = details.builds || [];
+    const builds = await getSteamDbBuilds(appId);
     const found = builds.find(b => String(b.build_id) === target);
     if (!found) return null;
     if (found.version) return normalizeVersionString(found.version);
@@ -337,8 +359,7 @@ export async function resolvePubTimestampFromBuild(appId: string | number, build
   if (!target) return null;
 
   try {
-    const details = await getSteamAppDetails(appId);
-    const builds = details.builds || [];
+    const builds = await getSteamDbBuilds(appId);
     const found = builds.find(b => String(b.build_id) === target);
     if (!found) return null;
 
@@ -380,22 +401,8 @@ export async function resolveLatestPubTimestamp(appId: string | number): Promise
   if (!appId) return null;
 
   try {
-    const details = await getSteamAppDetails(appId);
-
-    if (details.latest_build) {
-      if (typeof details.latest_build.pub_timestamp === 'number' && Number.isFinite(details.latest_build.pub_timestamp)) {
-        return details.latest_build.pub_timestamp;
-      }
-
-      if (details.latest_build.published_at) {
-        const parsedLatest = new Date(details.latest_build.published_at).getTime();
-        if (Number.isFinite(parsedLatest)) {
-          return parsedLatest;
-        }
-      }
-    }
-
-    const builds = details.builds || [];
+    // Builds come back newest-first, so the first item is the latest build.
+    const builds = await getSteamDbBuilds(appId);
     for (const build of builds) {
       if (typeof build.pub_timestamp === 'number' && Number.isFinite(build.pub_timestamp)) {
         return build.pub_timestamp;
