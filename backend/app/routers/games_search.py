@@ -12,6 +12,7 @@ Returns the same shape the frontend reads: `{ results: [...] }`.
 from fastapi import APIRouter, Depends, Query
 
 from ..auth import require_internal_key
+from ..csrin_posters import refresh_csrin_posters
 from ..scraping import csrin
 
 router = APIRouter()
@@ -31,5 +32,7 @@ async def games_search(
     if sites != {"csrin"} or not query:
         return {"results": []}
 
+    # Pull the current admin-managed trusted/untrusted lists before ranking.
+    await refresh_csrin_posters()
     results = await csrin.fetch_csrin_search(query)
     return {"results": results, "count": len(results)}
