@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, Query
 
 from ..auth import require_internal_key
 from ..csrin_posters import refresh_csrin_posters
-from ..scraping import csrin, skidrow
+from ..scraping import csrin, skidrow, steamdb
 
 router = APIRouter()
 
@@ -96,3 +96,19 @@ async def post_details(
             return {"success": False, "error": "post not found"}
         return {"success": True, "post": post}
     return {"success": False, "error": f"unsupported site: {site_l or '(none)'}"}
+
+
+@router.get("/api/steamdb/builds")
+async def steamdb_builds(
+    appid: str = Query(default=""),
+    refresh: bool = Query(default=False),
+    _key: None = Depends(require_internal_key),
+) -> dict:
+    """SteamDB build history (from PatchnotesRSS via the CF solver) for build<->
+    semver comparison in the update-check. Newest build first; each item carries
+    a build_id + pub_timestamp (and a best-effort version)."""
+    aid = appid.strip()
+    if not aid:
+        return {"builds": [], "latest_build": None}
+    builds = await steamdb.fetch_steamdb_builds(aid, force=refresh)
+    return {"builds": builds, "latest_build": builds[0] if builds else None, "count": len(builds)}

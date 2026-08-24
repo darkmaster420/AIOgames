@@ -36,6 +36,18 @@ def solver_url() -> str:
     ).strip()
 
 
+def flaresolverr_url() -> str:
+    """The FlareSolverr endpoint specifically (CF_SOLVER_URL is treated as the
+    generic/primary solver)."""
+    return (os.environ.get("CF_SOLVER_URL") or os.environ.get("FLARESOLVERR_URL") or "").strip()
+
+
+def byparr_url() -> str:
+    """The Byparr endpoint, if configured — used as a fallback when FlareSolverr
+    can't get past a site (e.g. SteamDB)."""
+    return (os.environ.get("BYPARR_URL") or "").strip()
+
+
 @dataclass
 class CookieJar:
     cf_clearance: str | None = None
@@ -113,8 +125,8 @@ _PERSIST_COOKIE_SESSIONS = {
 }
 
 
-async def solve_via_flaresolverr(url: str, session: str = "default") -> FetchResult | None:
-    base = solver_url()
+async def solve_via_flaresolverr(url: str, session: str = "default", base_url: str | None = None) -> FetchResult | None:
+    base = (base_url or solver_url()).strip()
     if not base:
         return None
 
