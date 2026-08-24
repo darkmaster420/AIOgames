@@ -480,6 +480,12 @@ def parse_linked_posts(html: str, thread: dict) -> list[dict]:
             continue  # only surface posts with at least one real download link
         text = _strip_csrin_html(block_html)
         label = _extract_release_label(text)
+        if not label:
+            # A real game release states its build/version/date; a loose file or
+            # mod/DLC share (the kind that slips past the quote filter) does not.
+            # Requiring a release label in the post's own text is a cheap, strong
+            # filter that keeps the feed to actual releases.
+            continue
         author = _extract_author(block["html"])
         reliable = _is_reliable(author)
         untrusted = _is_untrusted(author)
