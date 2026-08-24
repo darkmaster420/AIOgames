@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getPostDetails } from '../../../../lib/gameapi';
+import { fetchPostDetailsFromBackend } from '../../../../lib/csrinBackend';
 import {
   buildFollowPostDownloadResponse,
   isFollowPostSiteType,
@@ -55,14 +55,14 @@ export async function GET(req: NextRequest) {
         return NextResponse.json(cached.data);
       }
 
-      // Fetch download links from the gameapi using the /post endpoint
-      // postId should be the originalId (numeric WordPress post ID) from the gameapi
+      // Fetch download links from the Python backend (post + links).
+      // postId is the originalId (numeric WordPress post ID).
       console.log(`Fetching download links for: ${siteType}/${postId}`);
-      
-      const data = await getPostDetails(postId, siteType);
+
+      const data = await fetchPostDetailsFromBackend(siteType, postId);
 
       if (!data.success) {
-        console.error('GameAPI returned error:', data.error);
+        console.error('Backend post-details returned error:', data.error);
         return NextResponse.json(
           { error: data.error || 'Failed to fetch download links' },
           { status: 500 }
@@ -79,17 +79,16 @@ export async function GET(req: NextRequest) {
       }> = [];
 
       if (post && post.downloadLinks && Array.isArray(post.downloadLinks)) {
-        downloadLinks = post.downloadLinks.map((link: {
-          service: string;
-          url: string;
-          type: string;
-        }) => ({
-          service: link.service,
-          url: link.url,
-          type: link.type,
-          displayName: formatServiceName(link.service),
-          icon: getServiceIcon(link.service)
-        }));
+        downloadLinks = post.downloadLinks.map((link) => {
+          const service = link.service || 'direct';
+          return {
+            service,
+            url: link.url,
+            type: link.type || 'hosting',
+            displayName: formatServiceName(service),
+            icon: getServiceIcon(service),
+          };
+        });
       }
 
       const context = {

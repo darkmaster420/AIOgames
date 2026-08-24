@@ -22,7 +22,7 @@ export interface CsrinPost {
   siteType: string;
   image?: string | null;
   description?: string;
-  downloadLinks?: Array<{ url: string; label?: string; service?: string }>;
+  downloadLinks?: Array<{ url: string; label?: string; service?: string; type?: string; text?: string }>;
   csrinReleaseLabel?: string;
   csrinFullTitle?: string;
   csrinOnlineFix?: boolean;
@@ -60,6 +60,31 @@ export function fetchCsrinSearchFromBackend(query: string): Promise<CsrinPost[]>
   const q = (query || '').trim();
   if (!q) return Promise.resolve([]);
   return backendGet(`/api/games/search?site=csrin&search=${encodeURIComponent(q)}`);
+}
+
+export interface PostDetailsResponse {
+  success: boolean;
+  post?: CsrinPost;
+  error?: string;
+}
+
+/**
+ * A single post WITH download links (the getPostDetails path). Used by the Next
+ * /api/games/links route for skidrow; csrin links are embedded in search/recent
+ * results, so csrin never hits this.
+ */
+export async function fetchPostDetailsFromBackend(siteType: string, postId: string): Promise<PostDetailsResponse> {
+  if (!INTERNAL_KEY) return { success: false, error: 'no internal key' };
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/api/games/post-details?site=${encodeURIComponent(siteType)}&post_id=${encodeURIComponent(postId)}`,
+      { headers: { 'x-aio-internal-key': INTERNAL_KEY }, cache: 'no-store' },
+    );
+    if (!res.ok) return { success: false, error: `backend ${res.status}` };
+    return await res.json();
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
 }
 
 /**
