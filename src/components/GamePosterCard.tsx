@@ -14,6 +14,7 @@ interface GamePosterCardProps {
   title: string;
   posterName?: string;
   versionLabel?: string;
+  onlineFix?: boolean;
   image: string;
   year?: string;
   badge?: string;
@@ -38,6 +39,7 @@ export function GamePosterCard({
   title,
   posterName,
   versionLabel,
+  onlineFix = false,
   image,
   year,
   badge,
@@ -140,11 +142,18 @@ export function GamePosterCard({
           <h3 className="text-white font-bold text-sm mb-1 line-clamp-2">
             {title}
           </h3>
-          {prettyVersion && (
-            <span className="inline-block bg-black/60 text-gray-200 text-[10px] font-mono px-1.5 py-0.5 rounded border border-white/10">
-              {prettyVersion}
-            </span>
-          )}
+          <div className="flex flex-wrap items-center gap-1">
+            {prettyVersion && (
+              <span className="inline-block bg-black/60 text-gray-200 text-[10px] font-mono px-1.5 py-0.5 rounded border border-white/10">
+                {prettyVersion}
+              </span>
+            )}
+            {onlineFix && (
+              <span className="inline-block bg-cyan-600/90 text-white text-[10px] font-bold px-1.5 py-0.5 rounded" title="Bundles an Online-Fix multiplayer crack">
+                Online-Fix
+              </span>
+            )}
+          </div>
           {year && (
             <p className="text-gray-300 text-xs">{year}</p>
           )}

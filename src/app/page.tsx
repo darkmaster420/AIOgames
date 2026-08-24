@@ -48,6 +48,7 @@ type Game = {
   csrinAuthor?: string; // author of the release post — the actual uploader (shown)
   csrinOriginalPoster?: string; // thread starter; fallback only
   csrinReleaseLabel?: string; // per-post build/version label (e.g. "Build 12345")
+  csrinOnlineFix?: boolean; // release bundles an Online-Fix / OFME / 0xdeadcode crack
 };
 
 type DisplayGame = Game & {
@@ -105,6 +106,34 @@ function DashboardInner() {
   // listing the sites that came up empty so the user understands why
   // they're seeing other sources.
   const [fallbackFromSites, setFallbackFromSites] = useState<string[] | null>(null);
+
+  // The user's Online-Fix preference (from /api/user/me → preferences.
+  // releaseGroups). csrin flags Online-Fix/OFME/0xdeadcode releases, so we can
+  // honour "avoid online fixes" (hide them) or "prefer" (pick the Online-Fix
+  // variant when a game has both). Anonymous visitors get the neutral default.
+  const [releaseGroupPrefs, setReleaseGroupPrefs] = useState<{ avoidOnlineFixes: boolean; preferOnlineFixes: boolean }>({
+    avoidOnlineFixes: false,
+    preferOnlineFixes: false,
+  });
+  useEffect(() => {
+    if (status !== 'authenticated') {
+      setReleaseGroupPrefs({ avoidOnlineFixes: false, preferOnlineFixes: false });
+      return;
+    }
+    let cancelled = false;
+    fetch('/api/user/me')
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (cancelled || !data) return;
+        const rg = data.preferences?.releaseGroups || {};
+        setReleaseGroupPrefs({
+          avoidOnlineFixes: Boolean(rg.avoidOnlineFixes),
+          preferOnlineFixes: Boolean(rg.prioritize0xdeadcode || rg.prefer0xdeadcodeForOnlineFixes),
+        });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [status]);
 
   const customGridStyle = buildCustomGridStyle(layoutMode, customCols, customRows);
   const defaultGridClass =
@@ -474,6 +503,10 @@ function DashboardInner() {
 
     const displayGames = useMemo(() => {
       const refinedGames = games.filter((game) => {
+        // Honour "avoid online fixes": drop csrin Online-Fix releases entirely.
+        if (releaseGroupPrefs.avoidOnlineFixes && game.siteType === 'csrin' && game.csrinOnlineFix) {
+          return false;
+        }
         if (refineText.trim()) {
           const searchText = refineText.toLowerCase();
           return game.title.toLowerCase().includes(searchText) ||
@@ -509,13 +542,25 @@ function DashboardInner() {
         const candidatePreferred = PREFERRED_SOURCES.some(s => (game.source || '').toLowerCase().includes(s) || (game.siteType || '').toLowerCase().includes(s));
         const existingPreferred = existing ? PREFERRED_SOURCES.some(s => (existing.source || '').toLowerCase().includes(s) || (existing.siteType || '').toLowerCase().includes(s)) : false;
 
-        const shouldReplace =
-          // Preferred source always wins over non-preferred regardless of date
-          (candidatePreferred && !existingPreferred) ||
-          // Among same preference tier, newer date wins
-          (!candidatePreferred && existingPreferred ? false :
+        // When the same game has both a plain and an Online-Fix csrin variant,
+        // the user's setting picks which one represents it (only matters when
+        // neither side is a preferred skidrow source — that still wins first).
+        const candidateOF = game.siteType === 'csrin' && Boolean(game.csrinOnlineFix);
+        const existingOF = existing.siteType === 'csrin' && Boolean(existing.csrinOnlineFix);
+
+        let shouldReplace: boolean;
+        if (candidatePreferred !== existingPreferred) {
+          // Preferred source (skidrow) always wins over non-preferred.
+          shouldReplace = candidatePreferred;
+        } else if (candidateOF !== existingOF) {
+          // Same source tier, one Online-Fix and one not: honour the preference.
+          shouldReplace = releaseGroupPrefs.preferOnlineFixes ? candidateOF : !candidateOF;
+        } else {
+          // Otherwise newer date wins; a tie breaks toward the one with an image.
+          shouldReplace =
             (candidateDate > existingDate) ||
-            (candidateDate === existingDate && candidateHasImage && !existingHasImage));
+            (candidateDate === existingDate && candidateHasImage && !existingHasImage);
+        }
 
         if (shouldReplace) {
           grouped.set(groupKey, {
@@ -536,7 +581,7 @@ function DashboardInner() {
         const dateB = b.date ? new Date(b.date).getTime() : 0;
         return dateB - dateA;
       });
-    }, [games, refineText, extractAppId, searchQuery, showAllGames]);
+    }, [games, refineText, extractAppId, searchQuery, showAllGames, releaseGroupPrefs]);
 
     // Track/untrack handlers
     const handleTrackGame = useCallback(async (game: Game, forceReplace = false) => {
@@ -961,6 +1006,7 @@ function DashboardInner() {
                       title={game.originalTitle || game.title}
                       posterName={game.csrinAuthor || game.csrinOriginalPoster}
                       versionLabel={game.csrinReleaseLabel}
+                      onlineFix={game.siteType === 'csrin' && Boolean(game.csrinOnlineFix)}
                       image={game.image}
                       badge={game.source}
                       badgeColor={trackState.isExactTracked ? 'green' : trackState.hasTrackedVariant ? 'yellow' : 'blue'}
