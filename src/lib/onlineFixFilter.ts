@@ -21,11 +21,16 @@ export function isOnlineFixPost(
     originalTitle?: string | null;
     source?: string | null;
     siteType?: string | null;
+    // csrin flags Online-Fix explicitly (the marker lives in the post body /
+    // download filename, never the clean title, so the text checks below miss
+    // it) — honour that flag directly.
+    csrinOnlineFix?: boolean | null;
   },
   avoidOnlineFixes: boolean,
 ): boolean {
   if (!avoidOnlineFixes) return false;
-  return isOnlineFixSiteType(post.siteType)
+  return Boolean(post.csrinOnlineFix)
+    || isOnlineFixSiteType(post.siteType)
     || textLooksLikeOnlineFix(post.title)
     || textLooksLikeOnlineFix(post.originalTitle)
     || textLooksLikeOnlineFix(post.source);

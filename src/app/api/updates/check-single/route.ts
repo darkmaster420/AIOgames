@@ -8,6 +8,7 @@ import { cleanGameTitle, cleanGameTitlePreserveEdition, decodeHtmlEntities, reso
 import logger from '../../../../utils/logger';
 import { sendUpdateNotification, createUpdateNotificationData } from '../../../../utils/notifications';
 import { searchGames, getRecentUploads } from '../../../../lib/gameapi';
+import { fetchCsrinSearchFromBackend, withVersionBearingTitle } from '../../../../lib/csrinBackend';
 import { syncRssDownloadLinksCache } from '../../../../lib/trackedGameDownloadLinks';
 import { isOnlineFixPost } from '../../../../lib/onlineFixFilter';
 
@@ -851,6 +852,30 @@ export async function POST(request: Request) {
           logger.debug(`📰 Added from recent feed (sim=${sim.toFixed(2)}): "${post.title}"`);
         }
       }
+    }
+
+    // cs.rin.ru update candidates come from the Python backend (the Node csrin
+    // parser never worked against the live forum). Search by the best available
+    // title, keep only reasonably similar matches, and fold each candidate's
+    // release label into its title so the version + similarity logic below reads
+    // it just like any other source.
+    try {
+      const csrinPosts = await fetchCsrinSearchFromBackend(cleanSteamTitle || cleanTitle);
+      let added = 0;
+      for (const post of csrinPosts) {
+        const postClean = cleanGameTitle(decodeHtmlEntities(post.title));
+        const sim = Math.max(
+          calculateGameSimilarity(cleanTitle, postClean),
+          cleanSteamTitle ? calculateGameSimilarity(cleanSteamTitle, postClean) : 0
+        );
+        if (sim >= 0.70) {
+          mergedResults.push(withVersionBearingTitle(post) as unknown as GameSearchResult);
+          added++;
+        }
+      }
+      logger.debug(`🎯 cs.rin.ru backend search added ${added}/${csrinPosts.length} candidate(s)`);
+    } catch (e) {
+      logger.warn('cs.rin.ru backend search failed:', e);
     }
 
     // Extract results from merged API responses

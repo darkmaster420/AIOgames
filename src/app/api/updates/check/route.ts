@@ -8,6 +8,7 @@ import { sendUpdateNotification, createUpdateNotificationData } from '../../../.
 import { cleanGameTitle, decodeHtmlEntities, extractReleaseGroup, is0xdeadcodeRelease, isOnlineFixRelease, resolveComparableVersionData, resolvePubTimestampFromBuild, resolvePubTimestampFromVersion } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
 import { getPostDetails, getRecentUploads, clearGameApiCache } from '../../../../lib/gameapi';
+import { fetchCsrinRecentFromBackend, withVersionBearingTitle } from '../../../../lib/csrinBackend';
 import { isRepackPost } from '../../../../lib/repackFilter';
 import { isOnlineFixPost } from '../../../../lib/onlineFixFilter';
 import { syncRssDownloadLinksCache } from '../../../../lib/trackedGameDownloadLinks';
@@ -758,7 +759,21 @@ export async function POST(request: Request) {
     try {
       const recentData = await getRecentUploads();
       recentGames = recentData.results || [];
-        
+
+      // cs.rin.ru recent releases come from the Python backend (the Node csrin
+      // parser never worked live). Fold each candidate's release label into its
+      // title so version detection reads it; the repack/online-fix filters below
+      // then apply uniformly (isOnlineFixPost honours the csrinOnlineFix flag).
+      try {
+        const csrinRecent = await fetchCsrinRecentFromBackend();
+        if (csrinRecent.length) {
+          recentGames.push(...csrinRecent.map(p => withVersionBearingTitle(p) as unknown as GameSearchResult));
+          logger.info(`Added ${csrinRecent.length} cs.rin.ru recent release(s) to the candidate pool`);
+        }
+      } catch (csrinErr) {
+        logger.warn('cs.rin.ru recent fetch failed:', csrinErr);
+      }
+
       // Filter out repacks if user preference is set. Catches both
       // title-based ("...repack...") and source-based (DODI / FitGirl)
       // repacks - previously only the title check ran so a FitGirl post
