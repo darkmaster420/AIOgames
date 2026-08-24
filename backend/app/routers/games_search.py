@@ -1,21 +1,26 @@
-"""GET /api/games/search — csrin-only for now.
+"""GET /api/games/search — skidrow + csrin.
 
-The public frontend already ships a cs.rin.ru site chip that calls
-/api/games/search?site=csrin. The Next middleware routes ONLY that variant here;
-every other search (all the multi-site sources) stays on the Next route, so this
-adds csrin with no regression. When more sites are ported this endpoint grows to
-cover them and the middleware routing widens.
+The Next search route (src/app/api/games/search/route.ts) calls this
+server-to-server for the actual scrape, then keeps its own post-processing
+(Steam AppID enrichment, term filter, cache). `site` is a comma list; empty /
+"all" defaults to skidrow only (csrin is opt-in, matching the Node
+DEFAULT_EXCLUDED_FROM_ALL). Both ported sources run concurrently and their
+results are concatenated.
 
 Returns the same shape the frontend reads: `{ results: [...] }`.
 """
+
+import asyncio
 
 from fastapi import APIRouter, Depends, Query
 
 from ..auth import require_internal_key
 from ..csrin_posters import refresh_csrin_posters
-from ..scraping import csrin
+from ..scraping import csrin, skidrow
 
 router = APIRouter()
+
+_KNOWN_SITES = {"skidrow", "csrin"}
 
 
 @router.get("/api/games/search")
@@ -25,16 +30,33 @@ async def games_search(
     _key: None = Depends(require_internal_key),
 ) -> dict:
     query = (search or "").strip()
+    if not query:
+        return {"results": [], "count": 0}
+
     sites = {s.strip().lower() for s in site.split(",") if s.strip()}
+    if not sites or sites == {"all"}:
+        # Default set excludes csrin, matching the Node DEFAULT_EXCLUDED_FROM_ALL.
+        sites = {"skidrow"}
+    sites &= _KNOWN_SITES
+    if not sites:
+        return {"results": [], "count": 0}
 
-    # Only the csrin-only variant is served here; anything else means the
-    # middleware routed a request it should have left on Next.
-    if sites != {"csrin"} or not query:
-        return {"results": []}
+    tasks = []
+    if "csrin" in sites:
+        # Pull the current admin-managed trusted/untrusted lists before ranking.
+        await refresh_csrin_posters()
+        tasks.append(csrin.fetch_csrin_search(query))
+    if "skidrow" in sites:
+        tasks.append(skidrow.search_skidrow(query))
 
-    # Pull the current admin-managed trusted/untrusted lists before ranking.
-    await refresh_csrin_posters()
-    results = await csrin.fetch_csrin_search(query)
+    groups = await asyncio.gather(*tasks, return_exceptions=True)
+    results: list = []
+    for group in groups:
+        if isinstance(group, list):
+            results.extend(group)
+        else:  # a source failing shouldn't take down the whole search
+            print(f"games_search source error: {group}")
+
     return {"results": results, "count": len(results)}
 
 
