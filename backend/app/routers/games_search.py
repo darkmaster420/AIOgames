@@ -76,6 +76,17 @@ async def csrin_recent(
     return {"results": results, "count": len(results)}
 
 
+@router.get("/api/games/skidrow-recent")
+async def skidrow_recent(
+    per_page: int = Query(default=40),
+    _key: None = Depends(require_internal_key),
+) -> dict:
+    """Recent Skidrow releases for the home feed, called server-to-server by the
+    Node recent aggregation (which keeps its cleanTitle + IGDB/Steam enrichment)."""
+    results = await skidrow.fetch_skidrow_recent(per_page)
+    return {"results": results, "count": len(results)}
+
+
 @router.get("/api/games/post-details")
 async def post_details(
     site: str = Query(default=""),

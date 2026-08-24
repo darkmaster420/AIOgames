@@ -84,6 +84,31 @@ async def search_skidrow(query: str, per_page: int = 50) -> list[dict]:
     return out
 
 
+async def fetch_skidrow_recent(per_page: int = 40) -> list[dict]:
+    """Recent Skidrow releases (newest first) for the home feed — WP REST ordered
+    by date, no search query, links not fetched per-post (fetched on demand).
+    Mirrors the Node fetchRecentFromSite(skidrow) path; the Next recent pipeline
+    still does the cleanTitle + IGDB/Steam enrichment on top of these."""
+    from urllib.parse import urlencode
+    from .wordpress import transform_post
+
+    params = urlencode({"orderby": "date", "order": "desc", "per_page": per_page, "page": 1})
+    resp = await fetch_skidrow(f"{SKIDROW_WP_POSTS}?{params}", is_page_request=False)
+    if resp is None or not resp.ok:
+        return []
+    try:
+        posts = resp.json()
+    except Exception:
+        return []
+    if not isinstance(posts, list):
+        return []
+    out = []
+    for post in posts:
+        if isinstance(post, dict):
+            out.append(await transform_post(post, "skidrow", SKIDROW_NAME, fetch_links=False))
+    return out
+
+
 async def get_skidrow_post_details(post_id: str) -> dict | None:
     """Single Skidrow post WITH download links (the getPostDetails path)."""
     from .wordpress import transform_post
