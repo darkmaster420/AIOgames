@@ -31,8 +31,40 @@ function isPorted(pathname: string, method: string): boolean {
   });
 }
 
+// Rewrite a request to the Python backend, stamping the shared internal key and
+// (when signed in) the user identity. `token` may be null for anon-allowed
+// endpoints; the backend gates those on the internal key alone.
+function proxyToBackend(request: NextRequest, token: { id?: unknown; sub?: unknown; role?: unknown; email?: unknown } | null) {
+  const { pathname, search } = request.nextUrl;
+  const headers = new Headers(request.headers);
+  for (const key of [...headers.keys()]) {
+    if (key.toLowerCase().startsWith('x-aio-')) headers.delete(key);
+  }
+  headers.set('x-aio-internal-key', INTERNAL_KEY);
+  if (token) {
+    headers.set('x-aio-user-id', String(token.id ?? token.sub ?? ''));
+    headers.set('x-aio-user-role', String(token.role ?? 'user'));
+    if (token.email) headers.set('x-aio-user-email', String(token.email));
+  }
+  return NextResponse.rewrite(`${BACKEND_URL}${pathname}${search}`, { request: { headers } });
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // cs.rin.ru search is served by the Python backend. It mirrors the
+  // anon-allowed multi-site search, so it is intercepted before the public-route
+  // pass-through and proxied regardless of auth. Only the csrin-only variant is
+  // routed (site=csrin exactly); any other search stays on the Next route, so
+  // the existing multi-site behaviour is untouched.
+  if (
+    request.method === 'GET'
+    && pathname === '/api/games/search'
+    && request.nextUrl.searchParams.get('site') === 'csrin'
+  ) {
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+    return proxyToBackend(request, token);
+  }
 
   // Public routes (excluding /auth/signin which needs special handling for redirect-after-login)
   const publicRoutes = [
@@ -93,18 +125,7 @@ export async function middleware(request: NextRequest) {
   // Ported endpoints go to the Python backend. Reached only after the auth gate
   // above, so `token` is present and admin routes are already protected.
   if (pathname.startsWith('/api/') && isPorted(pathname, request.method)) {
-    const headers = new Headers(request.headers);
-    for (const key of [...headers.keys()]) {
-      if (key.toLowerCase().startsWith('x-aio-')) headers.delete(key);
-    }
-    headers.set('x-aio-internal-key', INTERNAL_KEY);
-    headers.set('x-aio-user-id', String(token.id ?? token.sub ?? ''));
-    headers.set('x-aio-user-role', String(token.role ?? 'user'));
-    if (token.email) headers.set('x-aio-user-email', String(token.email));
-
-    return NextResponse.rewrite(`${BACKEND_URL}${pathname}${request.nextUrl.search}`, {
-      request: { headers },
-    });
+    return proxyToBackend(request, token);
   }
 
   return NextResponse.next();
