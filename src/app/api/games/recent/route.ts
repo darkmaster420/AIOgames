@@ -61,20 +61,39 @@ async function enrichCsrinResults(posts: Game[]): Promise<Game[]> {
   try {
     const titles = posts.map(p => (p.originalTitle || p.title || '') as string);
     const appIdMap = await resolveSteamAppIdsBatch(titles, 6);
-    const enriched = await Promise.all(posts.map(async (p) => {
+
+    // Resolve IGDB covers with a small worker pool (not Promise.all): the feed
+    // now scans many more threads, and firing 20+ IGDB requests at once trips
+    // its rate limiter. Dedupe by clean title so repeated names resolve once.
+    const cleanTitles = Array.from(new Set(
+      posts
+        .filter(p => !p.image)
+        .map(p => cleanGameTitle((p.originalTitle || p.title || '') as string).trim())
+        .filter(Boolean)
+    ));
+    const imageMap = new Map<string, string>();
+    let cursor = 0;
+    const IMAGE_CONCURRENCY = 3;
+    await Promise.all(Array.from({ length: IMAGE_CONCURRENCY }, async () => {
+      while (cursor < cleanTitles.length) {
+        const clean = cleanTitles[cursor++];
+        const img = await resolveIGDBImage(clean);
+        if (img) imageMap.set(clean, img);
+      }
+    }));
+
+    const enriched = posts.map((p) => {
       const rawTitle = (p.originalTitle || p.title || '') as string;
       const appId = appIdMap.get(rawTitle) || undefined;
-      let image = (p.image as string | undefined) || undefined;
-      if (!image) {
-        const clean = cleanGameTitle(rawTitle).trim();
-        if (clean) image = (await resolveIGDBImage(clean)) || undefined;
-      }
+      const image = (p.image as string | undefined)
+        || imageMap.get(cleanGameTitle(rawTitle).trim())
+        || undefined;
       return {
         ...p,
         ...(appId ? { appid: appId } : {}),
         ...(image ? { image } : {}),
       } as Game;
-    }));
+    });
     csrinEnrichCache = { results: enriched, timestamp: Date.now() };
     return enriched;
   } catch (err) {
