@@ -55,3 +55,46 @@ async def fetch_skidrow(url: str, is_page_request: bool = False) -> FetchResult 
     if is_page_request:
         return None
     return FetchResult(status=200, text="[]", content_type="application/json", ok=True)
+
+
+SKIDROW_WP_POSTS = "https://www.skidrowreloaded.com/wp-json/wp/v2/posts"
+SKIDROW_NAME = "SkidrowReloaded"
+
+
+async def search_skidrow(query: str, per_page: int = 50) -> list[dict]:
+    """Skidrow WP REST search -> transformed result cards (no per-post link fetch,
+    matching the Node search path). Single page for now; pagination can follow."""
+    from urllib.parse import urlencode
+    from .wordpress import transform_post
+
+    params = urlencode({"search": query, "orderby": "date", "order": "desc", "per_page": per_page})
+    resp = await fetch_skidrow(f"{SKIDROW_WP_POSTS}?{params}", is_page_request=False)
+    if resp is None or not resp.ok:
+        return []
+    try:
+        posts = resp.json()
+    except Exception:
+        return []
+    if not isinstance(posts, list):
+        return []
+    out = []
+    for post in posts:
+        if isinstance(post, dict):
+            out.append(await transform_post(post, "skidrow", SKIDROW_NAME, fetch_links=False))
+    return out
+
+
+async def get_skidrow_post_details(post_id: str) -> dict | None:
+    """Single Skidrow post WITH download links (the getPostDetails path)."""
+    from .wordpress import transform_post
+
+    resp = await fetch_skidrow(f"{SKIDROW_WP_POSTS}/{post_id}", is_page_request=True)
+    if resp is None or not resp.ok:
+        return None
+    try:
+        post = resp.json()
+    except Exception:
+        return None
+    if not isinstance(post, dict):
+        return None
+    return await transform_post(post, "skidrow", SKIDROW_NAME, fetch_links=True)
