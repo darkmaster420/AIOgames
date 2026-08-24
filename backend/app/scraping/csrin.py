@@ -321,6 +321,14 @@ def _clean_csrin_title(raw: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+# Threads that are perpetually near the top of the subforum but never carry a new
+# release — dedicated modding threads, request/support threads. Skipped entirely.
+_NOISE_THREAD_RE = re.compile(
+    r"\b(?:modding|mods?)\s+thread\b|\bdedicated\s+modding\b"
+    r"|\brequests?\s+thread\b|\bsupport\s+thread\b",
+    re.I,
+)
+
 _QUOTE_OPEN_RE = re.compile(r'<div\b[^>]*class="[^"]*\bquotecontent\b[^"]*"[^>]*>', re.I)
 _DIV_TOKEN_RE = re.compile(r"<div\b[^>]*>|</div\s*>", re.I)
 
@@ -558,6 +566,8 @@ def parse_search_results(html: str) -> list[dict]:
             raw_title = re.sub(r"\s+", " ", decode_entities(re.sub(r"<[^>]+>", "", cleaned))).strip()
             if not raw_title:
                 continue
+            if _NOISE_THREAD_RE.search(raw_title):
+                continue  # modding / request / support megathreads aren't releases
             title = _clean_csrin_title(raw_title)
             original_poster = _extract_topic_author(html, m.end())
 
