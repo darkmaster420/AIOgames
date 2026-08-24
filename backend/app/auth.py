@@ -60,3 +60,18 @@ async def get_current_user(
         raise _unauthorized("No authenticated user.")
 
     return CurrentUser(id=x_aio_user_id, role=x_aio_user_role or "user", email=x_aio_user_email)
+
+
+async def require_internal_key(
+    x_aio_internal_key: str | None = Header(default=None),
+    settings: Settings = Depends(get_settings),
+) -> None:
+    """Gate for endpoints that mirror public (anon-allowed) routes: they still
+    must arrive through the Next proxy (valid internal key) but do not need a
+    signed-in user. Used by /api/games/search (csrin)."""
+    if settings.allow_unauthenticated and not settings.internal_api_secret:
+        return
+    if not settings.internal_api_secret:
+        raise _unauthorized("Backend auth is not configured (INTERNAL_API_SECRET unset).")
+    if x_aio_internal_key != settings.internal_api_secret:
+        raise _unauthorized("Missing or invalid internal key.")

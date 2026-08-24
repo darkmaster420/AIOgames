@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from .db import init_db, close_db
-from .routers import health, tracking
+from .routers import health, tracking, games_search
 
 
 @asynccontextmanager
@@ -25,3 +25,4 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AIOgames Backend", lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(tracking.router)
+app.include_router(games_search.router)
