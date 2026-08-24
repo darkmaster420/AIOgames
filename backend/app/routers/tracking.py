@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 
 from ..auth import CurrentUser, get_current_user
 from ..models import TrackedGame
-from ..owner import get_owner_id, owner_id_query_values
+from ..owner import id_query_values
 from ..library_matching import build_library_match_map
 from ..serialization import to_jsonable
 
@@ -35,13 +35,15 @@ _PROJECTION = {
 
 @router.get("/api/tracking")
 async def list_tracking(user: CurrentUser = Depends(get_current_user)) -> dict:
-    # Data is scoped to the owner profile, exactly as the Node route does.
-    owner_id = await get_owner_id()
-
+    # Scoped to the signed-in user, matching the public Next route
+    # (src/app/api/tracking/route.ts GET: `userId: user.id`). The backend was
+    # first written against the NAS build, whose getCurrentUser returns a single
+    # shared owner profile; the public build is per-user, so an owner-scoped read
+    # here hid every non-owner account's own tracked games.
     rows = (
         await TrackedGame.get_motor_collection()
         .find(
-            {"userId": {"$in": owner_id_query_values(owner_id)}, "isActive": True},
+            {"userId": {"$in": id_query_values(user.id)}, "isActive": True},
             _PROJECTION,
         )
         .sort("dateAdded", -1)

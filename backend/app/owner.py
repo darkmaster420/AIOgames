@@ -47,9 +47,16 @@ async def get_owner_id() -> str:
     return _owner_id
 
 
-def owner_id_query_values(owner_id: str) -> list:
-    """Both ObjectId and string forms, so a userId stored either way matches."""
-    values: list = [owner_id]
-    if ObjectId.is_valid(owner_id):
-        values.append(ObjectId(owner_id))
+def id_query_values(id_str: str) -> list:
+    """Both ObjectId and string forms of an id, so a userId stored either way
+    (mongoose ObjectId vs a stringified id) matches in a `$in` query."""
+    values: list = [id_str]
+    if ObjectId.is_valid(id_str):
+        values.append(ObjectId(id_str))
     return values
+
+
+# Backwards-compatible alias — the owner id is just one id fed through the same
+# variant expansion.
+def owner_id_query_values(owner_id: str) -> list:
+    return id_query_values(owner_id)
