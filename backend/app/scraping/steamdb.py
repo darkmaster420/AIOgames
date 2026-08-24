@@ -103,6 +103,7 @@ def _parse_rss(text: str) -> list[dict]:
             "published_at": pub,
             "pub_timestamp": _epoch_ms(pub),
             "title": title,
+            "description": desc,
         })
     return builds
 
