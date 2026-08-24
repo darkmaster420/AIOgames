@@ -187,7 +187,15 @@ export async function GET(request: NextRequest) {
     // whenever csrin is explicitly selected — but not when the user has filtered
     // to other specific sites.
     if (siteList.length === 0 || siteList.includes('csrin')) {
-      const csrinResults = await enrichCsrinResults(await fetchCsrinRecentFromBackend());
+      // Guard the total response time: on a cold miss the deeper csrin scan +
+      // enrichment can be slow, and the reverse proxy will 504 the whole request
+      // (skidrow included) if we block too long. Cap the csrin work at a budget;
+      // if it overruns we return without csrin this time — the backend + enrich
+      // caches keep warming in the background, so csrin shows on the next load.
+      const csrinResults = await Promise.race([
+        (async () => enrichCsrinResults(await fetchCsrinRecentFromBackend()))(),
+        new Promise<Game[]>((resolve) => setTimeout(() => resolve([]), 35_000)),
+      ]);
       if (csrinResults.length > 0) {
         finalResults = [...csrinResults, ...finalResults];
       }
