@@ -47,6 +47,7 @@ type Game = {
   downloadLinks?: Array<{ url: string; label?: string; service?: string }>;
   csrinOriginalPoster?: string; // cs.rin.ru thread starter (uploader)
   csrinAuthor?: string; // author of the specific link-bearing post
+  csrinReleaseLabel?: string; // per-post build/version label (e.g. "Build 12345")
 };
 
 type DisplayGame = Game & {
@@ -959,6 +960,7 @@ function DashboardInner() {
                       sourceLink={game.link}
                       title={game.originalTitle || game.title}
                       posterName={game.csrinOriginalPoster || game.csrinAuthor}
+                      versionLabel={game.csrinReleaseLabel}
                       image={game.image}
                       badge={game.source}
                       badgeColor={trackState.isExactTracked ? 'green' : trackState.hasTrackedVariant ? 'yellow' : 'blue'}

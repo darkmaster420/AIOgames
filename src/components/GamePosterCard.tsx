@@ -13,6 +13,7 @@ interface GamePosterCardProps {
   sourceLink?: string;
   title: string;
   posterName?: string;
+  versionLabel?: string;
   image: string;
   year?: string;
   badge?: string;
@@ -36,6 +37,7 @@ export function GamePosterCard({
   sourceLink,
   title,
   posterName,
+  versionLabel,
   image,
   year,
   badge,
@@ -51,6 +53,14 @@ export function GamePosterCard({
   trackButtonText,
 }: GamePosterCardProps) {
   const router = useRouter();
+
+  // Normalise the raw csrin release label ("buildID: 123", "BUILD 123",
+  // "build 123") to a consistent "Build 123" for display; leave version strings
+  // like "v 1.5" alone.
+  const prettyVersion = (versionLabel || '')
+    .replace(/^\s*build\s*id\s*:?\s*/i, 'Build ')
+    .replace(/^\s*build\s*:?\s*/i, 'Build ')
+    .trim();
 
   const handleOpenLink = () => {
     if (!link) return;
@@ -130,6 +140,11 @@ export function GamePosterCard({
           <h3 className="text-white font-bold text-sm mb-1 line-clamp-2">
             {title}
           </h3>
+          {prettyVersion && (
+            <span className="inline-block bg-black/60 text-gray-200 text-[10px] font-mono px-1.5 py-0.5 rounded border border-white/10">
+              {prettyVersion}
+            </span>
+          )}
           {year && (
             <p className="text-gray-300 text-xs">{year}</p>
           )}
