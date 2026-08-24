@@ -30,11 +30,26 @@ CSRIN_USER_AGENT = (
 )
 CSRIN_SESSION_TTL = 60 * 60 * 1000
 CSRIN_LOGIN_FAIL_COOLDOWN = 5 * 60 * 1000
-CSRIN_POST_SCAN_LIMIT = 12
-CSRIN_POST_SCAN_CONCURRENCY = 3
+
+
+def _env_int(var: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(var, "") or default))
+    except (TypeError, ValueError):
+        return default
+
+
+# How many threads to scan per request. Search stays modest (it runs on every
+# query); the recent feed scans deeper because the forum is very active — a game
+# thread bumps to the top of viewforum whenever it gets an update, so if more
+# threads bump between refreshes than we scan we'd miss valid updates. All
+# env-tunable so they can be raised on the VPS without a rebuild.
+CSRIN_POST_SCAN_LIMIT = _env_int("CSRIN_POST_SCAN_LIMIT", 12)
+CSRIN_RECENT_SCAN_LIMIT = _env_int("CSRIN_RECENT_SCAN_LIMIT", 30)
+CSRIN_POST_SCAN_CONCURRENCY = _env_int("CSRIN_POST_SCAN_CONCURRENCY", 5)
 # Game Releases subforum; scanned for the home-page "recent uploads" feed.
 CSRIN_RECENT_FORUM_ID = os.environ.get("CSRIN_RECENT_FORUM_ID", "10")
-CSRIN_RECENT_TTL_MS = 15 * 60 * 1000
+CSRIN_RECENT_TTL_MS = _env_int("CSRIN_RECENT_TTL_MINUTES", 15) * 60 * 1000
 
 
 # ── Trusted / untrusted uploaders ──────────────────────────────────────────
@@ -661,7 +676,7 @@ async def fetch_csrin_recent() -> list[dict]:
         # pinned meta-threads aren't returned as releases.
         header = re.search(r">\s*Topics\s*</b>", html, re.I)
         body = html[header.start():] if header else html
-        threads = parse_search_results(body)[:CSRIN_POST_SCAN_LIMIT]
+        threads = parse_search_results(body)[:CSRIN_RECENT_SCAN_LIMIT]
         posts = await _scan_threads(client, threads)
 
         # One card per thread for the feed: _scan_threads returns rank-ordered
