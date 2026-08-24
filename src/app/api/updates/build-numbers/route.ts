@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import connectDB from '../../../../lib/db';
 import { TrackedGame } from '../../../../lib/models';
 import { getCurrentUser } from '../../../../lib/auth';
-import { getSteamAppDetails } from '../../../../utils/steamApi';
+import { getSteamDbBuilds } from '../../../../utils/steamApi';
 import logger from '../../../../utils/logger';
 
 // POST: Check for build number updates for verified games
@@ -60,9 +60,10 @@ export async function POST() {
           return;
         }
 
-        // Fetch aggregated details (includes SteamDB builds)
-        const details = await getSteamAppDetails(game.steamAppId);
-        const latest = details.latest_build || (details.builds && details.builds[0]) || null;
+        // SteamDB builds from the Python backend (PatchnotesRSS via the solver),
+        // newest first — builds[0] is the latest.
+        const builds = await getSteamDbBuilds(game.steamAppId);
+        const latest = builds[0] || null;
 
         if (!latest || !latest.build_id) {
           results[gameId] = {

@@ -1,7 +1,12 @@
 /**
- * SteamDB API integration for monitoring game updates
- * Uses SteamDB's patch notes RSS API for Steam-verified games
+ * SteamDB update monitoring for Steam-verified games.
+ *
+ * steamdb.info is Cloudflare-blocked on a direct fetch, so the PatchnotesRSS is
+ * sourced through the Python backend (which uses the CF solver) via
+ * getSteamDbBuilds, then mapped to the SteamDBUpdate shape this module exposes.
  */
+
+import { getSteamDbBuilds } from './steamApi';
 
 export interface SteamDBUpdate {
   appId: string;
@@ -18,214 +23,64 @@ export interface SteamDBResponse {
   lastChecked: string;
 }
 
-// In-memory cache and rate limiting for SteamDB requests
+// In-memory cache (the backend does its own fetching + rate limiting).
 const STEAMDB_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
-const MIN_FETCH_INTERVAL_MS = 2000; // global min interval between upstream requests
-
 const steamdbCache = new Map<string, { timestamp: number; updates: SteamDBUpdate[] }>();
 const pendingFetches = new Map<string, Promise<SteamDBUpdate[]>>();
-let lastFetchAt = 0;
-
-function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function ensureGlobalRateLimit() {
-  const now = Date.now();
-  const elapsed = now - lastFetchAt;
-  if (elapsed < MIN_FETCH_INTERVAL_MS) {
-    await sleep(MIN_FETCH_INTERVAL_MS - elapsed);
-  }
-  lastFetchAt = Date.now();
-}
 
 /**
- * Fetch patch notes for a specific Steam app from SteamDB
+ * Patch notes for a Steam app, sourced from the backend SteamDB builds.
  */
 export async function fetchSteamDBUpdates(appId: string): Promise<SteamDBUpdate[]> {
+  const id = String(appId || '').trim();
+  if (!id) return [];
   try {
-    // Serve from cache if fresh
-    const cached = steamdbCache.get(appId);
+    const cached = steamdbCache.get(id);
     if (cached && Date.now() - cached.timestamp < STEAMDB_CACHE_TTL_MS) {
       return cached.updates;
     }
 
-    // De-duplicate concurrent requests for the same appId
-    const inFlight = pendingFetches.get(appId);
-    if (inFlight) {
-      return inFlight;
-    }
+    const inFlight = pendingFetches.get(id);
+    if (inFlight) return inFlight;
 
-    // Create fetch promise and store as pending
-    const fetchPromise = (async () => {
-      await ensureGlobalRateLimit();
-
-      const url = `https://steamdb.info/api/PatchnotesRSS/?appid=${appId}`;
-
-      // Abortable fetch with timeout to avoid hanging dev server
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
-
-      let response: Response;
-      try {
-        response = await fetch(url, {
-          headers: {
-            'User-Agent': 'AIOGames/1.2.1 (Game Update Tracker)'
-          },
-          signal: controller.signal
-        });
-      } catch (err) {
-        // Fetch failed (timeout/network)
-        clearTimeout(timeout);
-        if (cached) return cached.updates;
-        throw new Error(`SteamDB fetch failed for ${appId}: ${String(err)}`);
-      } finally {
-        clearTimeout(timeout);
-      }
-
-      if (!response.ok) {
-        // On failure, return stale cache if available
-        if (cached) return cached.updates;
-        
-        // 404 means no patch notes available for this app - not an error, just return empty
-        if (response.status === 404) {
-          console.log(`No SteamDB patch notes found for app ${appId} (404 - expected for some games)`);
-          const emptyResult: SteamDBUpdate[] = [];
-          // Cache the empty result so we don't keep hitting SteamDB
-          steamdbCache.set(appId, { timestamp: Date.now(), updates: emptyResult });
-          return emptyResult;
+    const fetchPromise = (async (): Promise<SteamDBUpdate[]> => {
+      // Builds come from the backend (steamdb.info PatchnotesRSS via the solver);
+      // map each to the SteamDBUpdate shape this module exposes.
+      const builds = await getSteamDbBuilds(id);
+      const updates: SteamDBUpdate[] = builds.map((b) => {
+        const title = b.title || '';
+        const nameMatch = title.match(/^(.+?)\s+update\s+for/i);
+        const buildId = b.build_id ? String(b.build_id) : undefined;
+        let date = '';
+        if (b.published_at) {
+          const parsed = new Date(b.published_at);
+          date = Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString();
         }
-        
-        // For other errors, log but return empty instead of throwing
-        console.warn(`SteamDB API error for app ${appId}: ${response.status}`);
-        return [];
+        return {
+          appId: id,
+          gameTitle: nameMatch ? nameMatch[1] : title,
+          version: b.version || undefined,
+          changeNumber: buildId,
+          date,
+          description: b.description || title,
+          link: buildId ? `https://steamdb.info/patchnotes/${buildId}/` : '',
+        };
+      });
+      if (updates.length > 0 || !cached) {
+        steamdbCache.set(id, { timestamp: Date.now(), updates });
       }
-
-      const rssText = await response.text().catch(() => '');
-      if (!rssText) {
-        if (cached) return cached.updates;
-        return [];
-      }
-
-      const updates = parseSteamDBRSS(rssText, appId);
-      steamdbCache.set(appId, { timestamp: Date.now(), updates });
       return updates;
     })().finally(() => {
-      pendingFetches.delete(appId);
+      pendingFetches.delete(id);
     });
 
-    pendingFetches.set(appId, fetchPromise);
+    pendingFetches.set(id, fetchPromise);
     return await fetchPromise;
   } catch (error) {
     console.error(`Error fetching SteamDB updates for app ${appId}:`, error);
-    // On error, return stale cache if available
-    const cached = steamdbCache.get(appId);
+    const cached = steamdbCache.get(id);
     if (cached) return cached.updates;
     return [];
-  }
-}
-
-/**
- * Parse SteamDB RSS feed
- */
-function parseSteamDBRSS(rssText: string, appId: string): SteamDBUpdate[] {
-  const updates: SteamDBUpdate[] = [];
-  
-  try {
-    // Validate RSS text is not empty
-    if (!rssText || typeof rssText !== 'string') {
-      console.warn(`Empty or invalid RSS text for appId ${appId}`);
-      return [];
-    }
-
-    // Simple XML parsing for RSS items
-    const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-    const items = rssText.match(itemRegex) || [];
-
-    if (items.length === 0) {
-      console.warn(`No RSS items found for appId ${appId}`);
-    }
-
-    for (const item of items) {
-      try {
-        const title = extractXMLContent(item, 'title');
-        const link = extractXMLContent(item, 'link');
-        const pubDate = extractXMLContent(item, 'pubDate');
-        const description = extractXMLContent(item, 'description');
-        const guid = extractXMLContent(item, 'guid');
-
-        // Skip items without required fields
-        if (!title || !link || !pubDate) {
-          console.warn(`Skipping RSS item with missing required fields (appId: ${appId})`);
-          continue;
-        }
-
-        // Extract game name from title (e.g., "Risk of Rain 2 update for 3 October 2025")
-        const gameNameMatch = title.match(/^(.+?)\s+update\s+for/i);
-        const gameTitle = gameNameMatch ? gameNameMatch[1] : title;
-
-        // Extract build number from guid (e.g., "build#20196450")
-        const buildMatch = guid ? guid.match(/build#(\d+)/) : null;
-        const buildNumber = buildMatch ? buildMatch[1] : undefined;
-
-        // Extract version from description if available (e.g., "V1.3.9")
-        const versionMatch = description ? description.match(/V?(\d+\.\d+(?:\.\d+)?)/i) : null;
-        const version = versionMatch ? versionMatch[1] : undefined;
-
-        // Safely parse pubDate with fallback
-        let isoDate: Date;
-        try {
-          isoDate = new Date(pubDate);
-          if (isNaN(isoDate.getTime())) {
-            console.warn(`Invalid pubDate "${pubDate}" for appId ${appId}, using current time`);
-            isoDate = new Date();
-          }
-        } catch {
-          console.warn(`Failed to parse pubDate "${pubDate}" for appId ${appId}, using current time`);
-          isoDate = new Date();
-        }
-
-        updates.push({
-          appId,
-          gameTitle,
-          version,
-          changeNumber: buildNumber,
-          date: isoDate.toISOString(),
-          description: description || title,
-          link,
-        });
-      } catch (error) {
-        console.error(`Error parsing RSS item for appId ${appId}:`, error);
-        // Continue processing other items even if one fails
-        continue;
-      }
-    }
-  } catch (error) {
-    console.error(`Fatal error parsing RSS feed for appId ${appId}:`, error);
-    return [];
-  }
-
-  return updates.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-}
-
-/**
- * Extract content from XML tags with improved error handling
- */
-function extractXMLContent(xml: string, tag: string): string {
-  try {
-    if (!xml || !tag) return '';
-    
-    const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, '');
-    const match = xml.match(regex);
-    
-    if (!match || !match[1]) return '';
-    
-    // Remove CDATA markers and trim
-    const content = match[1].trim().replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
-    return content;
-  } catch (error) {
-    console.error(`Error extracting XML content for tag "${tag}":`, error);
-    return '';
   }
 }
 

@@ -268,7 +268,7 @@ export function normalizeVersionString(version: string): string {
  * side only — the build resolvers below are all called from API routes, and this
  * uses the internal key against the unpublished backend port.
  */
-async function getSteamDbBuilds(appId: string | number): Promise<SteamDbBuildItem[]> {
+export async function getSteamDbBuilds(appId: string | number): Promise<SteamDbBuildItem[]> {
   const key = (process.env.INTERNAL_API_SECRET || '').trim();
   const base = (process.env.BACKEND_INTERNAL_URL || 'http://aiogames-backend:8000').replace(/\/+$/, '');
   const id = String(appId ?? '').trim();
