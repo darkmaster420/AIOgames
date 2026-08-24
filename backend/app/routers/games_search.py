@@ -74,3 +74,25 @@ async def csrin_recent(
     await refresh_csrin_posters()
     results = await csrin.fetch_csrin_recent(force=refresh)
     return {"results": results, "count": len(results)}
+
+
+@router.get("/api/games/post-details")
+async def post_details(
+    site: str = Query(default=""),
+    post_id: str = Query(default=""),
+    _key: None = Depends(require_internal_key),
+) -> dict:
+    """A single post WITH its download links, for the Next /api/games/links route.
+    Mirrors the Node getPostDetails `{success, post}` shape. csrin isn't handled
+    here — its links are embedded in the search/recent results and the Next route
+    serves them via its follow-post path."""
+    pid = post_id.strip()
+    site_l = site.strip().lower()
+    if not pid:
+        return {"success": False, "error": "post_id required"}
+    if site_l == "skidrow":
+        post = await skidrow.get_skidrow_post_details(pid)
+        if post is None:
+            return {"success": False, "error": "post not found"}
+        return {"success": True, "post": post}
+    return {"success": False, "error": f"unsupported site: {site_l or '(none)'}"}
