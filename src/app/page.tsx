@@ -590,6 +590,20 @@ function DashboardInner() {
         return;
       }
 
+      // csrin cards carry a clean game title with the build/version held
+      // separately (csrinReleaseLabel), so the tracker's title-based version
+      // detection sees no version and records "unknown". Fold the normalised
+      // label back into the title for csrin so analyzeGameTitle can read it;
+      // cleanedTitle stays clean for matching and steamAppId drives Steam verify.
+      const csrinLabel = (game.csrinReleaseLabel || '')
+        .replace(/^\s*build\s*id\s*:?\s*/i, 'Build ')
+        .replace(/^\s*build\s*:?\s*/i, 'Build ')
+        .trim();
+      const baseTitle = game.originalTitle || game.title;
+      const trackingTitle = game.siteType === 'csrin' && csrinLabel
+        ? `${game.title} ${csrinLabel}`
+        : baseTitle;
+
       try {
         const response = await fetch('/api/tracking', {
           method: 'POST',
@@ -598,8 +612,8 @@ function DashboardInner() {
           },
           body: JSON.stringify({
             gameId: game.id,
-            title: game.originalTitle || game.title, // Use original title for Steam verification
-            originalTitle: game.originalTitle || game.title, // Ensure we always have original title
+            title: trackingTitle, // csrin: clean name + version so the tracker reads a version
+            originalTitle: trackingTitle, // Ensure we always have original title
             cleanedTitle: game.title, // Pass the cleaned title separately
             steamAppId: extractAppId(game) || undefined,
             source: game.source,
