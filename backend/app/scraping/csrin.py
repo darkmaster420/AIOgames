@@ -32,6 +32,9 @@ CSRIN_SESSION_TTL = 60 * 60 * 1000
 CSRIN_LOGIN_FAIL_COOLDOWN = 5 * 60 * 1000
 CSRIN_POST_SCAN_LIMIT = 12
 CSRIN_POST_SCAN_CONCURRENCY = 3
+# Game Releases subforum; scanned for the home-page "recent uploads" feed.
+CSRIN_RECENT_FORUM_ID = os.environ.get("CSRIN_RECENT_FORUM_ID", "10")
+CSRIN_RECENT_TTL_MS = 15 * 60 * 1000
 
 
 # ── Trusted / untrusted uploaders ──────────────────────────────────────────
@@ -73,6 +76,17 @@ class _Session:
 
 _session = _Session()
 _login_lock = asyncio.Lock()
+
+
+# Recent feed cache: the home page hits this on every load, so the scan (a
+# forum page fetch + per-thread scans) is cached and reused for its TTL. Serves
+# stale on failure rather than emptying the feed.
+class _RecentCache:
+    results: list[dict] = []
+    timestamp: float = 0
+
+
+_recent_cache = _RecentCache()
 
 
 def _now_ms() -> float:
@@ -495,6 +509,25 @@ async def _fetch_thread_linked_posts(client: httpx.AsyncClient, thread: dict) ->
     return parse_linked_posts(html, thread)
 
 
+async def _scan_threads(client: httpx.AsyncClient, threads: list[dict]) -> list[dict]:
+    """Scan each thread's latest page for link-bearing posts, concurrently but
+    bounded, then rank the flattened result. Shared by search and recent."""
+    if not threads:
+        return []
+    sem = asyncio.Semaphore(CSRIN_POST_SCAN_CONCURRENCY)
+
+    async def scan(thread: dict) -> list[dict]:
+        async with sem:
+            try:
+                return await _fetch_thread_linked_posts(client, thread)
+            except Exception as error:  # noqa: BLE001
+                print(f"cs.rin.ru post scan failed for thread {thread['threadId']}: {error}")
+                return []
+
+    groups = await asyncio.gather(*(scan(t) for t in threads))
+    return _rank([p for g in groups for p in g])
+
+
 def _rank(posts: list[dict]) -> list[dict]:
     # Priority: trusted uploaders first, then untrusted sink, then CSF (Clean
     # Steam Files) boost, then documented releases. Link count is only a final
@@ -542,20 +575,55 @@ async def fetch_csrin_search(search_query: str) -> list[dict]:
                 return []
 
         threads = parse_search_results(html)[:CSRIN_POST_SCAN_LIMIT]
-        if not threads:
-            return []
-
-        sem = asyncio.Semaphore(CSRIN_POST_SCAN_CONCURRENCY)
-
-        async def scan(thread: dict) -> list[dict]:
-            async with sem:
-                try:
-                    return await _fetch_thread_linked_posts(client, thread)
-                except Exception as error:  # noqa: BLE001
-                    print(f"cs.rin.ru post scan failed for thread {thread['threadId']}: {error}")
-                    return []
-
-        groups = await asyncio.gather(*(scan(t) for t in threads))
-        posts = _rank([p for g in groups for p in g])
+        posts = await _scan_threads(client, threads)
         print(f"cs.rin.ru scanned {len(threads)} thread(s), found {len(posts)} linked post(s)")
+        return posts
+
+
+async def fetch_csrin_recent() -> list[dict]:
+    """Recent uploads from the Game Releases subforum for the home feed.
+
+    Fetches the first page of viewforum.php, skips the pinned announcements /
+    stickies (everything above the "Topics" header), then scans the newest
+    threads for link-bearing posts exactly like search — so the home grid shows
+    the same actionable, trusted-ranked csrin cards. Cached for the TTL; on any
+    failure the last good results are served rather than emptying the feed.
+    """
+    if _recent_cache.timestamp and (_now_ms() - _recent_cache.timestamp) < CSRIN_RECENT_TTL_MS:
+        return _recent_cache.results
+
+    timeout = httpx.Timeout(SITE_FETCH_TIMEOUT_MS / 1000)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        if not await _ensure_session(client):
+            return _recent_cache.results
+
+        url = f"{CSRIN_BASE}/viewforum.php?f={CSRIN_RECENT_FORUM_ID}"
+        resp = await _csrin_fetch(client, url, headers={"Referer": f"{CSRIN_BASE}/index.php"})
+        if not resp or not resp.is_success:
+            print(f"cs.rin.ru viewforum returned {resp.status_code if resp else 'no response'}")
+            return _recent_cache.results
+        html = resp.text
+        if _looks_like_login_page(html):
+            _session.cookies = ""
+            _session.logged_in_at = 0
+            if not await _ensure_session(client):
+                return _recent_cache.results
+            resp = await _csrin_fetch(client, url, headers={"Referer": f"{CSRIN_BASE}/index.php"})
+            if not resp or not resp.is_success:
+                return _recent_cache.results
+            html = resp.text
+            if _looks_like_login_page(html):
+                return _recent_cache.results
+
+        # Announcements + stickies (rules, privacy policy, etc.) are grouped
+        # above the real topic list under a "Topics" header — slice from there so
+        # pinned meta-threads aren't returned as releases.
+        header = re.search(r">\s*Topics\s*</b>", html, re.I)
+        body = html[header.start():] if header else html
+        threads = parse_search_results(body)[:CSRIN_POST_SCAN_LIMIT]
+        posts = await _scan_threads(client, threads)
+        print(f"cs.rin.ru recent: scanned {len(threads)} thread(s), found {len(posts)} linked post(s)")
+        if posts:
+            _recent_cache.results = posts
+            _recent_cache.timestamp = _now_ms()
         return posts
