@@ -49,7 +49,7 @@ CSRIN_RECENT_SCAN_LIMIT = _env_int("CSRIN_RECENT_SCAN_LIMIT", 30)
 CSRIN_POST_SCAN_CONCURRENCY = _env_int("CSRIN_POST_SCAN_CONCURRENCY", 5)
 # Game Releases subforum; scanned for the home-page "recent uploads" feed.
 CSRIN_RECENT_FORUM_ID = os.environ.get("CSRIN_RECENT_FORUM_ID", "10")
-CSRIN_RECENT_TTL_MS = _env_int("CSRIN_RECENT_TTL_MINUTES", 15) * 60 * 1000
+CSRIN_RECENT_TTL_MS = _env_int("CSRIN_RECENT_TTL_MINUTES", 10) * 60 * 1000
 
 
 # ── Trusted / untrusted uploaders ──────────────────────────────────────────
@@ -321,6 +321,41 @@ def _clean_csrin_title(raw: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+_QUOTE_OPEN_RE = re.compile(r'<div\b[^>]*class="[^"]*\bquotecontent\b[^"]*"[^>]*>', re.I)
+_DIV_TOKEN_RE = re.compile(r"<div\b[^>]*>|</div\s*>", re.I)
+
+
+def _strip_quote_blocks(html: str) -> str:
+    """Remove rinDark quote bodies (`<div class="quotecontent"> … </div>`, which
+    nest) from post HTML.
+
+    Links that live inside a quote are quoted from someone else's post — request
+    fulfilments, mod/DLC file-shares, "your file is here" replies — not this
+    post's own release. Dropping quoted content means such posts contribute no
+    download links and fall out of the feed, while a normal release post (whose
+    links sit in the body, outside any quote) is untouched."""
+    out: list[str] = []
+    i = 0
+    while True:
+        m = _QUOTE_OPEN_RE.search(html, i)
+        if not m:
+            out.append(html[i:])
+            break
+        out.append(html[i:m.start()])
+        # Walk div tokens from just after the opening tag to its matching close.
+        depth = 1
+        j = m.end()
+        while depth > 0:
+            tok = _DIV_TOKEN_RE.search(html, j)
+            if not tok:
+                j = len(html)
+                break
+            j = tok.end()
+            depth += -1 if tok.group(0).lower().startswith("</div") else 1
+        i = j  # skip the whole quotecontent span
+    return "".join(out)
+
+
 # cs.rin.ru's rinDark theme is old phpBB2: each post is anchored by
 # `<a name="pNNNN">` (not `<div id="pNNNN">`), the body is `<span class="postbody">`
 # (not `<div class="content">`), the author is `<b class="postauthor">`, and
@@ -429,10 +464,13 @@ def parse_linked_posts(html: str, thread: dict) -> list[dict]:
     results = []
     seen: set[str] = set()
     for block in _get_post_blocks(html):
-        links = _extract_download_links(block["html"])
+        # Drop quoted content first so links/text/CSF/version all reflect the
+        # poster's own release, not a quoted request or mod/DLC file-share.
+        block_html = _strip_quote_blocks(block["html"])
+        links = _extract_download_links(block_html)
         if not links:
             continue  # only surface posts with at least one real download link
-        text = _strip_csrin_html(block["html"])
+        text = _strip_csrin_html(block_html)
         label = _extract_release_label(text)
         author = _extract_author(block["html"])
         reliable = _is_reliable(author)
@@ -636,7 +674,7 @@ async def fetch_csrin_search(search_query: str) -> list[dict]:
         return posts
 
 
-async def fetch_csrin_recent() -> list[dict]:
+async def fetch_csrin_recent(force: bool = False) -> list[dict]:
     """Recent uploads from the Game Releases subforum for the home feed.
 
     Fetches the first page of viewforum.php, skips the pinned announcements /
@@ -644,8 +682,9 @@ async def fetch_csrin_recent() -> list[dict]:
     threads for link-bearing posts exactly like search — so the home grid shows
     the same actionable, trusted-ranked csrin cards. Cached for the TTL; on any
     failure the last good results are served rather than emptying the feed.
+    `force` bypasses the cache (the home page's Refresh button re-scans).
     """
-    if _recent_cache.timestamp and (_now_ms() - _recent_cache.timestamp) < CSRIN_RECENT_TTL_MS:
+    if not force and _recent_cache.timestamp and (_now_ms() - _recent_cache.timestamp) < CSRIN_RECENT_TTL_MS:
         return _recent_cache.results
 
     timeout = httpx.Timeout(SITE_FETCH_TIMEOUT_MS / 1000)
