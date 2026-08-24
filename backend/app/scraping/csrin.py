@@ -431,6 +431,17 @@ def _extract_download_links(post_html: str) -> list[dict]:
 # variations) boosts the post in ranking.
 _CSF_RE = re.compile(r"\bcsfs?\b|clean\s+steam\s+files?|clean\s+files?|clean\s+steam\b", re.I)
 
+# Online-Fix / OFME (Online-Fix.Me) / 0xdeadcode releases: bundle a multiplayer
+# crack. Some users want them (co-op), others avoid them, so we flag the release
+# and let the user's avoidOnlineFixes / prefer-online-fix setting decide. The
+# marker lives in the post body or the download filename ("[OnlineFix].7z"),
+# never the clean game title, so text-only detection on the WordPress sites
+# would miss it — csrin has to flag it explicitly.
+_ONLINE_FIX_RE = re.compile(
+    r"\bofme\b|online[\s._-]?fix|0xdeadcode",
+    re.I,
+)
+
 
 _RELEASE_LABEL_PATTERNS = [
     re.compile(r"\b(?:version|ver\.?|v)\s*[:#-]?\s*(\d+(?:[._-]\d+){1,5}(?:[a-z]\d*)?\b)", re.I),
@@ -490,6 +501,10 @@ def parse_linked_posts(html: str, thread: dict) -> list[dict]:
         reliable = _is_reliable(author)
         untrusted = _is_untrusted(author)
         csf = bool(_CSF_RE.search(text))
+        # Online-Fix marker can be in the body text or the download filename
+        # (e.g. "How to Fish [OnlineFix].7z"), so check both.
+        link_blob = " ".join((l.get("url", "") + " " + l.get("text", "")) for l in links)
+        online_fix = bool(_ONLINE_FIX_RE.search(text) or _ONLINE_FIX_RE.search(link_blob))
         post_link = f"{thread['link']}#p{block['postId']}"
         if post_link in seen:
             continue
@@ -515,6 +530,7 @@ def parse_linked_posts(html: str, thread: dict) -> list[dict]:
                 + (" (trusted uploader)" if reliable else "")
                 + (" (untrusted uploader)" if untrusted else "")
                 + (" (CSF)" if csf else "")
+                + (" (Online-Fix)" if online_fix else "")
                 + (f" ({label})" if label else "")
             ),
             "csrinPostId": block["postId"],
@@ -527,6 +543,7 @@ def parse_linked_posts(html: str, thread: dict) -> list[dict]:
             "csrinReliablePoster": reliable,
             "csrinUntrustedPoster": untrusted,
             "csrinCsf": csf,
+            "csrinOnlineFix": online_fix,
         })
         results.append(post)
     return results
@@ -734,17 +751,18 @@ async def fetch_csrin_recent(force: bool = False) -> list[dict]:
         threads = parse_search_results(body)[:CSRIN_RECENT_SCAN_LIMIT]
         posts = await _scan_threads(client, threads)
 
-        # One card per thread for the feed: _scan_threads returns rank-ordered
-        # posts, so the first one seen for a thread is its best (trusted/CSF)
-        # release. Search keeps every post; only the recent grid collapses them
-        # so the same game doesn't appear once per uploader.
+        # Collapse to the best post per (thread, online-fix) so a game shows at
+        # most one plain release and one Online-Fix release — never once per
+        # uploader. Keeping the two variants distinct lets the frontend honour
+        # the user's avoid/prefer-online-fix setting. _scan_threads returns
+        # rank-ordered posts, so the first seen for a key is its best release.
         deduped: list[dict] = []
-        seen_threads: set[str] = set()
+        seen_variants: set[tuple] = set()
         for p in posts:
-            tid = str(p.get("originalId") or "")
-            if tid in seen_threads:
+            key = (str(p.get("originalId") or ""), bool(p.get("csrinOnlineFix")))
+            if key in seen_variants:
                 continue
-            seen_threads.add(tid)
+            seen_variants.add(key)
             deduped.append(p)
 
         print(f"cs.rin.ru recent: scanned {len(threads)} thread(s), {len(deduped)} game(s) after dedupe")
