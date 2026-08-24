@@ -9,6 +9,7 @@
 import './net';
 
 import { filterGamesBySearchQuery } from '../../utils/searchQueryFilter';
+import { fetchSkidrowRecentFromBackend } from '../csrinBackend';
 import {
   SITE_CONFIGS as _SITE_CONFIGS,
   MAX_POSTS_PER_SITE as _MAX_POSTS_PER_SITE,
@@ -198,6 +199,15 @@ async function fetchRecentFromSite(siteConfig: SiteConfig): Promise<TransformedP
     // the forum on every home-page refresh.
     if (siteConfig.type === 'csrin') {
       return [];
+    }
+
+    // SkidRow recent uploads come from the Python backend (it owns skidrow
+    // scraping + the CF solver). The Next recent pipeline still applies its own
+    // cleanTitle + IGDB/Steam enrichment on top of these.
+    if (siteConfig.type === 'skidrow') {
+      const maxPosts = MAX_POSTS_PER_SITE[siteConfig.type] || MAX_POSTS_PER_SITE.default;
+      const posts = await fetchSkidrowRecentFromBackend(maxPosts);
+      return dropSiteMetaPosts('skidrow', posts as unknown as TransformedPost[]);
     }
 
     const params = new URLSearchParams({

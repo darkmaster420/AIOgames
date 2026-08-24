@@ -55,6 +55,12 @@ export function fetchCsrinRecentFromBackend(refresh = false): Promise<CsrinPost[
   return backendGet(`/api/games/csrin-recent${refresh ? '?refresh=true' : ''}`);
 }
 
+/** Recent SkidRow releases (home feed) — the Node recent aggregation calls this
+ * instead of scraping the WP REST API directly. */
+export function fetchSkidrowRecentFromBackend(perPage = 40): Promise<CsrinPost[]> {
+  return backendGet(`/api/games/skidrow-recent?per_page=${encodeURIComponent(String(perPage))}`);
+}
+
 /** Search cs.rin.ru for a specific game (used to find update candidates). */
 export function fetchCsrinSearchFromBackend(query: string): Promise<CsrinPost[]> {
   const q = (query || '').trim();
