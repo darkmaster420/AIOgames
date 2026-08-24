@@ -45,8 +45,8 @@ type Game = {
   steamAppId?: number | string;
   steam_appid?: number | string;
   downloadLinks?: Array<{ url: string; label?: string; service?: string }>;
-  csrinOriginalPoster?: string; // cs.rin.ru thread starter (uploader)
-  csrinAuthor?: string; // author of the specific link-bearing post
+  csrinAuthor?: string; // author of the release post — the actual uploader (shown)
+  csrinOriginalPoster?: string; // thread starter; fallback only
   csrinReleaseLabel?: string; // per-post build/version label (e.g. "Build 12345")
 };
 
@@ -959,7 +959,7 @@ function DashboardInner() {
                       link={cardLink}
                       sourceLink={game.link}
                       title={game.originalTitle || game.title}
-                      posterName={game.csrinOriginalPoster || game.csrinAuthor}
+                      posterName={game.csrinAuthor || game.csrinOriginalPoster}
                       versionLabel={game.csrinReleaseLabel}
                       image={game.image}
                       badge={game.source}
