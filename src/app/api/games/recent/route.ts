@@ -25,10 +25,11 @@ export const maxDuration = 120;
 const BACKEND_URL = (process.env.BACKEND_INTERNAL_URL || 'http://aiogames-backend:8000').replace(/\/+$/, '');
 const INTERNAL_KEY = process.env.INTERNAL_API_SECRET || '';
 
-async function fetchCsrinRecentFromBackend(): Promise<Game[]> {
+async function fetchCsrinRecentFromBackend(refresh = false): Promise<Game[]> {
   if (!INTERNAL_KEY) return [];
   try {
-    const res = await fetch(`${BACKEND_URL}/api/games/csrin-recent`, {
+    const url = `${BACKEND_URL}/api/games/csrin-recent${refresh ? '?refresh=true' : ''}`;
+    const res = await fetch(url, {
       headers: { 'x-aio-internal-key': INTERNAL_KEY },
       cache: 'no-store',
     });
@@ -48,14 +49,25 @@ async function fetchCsrinRecentFromBackend(): Promise<Game[]> {
 // forum has neither). The home grid hides games without an AppID by default, so
 // resolve AppID + IGDB cover here — synchronously, so csrin cards are complete
 // on first paint instead of relying on the background pass that only enriches
-// the Node cache. Cached alongside the backend's own 15-min window so repeat
-// loads don't re-hit Steam/IGDB.
+// the Node cache. The cache is keyed on the post set (their ids), so when the
+// backend returns a different set — a new/updated release — we re-enrich
+// immediately instead of masking it behind a timer; the TTL just caps how long
+// an unchanged set is reused.
 const CSRIN_ENRICH_TTL_MS = 15 * 60 * 1000;
-let csrinEnrichCache: { results: Game[]; timestamp: number } | null = null;
+let csrinEnrichCache: { key: string; results: Game[]; timestamp: number } | null = null;
+
+function csrinSetKey(posts: Game[]): string {
+  return posts.map(p => String(p.id ?? '')).sort().join('|');
+}
 
 async function enrichCsrinResults(posts: Game[]): Promise<Game[]> {
   if (posts.length === 0) return posts;
-  if (csrinEnrichCache && Date.now() - csrinEnrichCache.timestamp < CSRIN_ENRICH_TTL_MS) {
+  const key = csrinSetKey(posts);
+  if (
+    csrinEnrichCache
+    && csrinEnrichCache.key === key
+    && Date.now() - csrinEnrichCache.timestamp < CSRIN_ENRICH_TTL_MS
+  ) {
     return csrinEnrichCache.results;
   }
   try {
@@ -94,7 +106,7 @@ async function enrichCsrinResults(posts: Game[]): Promise<Game[]> {
         ...(image ? { image } : {}),
       } as Game;
     });
-    csrinEnrichCache = { results: enriched, timestamp: Date.now() };
+    csrinEnrichCache = { key, results: enriched, timestamp: Date.now() };
     return enriched;
   } catch (err) {
     console.warn('[recent] csrin enrichment failed:', err);
@@ -132,6 +144,21 @@ export async function GET(request: NextRequest) {
     // unverified game gets another IGDB/Steam attempt on this request's
     // background enrichment cycle.
     const forceReverify = searchParams.get('reverify') === 'true';
+
+    // Kick off the csrin fetch+enrich now so it overlaps the (possibly slow)
+    // skidrow scrape below instead of running after it — the two are
+    // independent, so this makes the cold/refresh cost max(skidrow, csrin)
+    // rather than the sum, keeping us under the reverse-proxy timeout. Capped at
+    // a budget so a slow scan can't 504 the whole response; skidrow still
+    // returns and csrin fills in on the next load. `refresh=true` re-scans the
+    // forum (the home Refresh button); otherwise the backend serves its cache.
+    const wantsCsrin = siteList.length === 0 || siteList.includes('csrin');
+    const csrinPromise: Promise<Game[]> = wantsCsrin
+      ? Promise.race([
+          (async () => enrichCsrinResults(await fetchCsrinRecentFromBackend(forceRefresh)))(),
+          new Promise<Game[]>((resolve) => setTimeout(() => resolve([]), 35_000)),
+        ]).catch(() => [])
+      : Promise.resolve([]);
 
     const now = Date.now();
     let results: Game[];
@@ -186,16 +213,9 @@ export async function GET(request: NextRequest) {
     // for 15 min so repeat loads stay cheap. Show them in the default feed and
     // whenever csrin is explicitly selected — but not when the user has filtered
     // to other specific sites.
-    if (siteList.length === 0 || siteList.includes('csrin')) {
-      // Guard the total response time: on a cold miss the deeper csrin scan +
-      // enrichment can be slow, and the reverse proxy will 504 the whole request
-      // (skidrow included) if we block too long. Cap the csrin work at a budget;
-      // if it overruns we return without csrin this time — the backend + enrich
-      // caches keep warming in the background, so csrin shows on the next load.
-      const csrinResults = await Promise.race([
-        (async () => enrichCsrinResults(await fetchCsrinRecentFromBackend()))(),
-        new Promise<Game[]>((resolve) => setTimeout(() => resolve([]), 35_000)),
-      ]);
+    if (wantsCsrin) {
+      // Started above, concurrent with the skidrow scrape; await it here.
+      const csrinResults = await csrinPromise;
       if (csrinResults.length > 0) {
         finalResults = [...csrinResults, ...finalResults];
       }
