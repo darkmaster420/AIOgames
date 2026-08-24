@@ -63,6 +63,19 @@ export function fetchCsrinSearchFromBackend(query: string): Promise<CsrinPost[]>
 }
 
 /**
+ * Multi-site search across the ported scrapers (skidrow + csrin). `sites` is the
+ * requested filter; omit / empty means the backend's default set (skidrow only,
+ * csrin opt-in). Used by the Next search route, which keeps its own AppID
+ * enrichment + term filter + cache on top of these raw results.
+ */
+export function fetchGamesSearchFromBackend(query: string, sites?: string[]): Promise<CsrinPost[]> {
+  const q = (query || '').trim();
+  if (!q) return Promise.resolve([]);
+  const siteParam = sites && sites.length ? `&site=${encodeURIComponent(sites.join(','))}` : '';
+  return backendGet(`/api/games/search?search=${encodeURIComponent(q)}${siteParam}`);
+}
+
+/**
  * Normalise a csrin release label ("buildID: 123", "BUILD 123") to "Build 123"
  * so the shared version engine's build regex (`\bbuild[\s\-#.]?(\d+)`) matches.
  */

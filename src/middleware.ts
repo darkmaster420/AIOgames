@@ -52,19 +52,11 @@ function proxyToBackend(request: NextRequest, token: { id?: unknown; sub?: unkno
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // cs.rin.ru search is served by the Python backend. It mirrors the
-  // anon-allowed multi-site search, so it is intercepted before the public-route
-  // pass-through and proxied regardless of auth. Only the csrin-only variant is
-  // routed (site=csrin exactly); any other search stays on the Next route, so
-  // the existing multi-site behaviour is untouched.
-  if (
-    request.method === 'GET'
-    && pathname === '/api/games/search'
-    && request.nextUrl.searchParams.get('site') === 'csrin'
-  ) {
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
-    return proxyToBackend(request, token);
-  }
+  // Search (skidrow + csrin) is scraped by the Python backend, but the Next
+  // /api/games/search route stays in place: it calls the backend server-to-server
+  // for the raw results and keeps its own AppID enrichment, term filter and
+  // cache on top. So there's no middleware special-case here — the request falls
+  // through to the public-route pass-through below and the Next route handles it.
 
   // Public routes (excluding /auth/signin which needs special handling for redirect-after-login)
   const publicRoutes = [

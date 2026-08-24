@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cleanGameTitle } from '../../../../utils/steamApi';
 import { filterGamesBySearchQuery } from '../../../../utils/searchQueryFilter';
-import { searchGames } from '../../../../lib/gameapi';
+import { fetchGamesSearchFromBackend } from '../../../../lib/csrinBackend';
 import { peekCachedSteamAppId, resolveSteamAppIdsBatch } from '../../../../utils/steamAppIdResolver';
 import { isCfProtectedUrl, prefetchImageBatch } from '../../../../utils/imageCache';
 
@@ -164,16 +164,16 @@ export async function GET(request: NextRequest) {
       console.log(`[Search] Cache MISS for "${search}" (sites: ${siteCacheKey}) - fetching from API`);
     }
 
-    // Call gameapi directly (integrated module). Empty list = default
-    // (gameapi will pick all sites minus DEFAULT_EXCLUDED_FROM_ALL).
-    const data = await searchGames(search, requestedSites.length ? requestedSites : undefined);
+    // Scrape via the Python backend (skidrow + csrin). Empty list = the
+    // backend default (skidrow only; csrin is opt-in). The Next route keeps its
+    // own post-processing (AppID enrichment, term filter, cache, image prefetch)
+    // on top of these raw results.
+    const backendResults = await fetchGamesSearchFromBackend(
+      search,
+      requestedSites.length ? requestedSites : undefined,
+    );
 
-    if (!data.success || !data.results || !Array.isArray(data.results)) {
-      console.error('Invalid search API response structure:', data);
-      return NextResponse.json({ error: 'Invalid search response structure' }, { status: 500 });
-    }
-
-    let results = await enrichSearchResults(data.results, search);
+    let results = await enrichSearchResults(backendResults as unknown as ApiGame[], search);
     let fallbackFromSites: string[] | undefined;
 
     // Fallback: when the user filtered to specific sites and that combined
@@ -183,9 +183,9 @@ export async function GET(request: NextRequest) {
     // fallbackFromSites listing the empty selection.
     if (requestedSites.length > 0 && results.length === 0) {
       console.log(`[Search] "${search}" returned 0 from sites=${requestedSites.join(',')}, falling back to default`);
-      const fallbackData = await searchGames(search);
-      if (fallbackData.success && Array.isArray(fallbackData.results)) {
-        const fallbackResults = await enrichSearchResults(fallbackData.results, search);
+      const fallbackBackend = await fetchGamesSearchFromBackend(search);
+      if (fallbackBackend.length > 0) {
+        const fallbackResults = await enrichSearchResults(fallbackBackend as unknown as ApiGame[], search);
         if (fallbackResults.length > 0) {
           results = fallbackResults;
           fallbackFromSites = requestedSites;
