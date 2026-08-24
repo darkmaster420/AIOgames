@@ -12,6 +12,7 @@ interface GamePosterCardProps {
   link?: string;
   sourceLink?: string;
   title: string;
+  posterName?: string;
   image: string;
   year?: string;
   badge?: string;
@@ -34,6 +35,7 @@ export function GamePosterCard({
   link,
   sourceLink,
   title,
+  posterName,
   image,
   year,
   badge,
@@ -120,6 +122,11 @@ export function GamePosterCard({
 
         {/* Title Overlay - Always visible at bottom */}
         <div className="absolute bottom-0 left-0 right-0 p-3 z-10 bg-gradient-to-t from-black/90 to-transparent">
+          {posterName && (
+            <p className="text-gray-300 text-[11px] font-medium mb-0.5 truncate">
+              <span className="text-gray-400">by</span> {posterName}
+            </p>
+          )}
           <h3 className="text-white font-bold text-sm mb-1 line-clamp-2">
             {title}
           </h3>

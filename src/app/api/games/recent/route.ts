@@ -12,6 +12,9 @@ import {
   runAutoRecovery,
   triggerReverify,
 } from '../../../../lib/recentUploadsState';
+import { resolveSteamAppIdsBatch } from '../../../../utils/steamAppIdResolver';
+import { resolveIGDBImage } from '../../../../utils/igdb';
+import { cleanGameTitle } from '../../../../utils/steamApi';
 
 // Allow up to 2 minutes for initial data fetch (scraping multiple sites via FlareSolverr)
 export const maxDuration = 120;
@@ -38,6 +41,45 @@ async function fetchCsrinRecentFromBackend(): Promise<Game[]> {
   } catch (err) {
     console.warn('[recent] backend csrin-recent fetch failed:', err);
     return [];
+  }
+}
+
+// csrin posts arrive with clean titles but no Steam AppID / cover image (the
+// forum has neither). The home grid hides games without an AppID by default, so
+// resolve AppID + IGDB cover here — synchronously, so csrin cards are complete
+// on first paint instead of relying on the background pass that only enriches
+// the Node cache. Cached alongside the backend's own 15-min window so repeat
+// loads don't re-hit Steam/IGDB.
+const CSRIN_ENRICH_TTL_MS = 15 * 60 * 1000;
+let csrinEnrichCache: { results: Game[]; timestamp: number } | null = null;
+
+async function enrichCsrinResults(posts: Game[]): Promise<Game[]> {
+  if (posts.length === 0) return posts;
+  if (csrinEnrichCache && Date.now() - csrinEnrichCache.timestamp < CSRIN_ENRICH_TTL_MS) {
+    return csrinEnrichCache.results;
+  }
+  try {
+    const titles = posts.map(p => (p.originalTitle || p.title || '') as string);
+    const appIdMap = await resolveSteamAppIdsBatch(titles, 6);
+    const enriched = await Promise.all(posts.map(async (p) => {
+      const rawTitle = (p.originalTitle || p.title || '') as string;
+      const appId = appIdMap.get(rawTitle) || undefined;
+      let image = (p.image as string | undefined) || undefined;
+      if (!image) {
+        const clean = cleanGameTitle(rawTitle).trim();
+        if (clean) image = (await resolveIGDBImage(clean)) || undefined;
+      }
+      return {
+        ...p,
+        ...(appId ? { appid: appId } : {}),
+        ...(image ? { image } : {}),
+      } as Game;
+    }));
+    csrinEnrichCache = { results: enriched, timestamp: Date.now() };
+    return enriched;
+  } catch (err) {
+    console.warn('[recent] csrin enrichment failed:', err);
+    return posts;
   }
 }
 
@@ -126,7 +168,7 @@ export async function GET(request: NextRequest) {
     // whenever csrin is explicitly selected — but not when the user has filtered
     // to other specific sites.
     if (siteList.length === 0 || siteList.includes('csrin')) {
-      const csrinResults = await fetchCsrinRecentFromBackend();
+      const csrinResults = await enrichCsrinResults(await fetchCsrinRecentFromBackend());
       if (csrinResults.length > 0) {
         finalResults = [...csrinResults, ...finalResults];
       }

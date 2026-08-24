@@ -45,6 +45,8 @@ type Game = {
   steamAppId?: number | string;
   steam_appid?: number | string;
   downloadLinks?: Array<{ url: string; label?: string; service?: string }>;
+  csrinOriginalPoster?: string; // cs.rin.ru thread starter (uploader)
+  csrinAuthor?: string; // author of the specific link-bearing post
 };
 
 type DisplayGame = Game & {
@@ -956,6 +958,7 @@ function DashboardInner() {
                       link={cardLink}
                       sourceLink={game.link}
                       title={game.originalTitle || game.title}
+                      posterName={game.csrinOriginalPoster || game.csrinAuthor}
                       image={game.image}
                       badge={game.source}
                       badgeColor={trackState.isExactTracked ? 'green' : trackState.hasTrackedVariant ? 'yellow' : 'blue'}
