@@ -292,6 +292,20 @@ def _strip_csrin_html(value: str) -> str:
     ).strip()
 
 
+def _clean_csrin_title(raw: str) -> str:
+    """Drop the leading forum status tags ([Info], [Update], [Request], [Full],
+    etc.) so the remainder is the plain game name IGDB/Steam can match on. Only
+    leading bracket groups are removed; brackets/parens inside the name (e.g.
+    "Sam & Max ... (Season 1)") are kept. The frontend cleanGameTitle still runs
+    on top for version/build/scene-group stripping."""
+    s = (raw or "").strip()
+    prev = None
+    while prev != s:
+        prev = s
+        s = re.sub(r"^\[[^\]]*\]\s*", "", s).strip()
+    return re.sub(r"\s+", " ", s).strip()
+
+
 # cs.rin.ru's rinDark theme is old phpBB2: each post is anchored by
 # `<a name="pNNNN">` (not `<div id="pNNNN">`), the body is `<span class="postbody">`
 # (not `<div class="content">`), the author is `<b class="postauthor">`, and
@@ -385,6 +399,17 @@ def _extract_author(post_html: str) -> str:
     return decode_entities(m.group(1)).strip() if m else ""
 
 
+def _extract_topic_author(html: str, from_pos: int) -> str:
+    """The thread's original poster, read from the forum/search listing row.
+
+    Each row renders `<p class="topicauthor"><a ...>Name</a>` shortly after its
+    topictitle link; scan a bounded window forward from the title so we pick up
+    that row's author and not a later one."""
+    window = html[from_pos:from_pos + 2000]
+    m = re.search(r'class="topicauthor"[^>]*>\s*(?:<a[^>]*>\s*)?([^<]+?)\s*<', window, re.I)
+    return decode_entities(m.group(1)).strip() if m else ""
+
+
 def parse_linked_posts(html: str, thread: dict) -> list[dict]:
     results = []
     seen: set[str] = set()
@@ -403,11 +428,16 @@ def parse_linked_posts(html: str, thread: dict) -> list[dict]:
             continue
         seen.add(post_link)
 
-        post = _build_csrin_post(
-            thread["threadId"],
-            f"{thread['title']} - {label}" if label else thread["title"],
-            post_link,
-        )
+        # Keep the game name clean (for IGDB/Steam matching + card display); the
+        # version/build label rides along as separate metadata instead of being
+        # jammed into the title. The original poster (thread starter) comes from
+        # the listing row; fall back to this post's author if it wasn't found.
+        clean_title = thread["title"]
+        raw_title = thread.get("rawTitle") or clean_title
+        original_poster = thread.get("originalPoster") or author
+        full_title = f"{raw_title} - {label}" if label else raw_title
+
+        post = _build_csrin_post(thread["threadId"], clean_title, post_link)
         post.update({
             "downloadLinks": links,
             "excerpt": text[:360],
@@ -424,6 +454,9 @@ def parse_linked_posts(html: str, thread: dict) -> list[dict]:
             "csrinLinkCount": len(links),
             "csrinHasReleaseMetadata": bool(label),
             "csrinAuthor": author,
+            "csrinOriginalPoster": original_poster,
+            "csrinFullTitle": full_title,
+            "csrinReleaseLabel": label,
             "csrinReliablePoster": reliable,
             "csrinUntrustedPoster": untrusted,
             "csrinCsf": csf,
@@ -469,9 +502,11 @@ def parse_search_results(html: str) -> list[dict]:
             cleaned = re.sub(
                 r'<([a-z]+)[^>]*style="[^"]*(?:display\s*:\s*none|visibility\s*:\s*hidden)[^"]*"[^>]*>[\s\S]*?</\1>',
                 "", title_html, flags=re.I)
-            title = re.sub(r"\s+", " ", decode_entities(re.sub(r"<[^>]+>", "", cleaned))).strip()
-            if not title:
+            raw_title = re.sub(r"\s+", " ", decode_entities(re.sub(r"<[^>]+>", "", cleaned))).strip()
+            if not raw_title:
                 continue
+            title = _clean_csrin_title(raw_title)
+            original_poster = _extract_topic_author(html, m.end())
 
             f = last_forum.get(thread_id) or (re.search(r"[?&]f=(\d+)", href).group(1) if re.search(r"[?&]f=(\d+)", href) else "")
             params = []
@@ -482,8 +517,14 @@ def parse_search_results(html: str) -> list[dict]:
             if start is not None:
                 params.append(f"start={start}")
             link = f"{CSRIN_BASE}/viewtopic.php?{'&'.join(params)}"
-            post = _build_csrin_post(thread_id, title, link)
-            post.update({"threadId": thread_id, "forumId": f or "", "start": start or 0})
+            post = _build_csrin_post(thread_id, title or raw_title, link)
+            post.update({
+                "threadId": thread_id,
+                "forumId": f or "",
+                "start": start or 0,
+                "rawTitle": raw_title,
+                "originalPoster": original_poster,
+            })
             results.append(post)
     return results
 
@@ -622,8 +663,22 @@ async def fetch_csrin_recent() -> list[dict]:
         body = html[header.start():] if header else html
         threads = parse_search_results(body)[:CSRIN_POST_SCAN_LIMIT]
         posts = await _scan_threads(client, threads)
-        print(f"cs.rin.ru recent: scanned {len(threads)} thread(s), found {len(posts)} linked post(s)")
-        if posts:
-            _recent_cache.results = posts
+
+        # One card per thread for the feed: _scan_threads returns rank-ordered
+        # posts, so the first one seen for a thread is its best (trusted/CSF)
+        # release. Search keeps every post; only the recent grid collapses them
+        # so the same game doesn't appear once per uploader.
+        deduped: list[dict] = []
+        seen_threads: set[str] = set()
+        for p in posts:
+            tid = str(p.get("originalId") or "")
+            if tid in seen_threads:
+                continue
+            seen_threads.add(tid)
+            deduped.append(p)
+
+        print(f"cs.rin.ru recent: scanned {len(threads)} thread(s), {len(deduped)} game(s) after dedupe")
+        if deduped:
+            _recent_cache.results = deduped
             _recent_cache.timestamp = _now_ms()
-        return posts
+        return deduped
