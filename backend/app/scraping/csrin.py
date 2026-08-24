@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 import httpx
 
 from .cf import SITE_FETCH_TIMEOUT_MS
+from .wordpress import classify_torrent_link, extract_service_name, is_valid_download_url
 
 CSRIN_BASE = "https://cs.rin.ru/forum"
 CSRIN_USER_AGENT = (
@@ -309,25 +310,40 @@ def _get_post_content(post_html: str) -> str:
     return re.sub(r'<div\b[^>]*\bclass="[^"]*\bsignature\b[^"]*"[^>]*>[\s\S]*', "", post_html, flags=re.I)
 
 
-def _get_external_links(post_html: str) -> list[str]:
-    urls: list[str] = []
+def _extract_download_links(post_html: str) -> list[dict]:
+    """Real download links only, scoped to the post body.
+
+    Uses the same classifier as the WordPress sites: recognised file hosts and
+    magnet/.torrent links count; forum links, changelogs, sha256 pages, store
+    pages, screenshots and rutracker threads do not. This is what drops the
+    linkless showcase/[Info] posts (their only links are Steam/YouTube/etc) and
+    ignores the non-download noise in busy posts like the Factorio one.
+    """
+    content = _get_post_content(post_html)
+    links: list[dict] = []
     seen: set[str] = set()
-    for m in re.finditer(r'<a\b[^>]*\bhref="([^"]+)"[^>]*>', _get_post_content(post_html), re.I):
-        href = decode_entities(m.group(1)).strip()
-        if not re.match(r"^https?://", href, re.I):
+    for m in re.finditer(r'<a\b[^>]*\bhref="([^"]+)"[^>]*>', content, re.I):
+        url = decode_entities(m.group(1)).strip()
+        if not re.match(r"^(https?://|magnet:)", url, re.I):
             continue
-        try:
-            u = httpx.URL(href)
-            host = (u.host or "").lower()
-            if host == "cs.rin.ru" or host.endswith(".cs.rin.ru"):
-                continue
-            s = str(u)
-            if s not in seen:
-                seen.add(s)
-                urls.append(s)
-        except Exception:
+        key = url.lower()
+        if key in seen:
             continue
-    return urls
+        torrent = classify_torrent_link(url)
+        if torrent:
+            seen.add(key)
+            links.append(torrent)
+            continue
+        if is_valid_download_url(url):
+            seen.add(key)
+            service = extract_service_name(url)
+            links.append({"type": "hosting", "service": service, "url": url, "text": service})
+    return links
+
+
+# CSF = "Clean Steam Files": the clean, desirable uploads. Any mention (and its
+# variations) boosts the post in ranking.
+_CSF_RE = re.compile(r"\bcsfs?\b|clean\s+steam\s+files?|clean\s+files?|clean\s+steam\b", re.I)
 
 
 _RELEASE_LABEL_PATTERNS = [
@@ -359,14 +375,15 @@ def parse_linked_posts(html: str, thread: dict) -> list[dict]:
     results = []
     seen: set[str] = set()
     for block in _get_post_blocks(html):
-        links = _get_external_links(block["html"])
+        links = _extract_download_links(block["html"])
         if not links:
-            continue
+            continue  # only surface posts with at least one real download link
         text = _strip_csrin_html(block["html"])
         label = _extract_release_label(text)
         author = _extract_author(block["html"])
         reliable = _is_reliable(author)
         untrusted = _is_untrusted(author)
+        csf = bool(_CSF_RE.search(text))
         post_link = f"{thread['link']}#p{block['postId']}"
         if post_link in seen:
             continue
@@ -378,13 +395,15 @@ def parse_linked_posts(html: str, thread: dict) -> list[dict]:
             post_link,
         )
         post.update({
-            "id": f"csrin-{thread['threadId']}-{block['postId']}",
+            "downloadLinks": links,
             "excerpt": text[:360],
+            "id": f"csrin-{thread['threadId']}-{block['postId']}",
             "description": (
-                f"{len(links)} external link{'' if len(links) == 1 else 's'} in this forum post"
+                f"{len(links)} download link{'' if len(links) == 1 else 's'}"
                 + (f" by {author}" if author else "")
                 + (" (trusted uploader)" if reliable else "")
                 + (" (untrusted uploader)" if untrusted else "")
+                + (" (CSF)" if csf else "")
                 + (f" ({label})" if label else "")
             ),
             "csrinPostId": block["postId"],
@@ -393,6 +412,7 @@ def parse_linked_posts(html: str, thread: dict) -> list[dict]:
             "csrinAuthor": author,
             "csrinReliablePoster": reliable,
             "csrinUntrustedPoster": untrusted,
+            "csrinCsf": csf,
         })
         results.append(post)
     return results
@@ -476,9 +496,14 @@ async def _fetch_thread_linked_posts(client: httpx.AsyncClient, thread: dict) ->
 
 
 def _rank(posts: list[dict]) -> list[dict]:
+    # Priority: trusted uploaders first, then untrusted sink, then CSF (Clean
+    # Steam Files) boost, then documented releases. Link count is only a final
+    # tiebreaker so a post spamming many links (e.g. multi-spoiler dumps) can't
+    # outrank a clean CSF/trusted one.
     return sorted(posts, key=lambda p: (
         0 if p.get("csrinReliablePoster") else 1,
         1 if p.get("csrinUntrustedPoster") else 0,
+        0 if p.get("csrinCsf") else 1,
         0 if p.get("csrinHasReleaseMetadata") else 1,
         -int(p.get("csrinLinkCount") or 0),
         (p.get("title") or "").lower(),
