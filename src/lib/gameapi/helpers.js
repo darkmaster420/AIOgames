@@ -236,47 +236,18 @@ export const MAX_POSTS_PER_SITE = {
 };
 
 // Site configurations
+// Only the two sources being migrated to the Python backend remain. The rest
+// (SteamRip, FreeGOG, ReloadedSteam, SteamUnderground, Online-Fix, DODI,
+// FitGirl) are retired as the strangler migration proceeds — re-add an entry
+// here once its scraper is ported and wired. Keep this aligned with
+// src/lib/sites.ts (the UI's selectable site chips). csrin stays listed so
+// getSiteDisplayName/getSiteConfig resolve it, but its recent uploads come from
+// the Python backend, not fetchRecentFromSite (which returns [] for csrin).
 export const SITE_CONFIGS = {
   'skidrow': {
     baseUrl: 'https://www.skidrowreloaded.com/wp-json/wp/v2/posts',
     type: 'skidrow',
     name: 'SkidrowReloaded'
-  },
-  'freegog': {
-    baseUrl: 'https://freegogpcgames.com/wp-json/wp/v2/posts',
-    type: 'freegog',
-    name: 'FreeGOGPCGames'
-  },
-  'steamrip': {
-    baseUrl: 'https://steamrip.com/wp-json/wp/v2/posts',
-    type: 'steamrip',
-    name: 'SteamRip'
-  },
-  'reloadedsteam': {
-    baseUrl: 'https://reloadedsteam.com/wp-json/wp/v2/posts',
-    type: 'reloadedsteam',
-    name: 'ReloadedSteam'
-  },
-  'steamunderground': {
-    baseUrl: 'https://steamunderground.net/wp-json/wp/v2/posts',
-    type: 'steamunderground',
-    name: 'SteamUnderground'
-  },
-  'onlinefix': {
-    baseUrl: 'https://online-fix.me',
-    type: 'onlinefix',
-    name: 'Online-Fix'
-  },
-  'dodi': {
-    baseUrl: 'https://dodi-repacks.download/wp-json/wp/v2/posts',
-    fallbackBaseUrl: 'https://dodi-repacks.site/wp-json/wp/v2/posts',
-    type: 'dodi',
-    name: 'DODI-Repacks'
-  },
-  'fitgirl': {
-    baseUrl: 'https://fitgirl-repacks.site/wp-json/wp/v2/posts',
-    type: 'fitgirl',
-    name: 'FitGirl-Repacks'
   },
   'csrin': {
     baseUrl: 'https://cs.rin.ru/forum',

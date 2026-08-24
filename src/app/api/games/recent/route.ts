@@ -12,10 +12,34 @@ import {
   runAutoRecovery,
   triggerReverify,
 } from '../../../../lib/recentUploadsState';
-import { fetchCsrinRecent } from '../../../../lib/gameapi/helpers.js';
 
 // Allow up to 2 minutes for initial data fetch (scraping multiple sites via FlareSolverr)
 export const maxDuration = 120;
+
+// cs.rin.ru recent uploads are served by the Python backend (it owns the forum
+// login + rinDark parsing). Reached server-to-server on the unpublished backend
+// port with the shared internal key — same handoff the middleware uses.
+const BACKEND_URL = (process.env.BACKEND_INTERNAL_URL || 'http://aiogames-backend:8000').replace(/\/+$/, '');
+const INTERNAL_KEY = process.env.INTERNAL_API_SECRET || '';
+
+async function fetchCsrinRecentFromBackend(): Promise<Game[]> {
+  if (!INTERNAL_KEY) return [];
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/games/csrin-recent`, {
+      headers: { 'x-aio-internal-key': INTERNAL_KEY },
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      console.warn(`[recent] backend csrin-recent returned ${res.status}`);
+      return [];
+    }
+    const data = await res.json();
+    return Array.isArray(data?.results) ? (data.results as Game[]) : [];
+  } catch (err) {
+    console.warn('[recent] backend csrin-recent fetch failed:', err);
+    return [];
+  }
+}
 
 function buildStatsHeader(stats: Record<string, SiteStat>): string {
   return JSON.stringify(
@@ -95,20 +119,16 @@ export async function GET(request: NextRequest) {
       finalResults = results.filter((game: Game) => wanted.has(game.siteType));
     }
 
-    // cs.rin.ru is never in the all-sites cache (fetchRecentFromSite skips
-    // it to keep periodic refreshes from constantly hitting the forum's
-    // bot login). When the user explicitly clicks the csrin chip though,
-    // fetch the latest threads from the Game Releases subforum on-demand
-    // and prepend them. fetchCsrinRecent has its own 15-min cache so
-    // repeat clicks don't re-hit the forum.
-    if (siteList.includes('csrin')) {
-      try {
-        const csrinResults = (await fetchCsrinRecent()) as Game[];
-        if (csrinResults.length > 0) {
-          finalResults = [...csrinResults, ...finalResults];
-        }
-      } catch (err) {
-        console.warn('[recent] cs.rin.ru recent fetch failed:', err);
+    // cs.rin.ru is never in the Node all-sites cache (fetchRecentFromSite skips
+    // it). Its recent releases come from the Python backend, which logs into the
+    // forum, scans the Game Releases subforum for link-bearing posts, and caches
+    // for 15 min so repeat loads stay cheap. Show them in the default feed and
+    // whenever csrin is explicitly selected — but not when the user has filtered
+    // to other specific sites.
+    if (siteList.length === 0 || siteList.includes('csrin')) {
+      const csrinResults = await fetchCsrinRecentFromBackend();
+      if (csrinResults.length > 0) {
+        finalResults = [...csrinResults, ...finalResults];
       }
     }
 
