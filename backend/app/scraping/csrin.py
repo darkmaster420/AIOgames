@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import asyncio
 import os
+import random
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -45,11 +47,32 @@ def _env_int(var: str, default: int) -> int:
 # threads bump between refreshes than we scan we'd miss valid updates. All
 # env-tunable so they can be raised on the VPS without a rebuild.
 CSRIN_POST_SCAN_LIMIT = _env_int("CSRIN_POST_SCAN_LIMIT", 12)
-CSRIN_RECENT_SCAN_LIMIT = _env_int("CSRIN_RECENT_SCAN_LIMIT", 30)
+# Scan the newest updated threads from the regular Topics section. The ten-post
+# candidate window below handles discussion bumps without making the page wait
+# on an unbounded forum crawl.
+CSRIN_RECENT_SCAN_LIMIT = _env_int("CSRIN_RECENT_SCAN_LIMIT", 20)
 CSRIN_POST_SCAN_CONCURRENCY = _env_int("CSRIN_POST_SCAN_CONCURRENCY", 5)
-# Game Releases subforum; scanned for the home-page "recent uploads" feed.
-CSRIN_RECENT_FORUM_ID = os.environ.get("CSRIN_RECENT_FORUM_ID", "10")
+# A release thread is often bumped by discussion replies. Inspect the newest
+# ten posts on its latest page so the linked release remains a candidate.
+CSRIN_RECENT_POSTS_PER_THREAD = _env_int("CSRIN_RECENT_POSTS_PER_THREAD", 10)
+# Steam Content Sharing is the purpose-built source for clean Steam files;
+# Main Forum mixes in repacks, cracks, and general discussion.
+CSRIN_RECENT_FORUM_ID = os.environ.get("CSRIN_RECENT_FORUM_ID", "22")
 CSRIN_RECENT_TTL_MS = _env_int("CSRIN_RECENT_TTL_MINUTES", 10) * 60 * 1000
+CSRIN_CSF_AUTHOR_IDS = tuple(
+    value.strip() for value in os.environ.get("CSRIN_CSF_AUTHOR_IDS", "1883392").split(",") if value.strip()
+)
+# These uploaders are useful discovery sources but do not exclusively post clean
+# Steam files, so their posts still need an explicit CSF marker to be admitted.
+CSRIN_CSF_CANDIDATE_AUTHOR_IDS = tuple(
+    value.strip() for value in os.environ.get("CSRIN_CSF_CANDIDATE_AUTHOR_IDS", "625155,1068689,1014019").split(",") if value.strip()
+)
+CSRIN_CSF_AUTHOR_POST_LIMIT = _env_int("CSRIN_CSF_AUTHOR_POST_LIMIT", 8)
+CSRIN_REQUEST_MIN_DELAY_SECONDS = _env_int("CSRIN_REQUEST_MIN_DELAY_SECONDS", 1)
+CSRIN_REQUEST_MAX_DELAY_SECONDS = max(
+    CSRIN_REQUEST_MIN_DELAY_SECONDS,
+    _env_int("CSRIN_REQUEST_MAX_DELAY_SECONDS", 10),
+)
 
 
 # ── Trusted / untrusted uploaders ──────────────────────────────────────────
@@ -59,6 +82,10 @@ def _seed(env_var: str) -> set[str]:
 
 _reliable: set[str] = _seed("CSRIN_RELIABLE_POSTERS")
 _untrusted: set[str] = _seed("CSRIN_UNTRUSTED_POSTERS")
+# A small, explicit allowlist for uploaders who publish a current build notice
+# that points to their own maintained CSF post. Add names through the env var
+# instead of treating arbitrary forum links as downloads.
+_maintained_link_users: set[str] = _seed("CSRIN_MAINTAINED_LINK_USERS") or {"titeuf"}
 
 
 def set_reliable_posters(names) -> None:
@@ -82,6 +109,10 @@ def _is_untrusted(author: str) -> bool:
     return key in _untrusted and key not in _reliable
 
 
+def _uses_maintained_links(author: str) -> bool:
+    return bool(author) and author.lower() in _maintained_link_users
+
+
 # ── Session state ───────────────────────────────────────────────────────────
 class _Session:
     cookies: str = ""       # "name=value; name=value" Cookie header
@@ -90,6 +121,19 @@ class _Session:
 
 
 _session = _Session()
+_request_rate_lock = asyncio.Lock()
+_last_request_started_at = 0.0
+
+
+async def _wait_for_request_slot() -> None:
+    """Serialize forum traffic with a human-like randomized pause."""
+    global _last_request_started_at
+    async with _request_rate_lock:
+        interval = random.uniform(CSRIN_REQUEST_MIN_DELAY_SECONDS, CSRIN_REQUEST_MAX_DELAY_SECONDS)
+        wait_for = _last_request_started_at + interval - time.monotonic()
+        if wait_for > 0:
+            await asyncio.sleep(wait_for)
+        _last_request_started_at = time.monotonic()
 _login_lock = asyncio.Lock()
 
 
@@ -102,6 +146,7 @@ class _RecentCache:
 
 
 _recent_cache = _RecentCache()
+_recent_refresh_lock = asyncio.Lock()
 
 
 def _now_ms() -> float:
@@ -151,6 +196,32 @@ def _looks_like_login_page(html: str) -> bool:
                 and re.search(r"mode=login", html, re.I))
 
 
+def _is_login_redirect(resp: httpx.Response | None) -> bool:
+    """Whether phpBB redirected this request to its login form.
+
+    Requests deliberately use manual redirects so that an expired forum session
+    cannot silently turn into an HTML login page which the parser treats as an
+    empty search. phpBB uses both absolute and relative Location values.
+    """
+    if resp is None or not 300 <= resp.status_code < 400:
+        return False
+    location = resp.headers.get("location", "")
+    if not location:
+        return False
+    parsed = urlparse(location)
+    query = parse_qs(parsed.query)
+    return parsed.path.rstrip("/").rsplit("/", 1)[-1] == "ucp.php" and query.get("mode", [""])[0].lower() == "login"
+
+
+def _requires_reauthentication(resp: httpx.Response | None) -> bool:
+    return _is_login_redirect(resp) or bool(resp and _looks_like_login_page(resp.text))
+
+
+def _invalidate_session() -> None:
+    _session.cookies = ""
+    _session.logged_in_at = 0
+
+
 async def _solve_security_check(client: httpx.AsyncClient, original_url: str, html: str) -> bool:
     tok = re.search(r"securitytoken=([\w-]+)", html)
     exp = re.search(r"securitytoken_expiration=(\d+)", html)
@@ -187,6 +258,7 @@ async def _csrin_fetch(
         return {"User-Agent": CSRIN_USER_AGENT, **(headers or {}), "Cookie": _session.cookies}
 
     try:
+        await _wait_for_request_slot()
         if method == "POST":
             resp = await client.post(url, headers=build_headers(), content=body, follow_redirects=False)
         else:
@@ -212,6 +284,30 @@ async def _csrin_fetch(
                 sc = _parse_set_cookies(resp)
                 if sc:
                     _session.cookies = _merge_cookie_string(_session.cookies, sc)
+    return resp
+
+
+async def _authenticated_fetch(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict | None = None,
+) -> httpx.Response | None:
+    """Fetch a protected forum page, re-authenticating once on session expiry."""
+    resp = await _csrin_fetch(client, url, headers=headers)
+    if not _requires_reauthentication(resp):
+        return resp
+
+    status = resp.status_code if resp else "no response"
+    print(f"cs.rin.ru session expired for {url} (status {status}); logging in again")
+    _invalidate_session()
+    if not await _ensure_session(client):
+        return None
+
+    resp = await _csrin_fetch(client, url, headers=headers)
+    if _requires_reauthentication(resp):
+        print(f"cs.rin.ru still redirected to login after retry for {url}")
+        _invalidate_session()
+        return None
     return resp
 
 
@@ -248,9 +344,7 @@ async def _perform_login(client: httpx.AsyncClient) -> bool:
 
         user_id = re.search(r"phpbb3\w*_u=(\d+)", _session.cookies, re.I)
         is_anonymous = not user_id or user_id.group(1) == "1"
-        is_redirect = 300 <= login.status_code < 400
-
-        if is_anonymous and not is_redirect:
+        if is_anonymous or _is_login_redirect(login):
             print(f"cs.rin.ru login appears rejected (status {login.status_code}, user id {user_id.group(1) if user_id else 'none'})")
             return False
 
@@ -396,6 +490,54 @@ def _get_post_content(post_html: str) -> str:
     return re.sub(r'<div\b[^>]*\bclass="[^"]*\bsignature\b[^"]*"[^>]*>[\s\S]*', "", post_html, flags=re.I)
 
 
+def _post_timestamp(post_html: str) -> datetime | None:
+    """Parse phpBB's relative and absolute post dates as UTC.
+
+    The forum supplies `Today` / `Yesterday` for current activity and a dated
+    weekday form for older posts. Unknown formats are deliberately rejected by
+    the recent feed rather than letting an undated old release through.
+    """
+    text = _strip_csrin_html(post_html)
+    now = datetime.now(timezone.utc)
+    elapsed = re.search(
+        r"\bPosted:\s*(?:(\d+)\s+minutes?\s+ago|(\d+)\s+hours?\s+ago|an?\s+hour\s+ago|"
+        r"(\d+)\s+days?\s+ago|just\s+now)",
+        text,
+        re.I,
+    )
+    if elapsed:
+        minutes = int(elapsed.group(1) or 0)
+        hours = int(elapsed.group(2) or (1 if "hour ago" in elapsed.group(0).lower() else 0))
+        days = int(elapsed.group(3) or 0)
+        return now - timedelta(days=days, hours=hours, minutes=minutes)
+    relative = re.search(r"\bPosted:\s*(Today|Yesterday),\s*(\d{1,2}:\d{2})", text, re.I)
+    if relative:
+        hour, minute = (int(part) for part in relative.group(2).split(":"))
+        day = now.date() - timedelta(days=1 if relative.group(1).lower() == "yesterday" else 0)
+        return datetime(day.year, day.month, day.day, hour, minute, tzinfo=timezone.utc)
+
+    absolute = re.search(
+        r"\bPosted:\s*(?:[A-Za-z]+,\s+)?(\d{1,2}\s+[A-Za-z]{3}\s+\d{4}),\s*(\d{1,2}:\d{2})",
+        text,
+        re.I,
+    )
+    if not absolute:
+        return None
+    try:
+        return datetime.strptime(
+            f"{absolute.group(1)} {absolute.group(2)}", "%d %b %Y %H:%M"
+        ).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _is_recent_post(posted_at: datetime | None) -> bool:
+    if posted_at is None:
+        return False
+    age = datetime.now(timezone.utc) - posted_at
+    return timedelta(hours=-2) <= age <= timedelta(days=1)
+
+
 def _extract_download_links(post_html: str) -> list[dict]:
     """Real download links only, scoped to the post body.
 
@@ -427,18 +569,35 @@ def _extract_download_links(post_html: str) -> list[dict]:
     return links
 
 
+def _post_link_for_candidate(thread_link: str, post_id: str) -> str:
+    """Point directly at the candidate post, not the later bump in the listing."""
+    base = thread_link.split("#", 1)[0]
+    replaced = re.sub(r"([?&])p=\d+", rf"\1p={post_id}", base, count=1)
+    if replaced == base:
+        replaced += "&" if "?" in base else "?"
+        replaced += f"p={post_id}"
+    return f"{replaced}#p{post_id}"
+
+
 # CSF = "Clean Steam Files": the clean, desirable uploads. Any mention (and its
 # variations) boosts the post in ranking.
 _CSF_RE = re.compile(r"\bcsfs?\b|clean\s+steam\s+files?|clean\s+files?|clean\s+steam\b", re.I)
 
-# Online-Fix / OFME (Online-Fix.Me) / 0xdeadcode releases: bundle a multiplayer
-# crack. Some users want them (co-op), others avoid them, so we flag the release
-# and let the user's avoidOnlineFixes / prefer-online-fix setting decide. The
-# marker lives in the post body or the download filename ("[OnlineFix].7z"),
-# never the clean game title, so text-only detection on the WordPress sites
-# would miss it — csrin has to flag it explicitly.
+# Some uploaders market a release as "based on CSF" while packaging a crack or
+# emulator with it. Those are not clean Steam files and must lose to the
+# CSF-only policy even when the post includes the CSF abbreviation.
+_NON_CSF_RELEASE_RE = re.compile(
+    r"\b(?:pre[\s-]?cracked|pre[\s-]?installed|portable|repack(?:ed)?|"
+    r"gamebounty|anker\s*games|elamigos|fitgirl|dodi)\b|"
+    r"\b(?:crack|emulator)\s*(?:by|included|bundled|is\s+included)\b",
+    re.I,
+)
+
+# Online-Fix / OFME (Online-Fix.Me) / 0xdeadcode releases bundle multiplayer
+# crack patches. CS.RIN is restricted to untouched clean Steam files, so these
+# are exclusions even when the post also says it began from a CSF dump.
 _ONLINE_FIX_RE = re.compile(
-    r"\bofme\b|online[\s._-]?fix|0xdeadcode",
+    r"\bof[\s._-]?me\b|\bonline[\s._-]?fix\b|\b0xdeadcode\b",
     re.I,
 )
 
@@ -458,11 +617,42 @@ def _extract_release_label(text: str) -> str:
     return ""
 
 
+def _content_sharing_updated_at(thread: dict) -> datetime | None:
+    """Forum 22 refreshes its original-topic subject with `[DD.MM.YYYY]`."""
+    if str(thread.get("forumId") or "") != "22":
+        return None
+    m = re.search(r"\[(\d{2}\.\d{2}\.\d{4})\]", str(thread.get("rawTitle") or ""))
+    if not m:
+        return None
+    try:
+        return datetime.strptime(m.group(1), "%d.%m.%Y").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _content_sharing_release_update(blocks: list[dict]) -> tuple[str, datetime | None]:
+    """Read Forum 22's Upload-Crew bot build from its companion reply.
+
+    The topic opener owns the links and is edited in place, while the forum's
+    bot posts an ``Uploaded version`` reply containing the authoritative build.
+    Restrict this to that explicit marker so regular discussion replies cannot
+    supply release metadata for a container post.
+    """
+    for block in blocks[1:]:
+        text = _strip_csrin_html(_get_post_content(_strip_quote_blocks(block["html"])))
+        if not re.search(r"\buploaded\s+version\b", text, re.I):
+            continue
+        label = _extract_release_label(text)
+        if label:
+            return label, _post_timestamp(block["html"])
+    return "", None
+
+
 def _extract_author(post_html: str) -> str:
     # rinDark uses <b class="postauthor">Name</b> (sometimes an <a>); phpBB3 uses
     # a username/username-coloured anchor. Match the class on any element.
     m = re.search(
-        r'class="[^"]*\b(?:postauthor|username(?:-coloured)?)\b[^"]*"[^>]*>([^<]+)<',
+        r'class="[^"]*\b(?:postauthor|username(?:-coloured)?)\b[^"]*"[^>]*>(?:\s*<a[^>]*>)?\s*([^<]+)<',
         post_html, re.I,
     )
     return decode_entities(m.group(1)).strip() if m else ""
@@ -479,19 +669,50 @@ def _extract_topic_author(html: str, from_pos: int) -> str:
     return decode_entities(m.group(1)).strip() if m else ""
 
 
-def parse_linked_posts(html: str, thread: dict) -> list[dict]:
+def parse_linked_posts(
+    html: str,
+    thread: dict,
+    recent_post_limit: int | None = None,
+    only_post_id: str = "",
+    require_recent: bool = True,
+    trusted_csf_source: bool = False,
+) -> list[dict]:
     results = []
     seen: set[str] = set()
-    for block in _get_post_blocks(html):
+    thread_link = str(thread["link"]).split("#", 1)[0]
+    blocks = _get_post_blocks(html)
+    content_sharing_updated_at = _content_sharing_updated_at(thread)
+    content_sharing_label, content_sharing_posted_at = (
+        _content_sharing_release_update(blocks) if content_sharing_updated_at else ("", None)
+    )
+    if only_post_id:
+        blocks = [block for block in blocks if block["postId"] == only_post_id]
+    elif content_sharing_updated_at:
+        # Steam Content Sharing updates its original container post in place;
+        # later replies are unrelated discussion, not a newer release.
+        blocks = blocks[:1]
+    elif recent_post_limit is not None:
+        blocks = blocks[-max(1, recent_post_limit):]
+    for block in blocks:
+        # Forum 22 subjects record only the calendar date. Prefer the
+        # Upload-Crew bot's real post time for the 24-hour eligibility window,
+        # otherwise an update can expire shortly after midnight.
+        posted_at = content_sharing_posted_at or content_sharing_updated_at or _post_timestamp(block["html"])
+        if require_recent and not _is_recent_post(posted_at):
+            continue
         # Drop quoted content first so links/text/CSF/version all reflect the
         # poster's own release, not a quoted request or mod/DLC file-share.
         block_html = _strip_quote_blocks(block["html"])
         links = _extract_download_links(block_html)
         if not links:
             continue  # only surface posts with at least one real download link
-        text = _strip_csrin_html(block_html)
-        label = _extract_release_label(text)
-        if not label:
+        # Do not inspect the surrounding author panel or signature. Common
+        # signatures explain what CSF means, which used to falsely classify
+        # unrelated portable/pre-cracked releases as clean Steam files.
+        content = _get_post_content(block_html)
+        text = _strip_csrin_html(content)
+        label = _extract_release_label(text) or content_sharing_label
+        if not label and not content_sharing_updated_at:
             # A real game release states its build/version/date; a loose file or
             # mod/DLC share (the kind that slips past the quote filter) does not.
             # Requiring a release label in the post's own text is a cheap, strong
@@ -500,12 +721,18 @@ def parse_linked_posts(html: str, thread: dict) -> list[dict]:
         author = _extract_author(block["html"])
         reliable = _is_reliable(author)
         untrusted = _is_untrusted(author)
-        csf = bool(_CSF_RE.search(text))
-        # Online-Fix marker can be in the body text or the download filename
-        # (e.g. "How to Fish [OnlineFix].7z"), so check both.
         link_blob = " ".join((l.get("url", "") + " " + l.get("text", "")) for l in links)
-        online_fix = bool(_ONLINE_FIX_RE.search(text) or _ONLINE_FIX_RE.search(link_blob))
-        post_link = f"{thread['link']}#p{block['postId']}"
+        csf = bool(trusted_csf_source or content_sharing_updated_at or _CSF_RE.search(text) or _CSF_RE.search(link_blob))
+        if not csf:
+            continue  # The CS.RIN feed is intentionally clean Steam files only.
+        if (
+            _NON_CSF_RELEASE_RE.search(text)
+            or _NON_CSF_RELEASE_RE.search(link_blob)
+            or _ONLINE_FIX_RE.search(text)
+            or _ONLINE_FIX_RE.search(link_blob)
+        ):
+            continue
+        post_link = _post_link_for_candidate(thread_link, block["postId"])
         if post_link in seen:
             continue
         seen.add(post_link)
@@ -516,11 +743,15 @@ def parse_linked_posts(html: str, thread: dict) -> list[dict]:
         # the listing row; fall back to this post's author if it wasn't found.
         clean_title = thread["title"]
         raw_title = thread.get("rawTitle") or clean_title
+        if content_sharing_updated_at:
+            raw_title = re.sub(r"\s*\[\d{2}\.\d{2}\.\d{4}\]\s*", " ", raw_title).strip()
+            clean_title = re.sub(r"\s*\[\d{2}\.\d{2}\.\d{4}\]\s*", " ", clean_title).strip()
         original_poster = thread.get("originalPoster") or author
         full_title = f"{raw_title} - {label}" if label else raw_title
 
         post = _build_csrin_post(thread["threadId"], clean_title, post_link)
         post.update({
+            "date": posted_at.isoformat() if posted_at else datetime.now(timezone.utc).isoformat(),
             "downloadLinks": links,
             "excerpt": text[:360],
             "id": f"csrin-{thread['threadId']}-{block['postId']}",
@@ -530,7 +761,6 @@ def parse_linked_posts(html: str, thread: dict) -> list[dict]:
                 + (" (trusted uploader)" if reliable else "")
                 + (" (untrusted uploader)" if untrusted else "")
                 + (" (CSF)" if csf else "")
-                + (" (Online-Fix)" if online_fix else "")
                 + (f" ({label})" if label else "")
             ),
             "csrinPostId": block["postId"],
@@ -543,27 +773,81 @@ def parse_linked_posts(html: str, thread: dict) -> list[dict]:
             "csrinReliablePoster": reliable,
             "csrinUntrustedPoster": untrusted,
             "csrinCsf": csf,
-            "csrinOnlineFix": online_fix,
+            "csrinOnlineFix": False,
         })
         results.append(post)
     return results
 
 
+def _same_thread_post_references(content: str, thread_id: str) -> list[str]:
+    """Return explicit phpBB post references that stay inside this thread."""
+    refs: list[str] = []
+    for match in re.finditer(r'<a\b[^>]*\bhref="([^"]+)"[^>]*>', content, re.I):
+        parsed = urlparse(decode_entities(match.group(1)).strip())
+        if parsed.netloc and parsed.netloc.lower() not in {"cs.rin.ru", "www.cs.rin.ru"}:
+            continue
+        if not parsed.path.lower().endswith("viewtopic.php"):
+            continue
+        query = parse_qs(parsed.query)
+        post_id = (query.get("p") or [""])[0]
+        target_thread = (query.get("t") or [""])[0]
+        if post_id and (not target_thread or target_thread == thread_id) and post_id not in refs:
+            refs.append(post_id)
+    return refs
+
+
+def _maintained_link_notices(html: str, thread: dict, recent_post_limit: int | None) -> list[dict]:
+    """Current build notices from allowlisted uploaders that link to a prior post."""
+    blocks = _get_post_blocks(html)
+    if recent_post_limit is not None:
+        blocks = blocks[-max(1, recent_post_limit):]
+    notices: list[dict] = []
+    for block in blocks:
+        posted_at = _post_timestamp(block["html"])
+        if not _is_recent_post(posted_at):
+            continue
+        block_html = _strip_quote_blocks(block["html"])
+        content = _get_post_content(block_html)
+        author = _extract_author(block["html"])
+        label = _extract_release_label(_strip_csrin_html(content))
+        refs = _same_thread_post_references(content, str(thread["threadId"]))
+        if _uses_maintained_links(author) and label and refs:
+            notices.append({
+                "postId": block["postId"],
+                "postedAt": posted_at,
+                "author": author,
+                "label": label,
+                "text": _strip_csrin_html(content),
+                "references": refs[:3],
+            })
+    return notices
+
+
 def parse_search_results(html: str) -> list[dict]:
     last_start: dict[str, int] = {}
     last_forum: dict[str, str] = {}
-    for m in re.finditer(r'href="([^"]*viewtopic\.php\?[^"]*start=\d+[^"]*)"', html, re.I):
+    # The forum's "View the latest post" anchor carries the exact phpBB post
+    # ID (`...&p=3576259#p3576259`). Prefer it over a page offset: a topic's
+    # pagination links only tell us its last *page*, whereas this points at the
+    # precise newest post that caused the thread to rise in the listing.
+    last_post: dict[str, str] = {}
+    for m in re.finditer(r'href="([^"]*viewtopic\.php\?[^"]*)"', html, re.I):
         href = decode_entities(m.group(1))
         t = re.search(r"[?&]t=(\d+)", href)
+        p = re.search(r"[?&]p=(\d+)", href)
         s = re.search(r"[?&]start=(\d+)", href)
         f = re.search(r"[?&]f=(\d+)", href)
-        if not t or not s:
+        if not t:
             continue
-        tid, sval = t.group(1), int(s.group(1))
-        if tid not in last_start or sval > last_start[tid]:
-            last_start[tid] = sval
-            if f:
-                last_forum[tid] = f.group(1)
+        tid = t.group(1)
+        if p:
+            last_post[tid] = p.group(1)
+        if f:
+            last_forum[tid] = f.group(1)
+        if s:
+            sval = int(s.group(1))
+            if tid not in last_start or sval > last_start[tid]:
+                last_start[tid] = sval
 
     results = []
     seen: set[str] = set()
@@ -599,15 +883,21 @@ def parse_search_results(html: str) -> list[dict]:
             if f:
                 params.append(f"f={f}")
             params.append(f"t={thread_id}")
+            latest_post = last_post.get(thread_id)
             start = last_start.get(thread_id)
-            if start is not None:
-                params.append(f"start={start}")
-            link = f"{CSRIN_BASE}/viewtopic.php?{'&'.join(params)}"
+            if latest_post:
+                params.append(f"p={latest_post}")
+                link = f"{CSRIN_BASE}/viewtopic.php?{'&'.join(params)}#p{latest_post}"
+            else:
+                if start is not None:
+                    params.append(f"start={start}")
+                link = f"{CSRIN_BASE}/viewtopic.php?{'&'.join(params)}"
             post = _build_csrin_post(thread_id, title or raw_title, link)
             post.update({
                 "threadId": thread_id,
                 "forumId": f or "",
                 "start": start or 0,
+                "latestPostId": latest_post or "",
                 "rawTitle": raw_title,
                 "originalPoster": original_poster,
             })
@@ -616,27 +906,200 @@ def parse_search_results(html: str) -> list[dict]:
 
 
 # ── Thread scan + search ─────────────────────────────────────────────────────
-async def _fetch_thread_linked_posts(client: httpx.AsyncClient, thread: dict) -> list[dict]:
-    resp = await _csrin_fetch(client, thread["link"], headers={"Referer": f"{CSRIN_BASE}/search.php"})
+def parse_csf_author_posts(html: str) -> list[dict]:
+    """Parse allowlisted author search results as trusted CSF post candidates."""
+    posts: list[dict] = []
+    for block in _get_post_blocks(html):
+        topic = re.search(
+            r"Topic:\s*<a[^>]*href=\"([^\"]*viewtopic\.php\?[^\"]*)\"[^>]*>([\s\S]*?)</a>",
+            block["html"], re.I,
+        )
+        subject = re.search(
+            r"Post subject:</b>\s*<a[^>]*href=\"([^\"]*viewtopic\.php\?[^\"]*)\"",
+            block["html"], re.I,
+        )
+        if not topic or not subject:
+            continue
+        topic_href = decode_entities(topic.group(1))
+        thread_match = re.search(r"[?&]t=(\d+)", topic_href)
+        forum_match = re.search(r"[?&]f=(\d+)", topic_href)
+        if not thread_match:
+            continue
+        raw_title = re.sub(r"\s+", " ", decode_entities(re.sub(r"<[^>]+>", "", topic.group(2)))).strip()
+        if not raw_title or _NOISE_THREAD_RE.search(raw_title):
+            continue
+        post_href = decode_entities(subject.group(1))
+        if post_href.startswith("./"):
+            post_href = f"{CSRIN_BASE}/{post_href[2:]}"
+        thread = {
+            "threadId": thread_match.group(1),
+            "forumId": forum_match.group(1) if forum_match else "",
+            "title": _clean_csrin_title(raw_title) or raw_title,
+            "rawTitle": raw_title,
+            "link": post_href,
+        }
+        posts.extend(parse_linked_posts(
+            block["html"], thread, only_post_id=block["postId"], trusted_csf_source=True,
+        ))
+    return posts
+
+
+async def _fetch_csf_author_posts(
+    client: httpx.AsyncClient,
+    search_query: str = "",
+) -> list[dict]:
+    results: list[dict] = []
+    author_sources = [
+        *( (author_id, True) for author_id in CSRIN_CSF_AUTHOR_IDS ),
+        *( (author_id, False) for author_id in CSRIN_CSF_CANDIDATE_AUTHOR_IDS ),
+    ]
+    for author_id, trusted_csf_source in author_sources:
+        from urllib.parse import urlencode
+        params = {"author_id": author_id, "sr": "posts"}
+        if search_query:
+            params.update({
+                "keywords": search_query,
+                "st": "0", "sk": "t", "sd": "d", "sf": "msgonly",
+            })
+        url = f"{CSRIN_BASE}/search.php?{urlencode(params)}"
+        resp = await _authenticated_fetch(client, url, headers={"Referer": f"{CSRIN_BASE}/search.php"})
+        if not resp or not resp.is_success:
+            continue
+        for block in _get_post_blocks(resp.text)[:CSRIN_CSF_AUTHOR_POST_LIMIT]:
+            topic = re.search(
+                r"Topic:\s*<a[^>]*href=\"([^\"]*viewtopic\.php\?[^\"]*)\"[^>]*>([\s\S]*?)</a>",
+                block["html"], re.I,
+            )
+            subject = re.search(
+                r"Post subject:</b>\s*<a[^>]*href=\"([^\"]*viewtopic\.php\?[^\"]*)\"",
+                block["html"], re.I,
+            )
+            if not topic or not subject:
+                continue
+            topic_href = decode_entities(topic.group(1))
+            thread_match = re.search(r"[?&]t=(\d+)", topic_href)
+            forum_match = re.search(r"[?&]f=(\d+)", topic_href)
+            if not thread_match:
+                continue
+            post_href = decode_entities(subject.group(1))
+            if post_href.startswith("./"):
+                post_href = f"{CSRIN_BASE}/{post_href[2:]}"
+            raw_title = re.sub(r"\s+", " ", decode_entities(re.sub(r"<[^>]+>", "", topic.group(2)))).strip()
+            if not raw_title or _NOISE_THREAD_RE.search(raw_title):
+                continue
+            thread = {
+                "threadId": thread_match.group(1),
+                "forumId": forum_match.group(1) if forum_match else "",
+                "title": _clean_csrin_title(raw_title) or raw_title,
+                "rawTitle": raw_title,
+                "link": post_href,
+            }
+            post_resp = await _authenticated_fetch(client, post_href, headers={"Referer": url})
+            if post_resp and post_resp.is_success:
+                results.extend(parse_linked_posts(
+                    post_resp.text,
+                    thread,
+                    only_post_id=block["postId"],
+                    trusted_csf_source=trusted_csf_source,
+                ))
+    return results
+
+
+async def _resolve_maintained_link_notices(
+    client: httpx.AsyncClient,
+    thread: dict,
+    html: str,
+    recent_post_limit: int | None,
+) -> list[dict]:
+    resolved: list[dict] = []
+    for notice in _maintained_link_notices(html, thread, recent_post_limit):
+        pending = list(notice["references"])
+        visited: set[str] = set()
+        # Titeuf sometimes updates a maintained post which itself points at the
+        # original CSF post. Keep this deliberately short and same-author only.
+        while pending and len(visited) < 3:
+            reference_id = pending.pop(0)
+            if reference_id in visited:
+                continue
+            visited.add(reference_id)
+            reference_link = f"{CSRIN_BASE}/viewtopic.php?p={reference_id}#p{reference_id}"
+            resp = await _authenticated_fetch(
+                client, reference_link, headers={"Referer": thread["link"]}
+            )
+            if not resp or not resp.is_success:
+                continue
+            source_thread = {**thread, "link": reference_link}
+            source_posts = parse_linked_posts(
+                resp.text,
+                source_thread,
+                only_post_id=reference_id,
+                require_recent=False,
+            )
+            source = next(
+                (post for post in source_posts
+                 if post.get("csrinAuthor", "").lower() == notice["author"].lower()),
+                None,
+            )
+            if not source:
+                target_block = next(
+                    (block for block in _get_post_blocks(resp.text)
+                     if block["postId"] == reference_id),
+                    None,
+                )
+                if target_block and _extract_author(target_block["html"]).lower() == notice["author"].lower():
+                    content = _get_post_content(_strip_quote_blocks(target_block["html"]))
+                    pending.extend(
+                        post_id for post_id in _same_thread_post_references(content, str(thread["threadId"]))
+                        if post_id not in visited and post_id not in pending
+                    )
+                continue
+
+            # The current notice supplies the freshness/build; the older,
+            # verified CSF post supplies its maintained host links.
+            raw_title = thread.get("rawTitle") or thread["title"]
+            source.update({
+                "id": f"csrin-{thread['threadId']}-{notice['postId']}",
+                "link": _post_link_for_candidate(thread["link"], notice["postId"]),
+                "date": notice["postedAt"].isoformat(),
+                "excerpt": notice["text"][:360],
+                "csrinPostId": notice["postId"],
+                "csrinReferencePostId": reference_id,
+                "csrinReleaseLabel": notice["label"],
+                "csrinFullTitle": f"{raw_title} - {notice['label']}",
+                "csrinMaintainedLink": True,
+            })
+            source["description"] += " (maintained CSF link)"
+            resolved.append(source)
+            break
+    return resolved
+
+
+async def _fetch_thread_linked_posts(
+    client: httpx.AsyncClient,
+    thread: dict,
+    recent_post_limit: int | None = None,
+) -> list[dict]:
+    source_thread = thread
+    fetch_link = thread["link"]
+    if str(thread.get("forumId") or "") == "22":
+        # Content Sharing maintains the actual container in the topic opener.
+        # Do not follow the listing's latest-reply link.
+        fetch_link = f"{CSRIN_BASE}/viewtopic.php?f=22&t={thread['threadId']}"
+        source_thread = {**thread, "link": fetch_link}
+    resp = await _authenticated_fetch(client, fetch_link, headers={"Referer": f"{CSRIN_BASE}/search.php"})
     if not resp or not resp.is_success:
         print(f"cs.rin.ru thread {thread['threadId']} returned {resp.status_code if resp else 'no response'}")
         return []
-    html = resp.text
-    if _looks_like_login_page(html):
-        _session.cookies = ""
-        _session.logged_in_at = 0
-        if not await _ensure_session(client):
-            return []
-        resp = await _csrin_fetch(client, thread["link"], headers={"Referer": f"{CSRIN_BASE}/search.php"})
-        if not resp or not resp.is_success:
-            return []
-        html = resp.text
-        if _looks_like_login_page(html):
-            return []
-    return parse_linked_posts(html, thread)
+    direct = parse_linked_posts(resp.text, source_thread, recent_post_limit)
+    maintained = await _resolve_maintained_link_notices(client, source_thread, resp.text, recent_post_limit)
+    return direct + maintained
 
 
-async def _scan_threads(client: httpx.AsyncClient, threads: list[dict]) -> list[dict]:
+async def _scan_threads(
+    client: httpx.AsyncClient,
+    threads: list[dict],
+    recent_post_limit: int | None = None,
+) -> list[dict]:
     """Scan each thread's latest page for link-bearing posts, concurrently but
     bounded, then rank the flattened result. Shared by search and recent."""
     if not threads:
@@ -646,7 +1109,7 @@ async def _scan_threads(client: httpx.AsyncClient, threads: list[dict]) -> list[
     async def scan(thread: dict) -> list[dict]:
         async with sem:
             try:
-                return await _fetch_thread_linked_posts(client, thread)
+                return await _fetch_thread_linked_posts(client, thread, recent_post_limit)
             except Exception as error:  # noqa: BLE001
                 print(f"cs.rin.ru post scan failed for thread {thread['threadId']}: {error}")
                 return []
@@ -670,6 +1133,31 @@ def _rank(posts: list[dict]) -> list[dict]:
     ))
 
 
+def _dedupe_recent_posts(posts: list[dict]) -> list[dict]:
+    """Keep the newest release post for each thread and Online-Fix variant.
+
+    A thread's last forum page can contain several older release posts. Ranking
+    those first lets a trusted older upload outrank a newer update, which makes
+    the home feed look stale. phpBB post IDs increase monotonically, so retain
+    the highest ID before applying the display ranking across different games.
+    """
+    newest: dict[tuple[str, bool], dict] = {}
+    for post in posts:
+        key = (str(post.get("originalId") or ""), bool(post.get("csrinOnlineFix")))
+        previous = newest.get(key)
+        if previous is None:
+            newest[key] = post
+            continue
+        try:
+            post_id = int(post.get("csrinPostId") or 0)
+            previous_id = int(previous.get("csrinPostId") or 0)
+        except (TypeError, ValueError):
+            post_id = previous_id = 0
+        if post_id > previous_id:
+            newest[key] = post
+    return _rank(list(newest.values()))
+
+
 async def fetch_csrin_search(search_query: str) -> list[dict]:
     timeout = httpx.Timeout(SITE_FETCH_TIMEOUT_MS / 1000)
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -678,36 +1166,32 @@ async def fetch_csrin_search(search_query: str) -> list[dict]:
 
         from urllib.parse import urlencode
         params = urlencode({
-            "keywords": search_query, "terms": "all", "author": "", "sc": "1",
-            "sf": "titleonly", "sk": "t", "sd": "d", "sr": "topics", "st": "0",
-            "ch": "300", "t": "0", "submit": "Search",
+            "keywords": search_query, "terms": "all", "sf": "titleonly",
+            "sk": "t", "sd": "d", "sr": "topics", "st": "0", "fid[]": "22",
         })
         url = f"{CSRIN_BASE}/search.php?{params}"
 
-        resp = await _csrin_fetch(client, url, headers={"Referer": f"{CSRIN_BASE}/index.php"})
+        resp = await _authenticated_fetch(client, url, headers={"Referer": f"{CSRIN_BASE}/index.php"})
         if not resp or not resp.is_success:
             print(f"cs.rin.ru search returned {resp.status_code if resp else 'no response'}")
             return []
         html = resp.text
-        if _looks_like_login_page(html):
-            _session.cookies = ""
-            _session.logged_in_at = 0
-            if not await _ensure_session(client):
-                return []
-            resp = await _csrin_fetch(client, url, headers={"Referer": f"{CSRIN_BASE}/index.php"})
-            if not resp or not resp.is_success:
-                return []
-            html = resp.text
-            if _looks_like_login_page(html):
-                return []
 
         threads = parse_search_results(html)[:CSRIN_POST_SCAN_LIMIT]
+        for thread in threads:
+            thread["forumId"] = "22"
         posts = await _scan_threads(client, threads)
-        print(f"cs.rin.ru scanned {len(threads)} thread(s), found {len(posts)} linked post(s)")
-        return posts
+        author_posts = await _fetch_csf_author_posts(client, search_query)
+        posts.extend(author_posts)
+        deduped = _dedupe_recent_posts(posts)
+        print(
+            f"cs.rin.ru search: scanned {len(threads)} Forum 22 thread(s), "
+            f"{len(author_posts)} author candidate(s), {len(deduped)} result(s)"
+        )
+        return deduped
 
 
-async def fetch_csrin_recent(force: bool = False) -> list[dict]:
+async def _fetch_csrin_recent_uncached(force: bool = False) -> list[dict]:
     """Recent uploads from the Game Releases subforum for the home feed.
 
     Fetches the first page of viewforum.php, skips the pinned announcements /
@@ -726,47 +1210,44 @@ async def fetch_csrin_recent(force: bool = False) -> list[dict]:
             return _recent_cache.results
 
         url = f"{CSRIN_BASE}/viewforum.php?f={CSRIN_RECENT_FORUM_ID}"
-        resp = await _csrin_fetch(client, url, headers={"Referer": f"{CSRIN_BASE}/index.php"})
+        resp = await _authenticated_fetch(client, url, headers={"Referer": f"{CSRIN_BASE}/index.php"})
         if not resp or not resp.is_success:
             print(f"cs.rin.ru viewforum returned {resp.status_code if resp else 'no response'}")
             return _recent_cache.results
         html = resp.text
-        if _looks_like_login_page(html):
-            _session.cookies = ""
-            _session.logged_in_at = 0
-            if not await _ensure_session(client):
-                return _recent_cache.results
-            resp = await _csrin_fetch(client, url, headers={"Referer": f"{CSRIN_BASE}/index.php"})
-            if not resp or not resp.is_success:
-                return _recent_cache.results
-            html = resp.text
-            if _looks_like_login_page(html):
-                return _recent_cache.results
 
-        # Announcements + stickies (rules, privacy policy, etc.) are grouped
-        # above the real topic list under a "Topics" header — slice from there so
-        # pinned meta-threads aren't returned as releases.
-        header = re.search(r">\s*Topics\s*</b>", html, re.I)
-        body = html[header.start():] if header else html
+        # Announcements + stickies are grouped above the regular `Topics`
+        # header. Start after that header so the feed follows the actual live
+        # topic ordering visible in viewforum.php?f=10.
+        header = re.search(r'<b\b[^>]*>\s*Topics\s*</b>', html, re.I)
+        body = html[header.end():] if header else html
         threads = parse_search_results(body)[:CSRIN_RECENT_SCAN_LIMIT]
-        posts = await _scan_threads(client, threads)
+        # Some phpBB listing links omit `f`, particularly in Forum 22. The
+        # scanner must retain the source forum so it fetches the container
+        # opener and pairs it with Upload-Crew's metadata reply.
+        for thread in threads:
+            thread["forumId"] = CSRIN_RECENT_FORUM_ID
+        posts = await _scan_threads(client, threads, CSRIN_RECENT_POSTS_PER_THREAD)
+        author_posts = await _fetch_csf_author_posts(client)
+        posts.extend(author_posts)
 
-        # Collapse to the best post per (thread, online-fix) so a game shows at
-        # most one plain release and one Online-Fix release — never once per
-        # uploader. Keeping the two variants distinct lets the frontend honour
-        # the user's avoid/prefer-online-fix setting. _scan_threads returns
-        # rank-ordered posts, so the first seen for a key is its best release.
-        deduped: list[dict] = []
-        seen_variants: set[tuple] = set()
-        for p in posts:
-            key = (str(p.get("originalId") or ""), bool(p.get("csrinOnlineFix")))
-            if key in seen_variants:
-                continue
-            seen_variants.add(key)
-            deduped.append(p)
+        deduped = _dedupe_recent_posts(posts)
 
-        print(f"cs.rin.ru recent: scanned {len(threads)} thread(s), {len(deduped)} game(s) after dedupe")
+        print(
+            f"cs.rin.ru recent: scanned {len(threads)} thread(s), "
+            f"{len(posts) - len(author_posts)} Forum {CSRIN_RECENT_FORUM_ID} candidate(s), "
+            f"{len(author_posts)} allowlisted-author candidate(s), "
+            f"{len(deduped)} game(s) after dedupe"
+        )
         if deduped:
             _recent_cache.results = deduped
             _recent_cache.timestamp = _now_ms()
         return deduped
+
+
+async def fetch_csrin_recent(force: bool = False) -> list[dict]:
+    """Serve the existing feed while a single rate-limited refresh is running."""
+    if _recent_refresh_lock.locked():
+        return _recent_cache.results
+    async with _recent_refresh_lock:
+        return await _fetch_csrin_recent_uncached(force)
