@@ -20,7 +20,7 @@ async def _csrin_refresh_loop() -> None:
     """Proactively re-scan cs.rin.ru recent uploads on a fixed cadence so the
     feed stays fresh even when no one is loading the page, rather than only
     refreshing lazily on the first request after the cache expires. Runs at the
-    CSRIN_RECENT_TTL_MINUTES cadence; each pass forces a fresh scan and logs the
+    CSRIN_RECENT_TTL_MINUTES cadence (three hours by default); each pass forces a fresh scan and logs the
     result, so a run of identical counts means no new releases (not a stuck
     cache) and any scan failure is visible in the logs."""
     interval = max(60.0, csrin.CSRIN_RECENT_TTL_MS / 1000)

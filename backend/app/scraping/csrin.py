@@ -58,7 +58,9 @@ CSRIN_RECENT_POSTS_PER_THREAD = _env_int("CSRIN_RECENT_POSTS_PER_THREAD", 10)
 # Steam Content Sharing is the purpose-built source for clean Steam files;
 # Main Forum mixes in repacks, cracks, and general discussion.
 CSRIN_RECENT_FORUM_ID = os.environ.get("CSRIN_RECENT_FORUM_ID", "22")
-CSRIN_RECENT_TTL_MS = _env_int("CSRIN_RECENT_TTL_MINUTES", 10) * 60 * 1000
+# The background warmer uses this same cadence. Keep the forum scan quiet by
+# default; callers can still request an explicit manual refresh.
+CSRIN_RECENT_TTL_MS = _env_int("CSRIN_RECENT_TTL_MINUTES", 180) * 60 * 1000
 CSRIN_CSF_AUTHOR_IDS = tuple(
     value.strip() for value in os.environ.get("CSRIN_CSF_AUTHOR_IDS", "1883392").split(",") if value.strip()
 )
@@ -222,6 +224,11 @@ def _invalidate_session() -> None:
     _session.logged_in_at = 0
 
 
+def _has_authenticated_session_cookie() -> bool:
+    user_id = re.search(r"phpbb3\w*_u=(\d+)", _session.cookies, re.I)
+    return bool(user_id and user_id.group(1) != "1")
+
+
 async def _solve_security_check(client: httpx.AsyncClient, original_url: str, html: str) -> bool:
     tok = re.search(r"securitytoken=([\w-]+)", html)
     exp = re.search(r"securitytoken_expiration=(\d+)", html)
@@ -320,6 +327,15 @@ async def _perform_login(client: httpx.AsyncClient) -> bool:
 
     try:
         form = await _csrin_fetch(client, f"{CSRIN_BASE}/ucp.php?mode=login")
+        # phpBB redirects an already logged-in user away from the login form.
+        # That is a valid session refresh, not a failed login. Without this,
+        # the hourly session TTL turns every later scheduled scan into a stale
+        # cache response until the container is restarted.
+        if form and 300 <= form.status_code < 400 and _has_authenticated_session_cookie():
+            _session.logged_in_at = _now_ms()
+            _session.login_failed_at = 0
+            print("cs.rin.ru session remains authenticated")
+            return True
         if not form or not form.is_success:
             print(f"cs.rin.ru login form fetch failed: {form.status_code if form else 'no response'}")
             return False
@@ -342,10 +358,8 @@ async def _perform_login(client: httpx.AsyncClient) -> bool:
         if login is None:
             return False
 
-        user_id = re.search(r"phpbb3\w*_u=(\d+)", _session.cookies, re.I)
-        is_anonymous = not user_id or user_id.group(1) == "1"
-        if is_anonymous or _is_login_redirect(login):
-            print(f"cs.rin.ru login appears rejected (status {login.status_code}, user id {user_id.group(1) if user_id else 'none'})")
+        if not _has_authenticated_session_cookie() or _is_login_redirect(login):
+            print(f"cs.rin.ru login appears rejected (status {login.status_code})")
             return False
 
         _session.logged_in_at = _now_ms()
@@ -538,8 +552,8 @@ def _is_recent_post(posted_at: datetime | None) -> bool:
     return timedelta(hours=-2) <= age <= timedelta(days=1)
 
 
-def _extract_download_links(post_html: str) -> list[dict]:
-    """Real download links only, scoped to the post body.
+def _extract_download_links_from_content(content: str) -> list[dict]:
+    """Real download links only from one already-isolated post section.
 
     Uses the same classifier as the WordPress sites: recognised file hosts and
     magnet/.torrent links count; forum links, changelogs, sha256 pages, store
@@ -547,7 +561,6 @@ def _extract_download_links(post_html: str) -> list[dict]:
     linkless showcase/[Info] posts (their only links are Steam/YouTube/etc) and
     ignores the non-download noise in busy posts like the Factorio one.
     """
-    content = _get_post_content(post_html)
     links: list[dict] = []
     seen: set[str] = set()
     for m in re.finditer(r'<a\b[^>]*\bhref="([^"]+)"[^>]*>', content, re.I):
@@ -567,6 +580,75 @@ def _extract_download_links(post_html: str) -> list[dict]:
             service = extract_service_name(url)
             links.append({"type": "hosting", "service": service, "url": url, "text": service})
     return links
+
+
+def _extract_download_links(post_html: str) -> list[dict]:
+    """Real download links only, scoped to the post body."""
+    return _extract_download_links_from_content(_get_post_content(post_html))
+
+
+_STEAM_APP_LINK_RE = re.compile(
+    r'<a\b[^>]*\bhref="([^"]*store\.steampowered\.com/app/(\d+)[^"]*)"[^>]*>([\s\S]*?)</a>',
+    re.I,
+)
+_SECTION_NOISE_RE = re.compile(
+    r"^(?:official\s+(?:site|steam)|steam(?:\s+store)?|download\s+links?|"
+    r"mirrors?|uploaded\s+version|depots?(?:\s*&\s*manifests?)?|"
+    r"version|build|https?://|[-_=* ]+)$",
+    re.I,
+)
+
+
+def _html_lines(value: str) -> list[str]:
+    """Return visible post lines while preserving enough structure for headings."""
+    text = re.sub(r"<(?:br|/p|/div|/tr|/li)\b[^>]*>", "\n", value, flags=re.I)
+    text = decode_entities(re.sub(r"<[^>]+>", " ", text))
+    return [re.sub(r"\s+", " ", line).strip() for line in text.splitlines() if line.strip()]
+
+
+def _section_title(prefix: str, anchor_text: str, fallback: str) -> str:
+    """Use the Steam-link text or a nearby visible heading as a section name."""
+    for value in (anchor_text, *reversed(_html_lines(prefix)[-8:])):
+        candidate = re.sub(r"\s*\[(?:win(?:dows)?(?:\s*\d+)?|win64|mac(?:os)?|os\s*x)\]\s*", " ", value, flags=re.I)
+        candidate = re.sub(r"\s+", " ", candidate).strip(" -:|")
+        if candidate and len(candidate) <= 160 and not _SECTION_NOISE_RE.search(candidate):
+            return candidate
+    return fallback
+
+
+def _section_platform(value: str) -> str:
+    text = _strip_csrin_html(value)
+    return "macOS" if re.search(r"\b(?:macos|mac\s*os|os\s*x|apple\s+silicon)\b", text, re.I) else "Windows"
+
+
+def _content_sharing_sections(content: str, fallback_title: str) -> list[dict]:
+    """Split a Forum 22 megapost only at explicit Steam AppID boundaries.
+
+    A normal release has one Steam link (or none), and remains a single
+    candidate. A multi-game post has at least two distinct AppID anchors; its
+    direct links are then scoped to their own section so one game's mirrors do
+    not leak onto another card.
+    """
+    matches = list(_STEAM_APP_LINK_RE.finditer(content))
+    if len({match.group(2) for match in matches}) < 2:
+        return []
+
+    sections: list[dict] = []
+    for index, match in enumerate(matches):
+        next_start = matches[index + 1].start() if index + 1 < len(matches) else len(content)
+        section_html = content[match.start():next_start]
+        # Platform is normally stated in the game heading immediately before
+        # its Steam link. Do not scan forward here: the next game's macOS
+        # heading belongs to the next section, not this one.
+        platform_text = content[max(0, match.start() - 300):match.end()]
+        sections.append({
+            "html": section_html,
+            "title": _section_title(content[max(0, match.start() - 900):match.start()],
+                                    _strip_csrin_html(match.group(3)), fallback_title),
+            "appid": match.group(2),
+            "platform": _section_platform(platform_text),
+        })
+    return sections
 
 
 def _post_link_for_candidate(thread_link: str, post_id: str) -> str:
@@ -610,6 +692,11 @@ _RELEASE_LABEL_PATTERNS = [
 
 
 def _extract_release_label(text: str) -> str:
+    # Some CSF uploaders abbreviate Steam build IDs as `b24962804`. Normalize
+    # that shorthand so the shared version tracking code receives `Build ...`.
+    shorthand = re.search(r"\bb(\d{4,})\b", text, re.I)
+    if shorthand:
+        return f"Build {shorthand.group(1)}"
     for pat in _RELEASE_LABEL_PATTERNS:
         m = pat.search(text)
         if m:
@@ -703,79 +790,96 @@ def parse_linked_posts(
         # Drop quoted content first so links/text/CSF/version all reflect the
         # poster's own release, not a quoted request or mod/DLC file-share.
         block_html = _strip_quote_blocks(block["html"])
-        links = _extract_download_links(block_html)
-        if not links:
-            continue  # only surface posts with at least one real download link
         # Do not inspect the surrounding author panel or signature. Common
         # signatures explain what CSF means, which used to falsely classify
         # unrelated portable/pre-cracked releases as clean Steam files.
         content = _get_post_content(block_html)
-        text = _strip_csrin_html(content)
-        label = _extract_release_label(text) or content_sharing_label
-        if not label and not content_sharing_updated_at:
-            # A real game release states its build/version/date; a loose file or
-            # mod/DLC share (the kind that slips past the quote filter) does not.
-            # Requiring a release label in the post's own text is a cheap, strong
-            # filter that keeps the feed to actual releases.
-            continue
         author = _extract_author(block["html"])
         reliable = _is_reliable(author)
         untrusted = _is_untrusted(author)
-        link_blob = " ".join((l.get("url", "") + " " + l.get("text", "")) for l in links)
-        csf = bool(trusted_csf_source or content_sharing_updated_at or _CSF_RE.search(text) or _CSF_RE.search(link_blob))
-        if not csf:
-            continue  # The CS.RIN feed is intentionally clean Steam files only.
-        if (
-            _NON_CSF_RELEASE_RE.search(text)
-            or _NON_CSF_RELEASE_RE.search(link_blob)
-            or _ONLINE_FIX_RE.search(text)
-            or _ONLINE_FIX_RE.search(link_blob)
-        ):
-            continue
-        post_link = _post_link_for_candidate(thread_link, block["postId"])
-        if post_link in seen:
-            continue
-        seen.add(post_link)
-
-        # Keep the game name clean (for IGDB/Steam matching + card display); the
-        # version/build label rides along as separate metadata instead of being
-        # jammed into the title. The original poster (thread starter) comes from
-        # the listing row; fall back to this post's author if it wasn't found.
-        clean_title = thread["title"]
-        raw_title = thread.get("rawTitle") or clean_title
+        clean_thread_title = thread["title"]
+        raw_thread_title = thread.get("rawTitle") or clean_thread_title
         if content_sharing_updated_at:
-            raw_title = re.sub(r"\s*\[\d{2}\.\d{2}\.\d{4}\]\s*", " ", raw_title).strip()
-            clean_title = re.sub(r"\s*\[\d{2}\.\d{2}\.\d{4}\]\s*", " ", clean_title).strip()
-        original_poster = thread.get("originalPoster") or author
-        full_title = f"{raw_title} - {label}" if label else raw_title
+            raw_thread_title = re.sub(r"\s*\[\d{2}\.\d{2}\.\d{4}\]\s*", " ", raw_thread_title).strip()
+            clean_thread_title = re.sub(r"\s*\[\d{2}\.\d{2}\.\d{4}\]\s*", " ", clean_thread_title).strip()
 
-        post = _build_csrin_post(thread["threadId"], clean_title, post_link)
-        post.update({
-            "date": posted_at.isoformat() if posted_at else datetime.now(timezone.utc).isoformat(),
-            "downloadLinks": links,
-            "excerpt": text[:360],
-            "id": f"csrin-{thread['threadId']}-{block['postId']}",
-            "description": (
-                f"{len(links)} download link{'' if len(links) == 1 else 's'}"
-                + (f" by {author}" if author else "")
-                + (" (trusted uploader)" if reliable else "")
-                + (" (untrusted uploader)" if untrusted else "")
-                + (" (CSF)" if csf else "")
-                + (f" ({label})" if label else "")
-            ),
-            "csrinPostId": block["postId"],
-            "csrinLinkCount": len(links),
-            "csrinHasReleaseMetadata": bool(label),
-            "csrinAuthor": author,
-            "csrinOriginalPoster": original_poster,
-            "csrinFullTitle": full_title,
-            "csrinReleaseLabel": label,
-            "csrinReliablePoster": reliable,
-            "csrinUntrustedPoster": untrusted,
-            "csrinCsf": csf,
-            "csrinOnlineFix": False,
-        })
-        results.append(post)
+        sections = _content_sharing_sections(content, clean_thread_title) if content_sharing_updated_at else []
+        if not sections:
+            sections = [{
+                "html": content,
+                "title": clean_thread_title,
+                "appid": "",
+                "platform": _section_platform(content) if content_sharing_updated_at else "",
+            }]
+
+        for section in sections:
+            section_html = section["html"]
+            links = _extract_download_links_from_content(section_html)
+            if not links:
+                continue  # only surface posts with at least one real download link
+            text = _strip_csrin_html(section_html)
+            # The Forum 22 bot's build is valid fallback metadata for a regular
+            # single-title opener, never for a multi-title container.
+            label = _extract_release_label(text) or (content_sharing_label if len(sections) == 1 else "")
+            if not label and not content_sharing_updated_at:
+                continue
+            link_blob = " ".join((l.get("url", "") + " " + l.get("text", "")) for l in links)
+            csf = bool(trusted_csf_source or content_sharing_updated_at or _CSF_RE.search(text) or _CSF_RE.search(link_blob))
+            if not csf:
+                continue
+            if (
+                _NON_CSF_RELEASE_RE.search(text)
+                or _NON_CSF_RELEASE_RE.search(link_blob)
+                or _ONLINE_FIX_RE.search(text)
+                or _ONLINE_FIX_RE.search(link_blob)
+            ):
+                continue
+
+            appid = str(section["appid"] or "")
+            post_link = _post_link_for_candidate(thread_link, block["postId"])
+            release_key = f"{thread['threadId']}:{appid}" if appid else str(thread["threadId"])
+            if release_key in seen:
+                continue
+            seen.add(release_key)
+
+            clean_title = str(section["title"] or clean_thread_title)
+            raw_title = clean_title if appid else raw_thread_title
+            original_poster = thread.get("originalPoster") or author
+            full_title = f"{raw_title} - {label}" if label else raw_title
+            platform = str(section["platform"] or "")
+
+            post = _build_csrin_post(thread["threadId"], clean_title, post_link)
+            post.update({
+                "date": posted_at.isoformat() if posted_at else datetime.now(timezone.utc).isoformat(),
+                "downloadLinks": links,
+                "excerpt": text[:360],
+                "id": f"csrin-{thread['threadId']}-{block['postId']}-{appid or 'default'}",
+                "description": (
+                    f"{len(links)} download link{'' if len(links) == 1 else 's'}"
+                    + (f" by {author}" if author else "")
+                    + (" (trusted uploader)" if reliable else "")
+                    + (" (untrusted uploader)" if untrusted else "")
+                    + (" (CSF)" if csf else "")
+                    + (f" ({platform})" if platform else "")
+                    + (f" ({label})" if label else "")
+                ),
+                "csrinPostId": block["postId"],
+                "csrinReleaseKey": release_key,
+                "csrinLinkCount": len(links),
+                "csrinHasReleaseMetadata": bool(label),
+                "csrinAuthor": author,
+                "csrinOriginalPoster": original_poster,
+                "csrinFullTitle": full_title,
+                "csrinReleaseLabel": label,
+                "csrinPlatform": platform or None,
+                "csrinReliablePoster": reliable,
+                "csrinUntrustedPoster": untrusted,
+                "csrinCsf": csf,
+                "csrinOnlineFix": False,
+            })
+            if appid:
+                post["appid"] = appid
+            results.append(post)
     return results
 
 
@@ -1134,7 +1238,7 @@ def _rank(posts: list[dict]) -> list[dict]:
 
 
 def _dedupe_recent_posts(posts: list[dict]) -> list[dict]:
-    """Keep the newest release post for each thread and Online-Fix variant.
+    """Keep the newest release post for each game section and Online-Fix variant.
 
     A thread's last forum page can contain several older release posts. Ranking
     those first lets a trusted older upload outrank a newer update, which makes
@@ -1143,7 +1247,10 @@ def _dedupe_recent_posts(posts: list[dict]) -> list[dict]:
     """
     newest: dict[tuple[str, bool], dict] = {}
     for post in posts:
-        key = (str(post.get("originalId") or ""), bool(post.get("csrinOnlineFix")))
+        key = (
+            str(post.get("csrinReleaseKey") or post.get("originalId") or ""),
+            bool(post.get("csrinOnlineFix")),
+        )
         previous = newest.get(key)
         if previous is None:
             newest[key] = post

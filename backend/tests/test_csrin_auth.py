@@ -4,6 +4,7 @@ Run from backend/: python -m tests.test_csrin_auth
 """
 
 import asyncio
+import os
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
@@ -45,6 +46,30 @@ async def test_repeated_login_redirect_is_not_returned_as_an_empty_page() -> Non
     assert result is None
     assert fetch.await_count == 2
     ensure.assert_awaited_once()
+
+
+async def test_authenticated_login_form_redirect_refreshes_the_session() -> None:
+    before = (
+        csrin._session.cookies,
+        csrin._session.logged_in_at,
+        csrin._session.login_failed_at,
+    )
+    try:
+        csrin._session.cookies = "phpbb3_u=42"
+        csrin._session.logged_in_at = 0
+        csrin._session.login_failed_at = 1
+        with patch.dict(os.environ, {"CSRIN_USERNAME": "test", "CSRIN_PASSWORD": "test"}), patch.object(
+            csrin, "_csrin_fetch", AsyncMock(return_value=_response(302, "./index.php"))
+        ):
+            assert await csrin._perform_login(object())
+        assert csrin._session.logged_in_at > 0
+        assert csrin._session.login_failed_at == 0
+    finally:
+        (
+            csrin._session.cookies,
+            csrin._session.logged_in_at,
+            csrin._session.login_failed_at,
+        ) = before
 
 
 def test_recent_dedupe_keeps_newest_post_per_variant() -> None:
@@ -126,6 +151,18 @@ def test_csf_with_an_online_fix_patch_is_not_clean_files() -> None:
     assert csrin.parse_linked_posts(html, thread) == []
 
 
+def test_csf_build_shorthand_is_normalized_and_admitted() -> None:
+    html = '''
+        <a name="p101"></a>Posted: Today, 00:00<span class="postbody">Little Witch in the Woods
+        b24962804 CSF (27 August 2026)
+        <a href="https://gofile.io/d/example">Gofile</a></span>
+    '''
+    thread = {"threadId": "42", "title": "Little Witch in the Woods", "link": "https://example.test/thread?p=101#p101"}
+    posts = csrin.parse_linked_posts(html, thread)
+    assert len(posts) == 1
+    assert posts[0]["csrinReleaseLabel"] == "Build 24962804"
+
+
 def test_candidates_older_than_one_day_are_rejected() -> None:
     html = '''
         <a name="p101"></a>Posted: Saturday, 04 Jul 2026, 00:57
@@ -189,6 +226,54 @@ def test_content_sharing_uses_the_current_subject_date_and_topic_opener() -> Non
     assert posts[0]["date"].endswith("00:00:00+00:00")
 
 
+def test_content_sharing_splits_explicit_multi_game_sections_without_link_leaks() -> None:
+    today = datetime.now(timezone.utc).strftime("%d.%m.%Y")
+    html = '''
+        <a name="p101"></a>Posted: Today, 00:00
+        <span class="postbody"><b>Northwind [Win64]</b>
+        <a href="https://store.steampowered.com/app/111111/Northwind/">Northwind</a>
+        Build 24960001 <a href="https://gofile.io/d/northwind">Gofile</a><br>
+        <b>Starfall [macOS]</b>
+        <a href="https://store.steampowered.com/app/222222/Starfall/">Starfall</a>
+        Build 24960002 <a href="https://pixeldrain.com/u/starfall">PixelDrain</a></span>
+        <a name="p102"></a>Posted: Today, 00:01
+        <span class="postbody">Uploaded version: Build 24960002</span>
+    '''
+    thread = {
+        "threadId": "42", "forumId": "22", "title": "Clean Steam Files",
+        "rawTitle": f"Clean Steam Files [{today}]", "link": "https://example.test/thread?p=102#p102",
+    }
+    posts = csrin.parse_linked_posts(html, thread)
+    assert len(posts) == 2
+    by_appid = {post["appid"]: post for post in posts}
+    assert by_appid["111111"]["title"] == "Northwind"
+    assert by_appid["111111"]["downloadLinks"][0]["url"] == "https://gofile.io/d/northwind"
+    assert by_appid["111111"]["csrinPlatform"] == "Windows"
+    assert by_appid["222222"]["title"] == "Starfall"
+    assert by_appid["222222"]["downloadLinks"][0]["url"] == "https://pixeldrain.com/u/starfall"
+    assert by_appid["222222"]["csrinPlatform"] == "macOS"
+    assert len(csrin._dedupe_recent_posts(posts)) == 2
+
+
+def test_content_sharing_keeps_a_single_macos_direct_link_release() -> None:
+    today = datetime.now(timezone.utc).strftime("%d.%m.%Y")
+    html = '''
+        <a name="p101"></a>Posted: Today, 00:00
+        <span class="postbody">macOS Build 24960003
+        <a href="https://gofile.io/d/macos">Gofile</a></span>
+        <a name="p102"></a>Posted: Today, 00:01
+        <span class="postbody">Uploaded version: Build 24960003</span>
+    '''
+    thread = {
+        "threadId": "42", "forumId": "22", "title": "Northwind",
+        "rawTitle": f"Northwind [{today}]", "link": "https://example.test/thread?p=102#p102",
+    }
+    posts = csrin.parse_linked_posts(html, thread)
+    assert len(posts) == 1
+    assert posts[0]["csrinPlatform"] == "macOS"
+    assert posts[0]["downloadLinks"][0]["url"] == "https://gofile.io/d/macos"
+
+
 def test_allowlisted_author_posts_are_trusted_csf_candidates() -> None:
     html = '''
         <a name="p101" id="p101"></a>Forum: <a href="./viewforum.php?f=10">Main Forum</a>
@@ -208,17 +293,21 @@ def main() -> None:
     test_login_redirect_detection()
     asyncio.run(test_reauthenticates_and_retries_once())
     asyncio.run(test_repeated_login_redirect_is_not_returned_as_an_empty_page())
+    asyncio.run(test_authenticated_login_form_redirect_refreshes_the_session())
     test_recent_dedupe_keeps_newest_post_per_variant()
     test_forum_listing_uses_explicit_latest_post_link()
     test_recent_candidates_keep_the_newest_linked_release()
     test_csf_in_a_signature_does_not_admit_a_precracked_release()
     test_based_on_csf_with_a_bundled_emulator_is_not_clean_files()
     test_csf_with_an_online_fix_patch_is_not_clean_files()
+    test_csf_build_shorthand_is_normalized_and_admitted()
     test_candidates_older_than_one_day_are_rejected()
     test_relative_forum_post_timestamps_are_recent()
     test_only_titeuf_maintained_link_notices_are_collected()
     test_maintained_link_chain_stays_in_the_same_thread()
     test_content_sharing_uses_the_current_subject_date_and_topic_opener()
+    test_content_sharing_splits_explicit_multi_game_sections_without_link_leaks()
+    test_content_sharing_keeps_a_single_macos_direct_link_release()
     test_allowlisted_author_posts_are_trusted_csf_candidates()
     print("All CS.RIN authentication checks passed.")
 
