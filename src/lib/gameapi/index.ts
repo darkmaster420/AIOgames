@@ -9,7 +9,11 @@
 import './net';
 
 import { filterGamesBySearchQuery } from '../../utils/searchQueryFilter';
-import { fetchSkidrowRecentFromBackend } from '../csrinBackend';
+import {
+  fetchCsrinRecentFromBackend,
+  fetchCsrinSearchFromBackend,
+  fetchSkidrowRecentFromBackend,
+} from '../csrinBackend';
 import {
   SITE_CONFIGS as _SITE_CONFIGS,
   MAX_POSTS_PER_SITE as _MAX_POSTS_PER_SITE,
@@ -21,7 +25,6 @@ import {
   isValidImageUrl,
   fetchOnlineFixRecent,
   fetchOnlineFixSearch,
-  fetchCsrinSearch,
   siteFetch,
 } from './helpers.js';
 
@@ -123,7 +126,7 @@ async function searchSite(siteConfig: SiteConfig, searchQuery: string): Promise<
     }
 
     if (siteConfig.type === 'csrin') {
-      return await fetchCsrinSearch(searchQuery);
+      return await fetchCsrinSearchFromBackend(searchQuery) as unknown as TransformedPost[];
     }
 
     const baseParams = new URLSearchParams({
@@ -422,6 +425,19 @@ export async function getRecentUploadsForSite(
   }
 
   try {
+    // The normal bulk path fetches CS.RIN separately through its Python
+    // backend. Per-site recovery must do the same, otherwise it returns an
+    // empty legacy result and overwrites the cached CS.RIN cards with `[]`.
+    if (siteConfig.type === 'csrin') {
+      const results = await fetchCsrinRecentFromBackend(true);
+      return {
+        success: true,
+        site: siteKey,
+        results: results as unknown as TransformedPost[],
+        count: results.length,
+      };
+    }
+
     const results = await fetchRecentFromSite(siteConfig);
     return { success: true, site: siteKey, results, count: results.length };
   } catch (error) {

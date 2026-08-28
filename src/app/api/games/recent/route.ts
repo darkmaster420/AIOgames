@@ -57,7 +57,19 @@ const CSRIN_ENRICH_TTL_MS = 15 * 60 * 1000;
 let csrinEnrichCache: { key: string; results: Game[]; timestamp: number } | null = null;
 
 function csrinSetKey(posts: Game[]): string {
-  return posts.map(p => String(p.id ?? '')).sort().join('|');
+  // Forum updates often edit an existing post in place. Its phpBB post ID is
+  // stable, but the build label and hoster links change; include those fields
+  // so a forced backend refresh cannot be hidden by this enrichment cache.
+  return posts.map((p) => JSON.stringify({
+    id: String(p.id ?? ''),
+    title: String(p.originalTitle || p.title || ''),
+    releaseLabel: String(p.csrinReleaseLabel || ''),
+    fullTitle: String(p.csrinFullTitle || ''),
+    onlineFix: Boolean(p.csrinOnlineFix),
+    links: Array.isArray(p.downloadLinks)
+      ? p.downloadLinks.map((link) => String(link?.url || '')).sort()
+      : [],
+  })).sort().join('|');
 }
 
 async function enrichCsrinResults(posts: Game[]): Promise<Game[]> {
